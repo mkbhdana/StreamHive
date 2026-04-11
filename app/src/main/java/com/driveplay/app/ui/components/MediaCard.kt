@@ -1,0 +1,312 @@
+package com.driveplay.app.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.driveplay.app.data.db.MediaFileEntity
+import com.driveplay.app.data.db.TmdbMetadataEntity
+import com.driveplay.app.util.FileUtils
+
+@Composable
+fun MediaCard(
+    file: MediaFileEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tmdbMetadata: TmdbMetadataEntity? = null
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column {
+            // Thumbnail area
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(if (tmdbMetadata?.posterPath != null && !file.isFolder) 2f / 3f else 16f / 9f)
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                if (file.isFolder) {
+                    // Folder icon with gradient
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+                } else if (tmdbMetadata?.posterPath != null) {
+                    // TMDB poster
+                    AsyncImage(
+                        model = tmdbMetadata.posterPath,
+                        contentDescription = tmdbMetadata.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Gradient overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.6f)
+                                    ),
+                                    startY = 150f
+                                )
+                            )
+                    )
+
+                    // Rating badge
+                    tmdbMetadata.rating?.let { rating ->
+                        if (rating > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(8.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        when {
+                                            rating >= 7f -> Color(0xFF4CAF50)
+                                            rating >= 5f -> Color(0xFFFF9800)
+                                            else -> Color(0xFFF44336)
+                                        }.copy(alpha = 0.9f)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Star, null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(Modifier.width(2.dp))
+                                    Text(
+                                        text = "%.1f".format(rating),
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Video thumbnail or placeholder
+                    if (file.thumbnailLink != null) {
+                        AsyncImage(
+                            model = file.thumbnailLink,
+                            contentDescription = file.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                            MaterialTheme.colorScheme.surface
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.VideoFile,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Play button overlay for videos
+                if (!file.isFolder) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.3f)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (tmdbMetadata == null) {
+                            Icon(
+                                Icons.Default.PlayCircleFilled,
+                                contentDescription = "Play",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Duration badge
+                if (file.videoDurationMs != null && file.videoDurationMs > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = FileUtils.formatDuration(file.videoDurationMs),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                // Resolution badge
+                if (file.videoWidth != null && file.videoHeight != null) {
+                    val resolution = when {
+                        file.videoHeight >= 2160 -> "4K"
+                        file.videoHeight >= 1080 -> "1080p"
+                        file.videoHeight >= 720 -> "720p"
+                        else -> "${file.videoHeight}p"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = resolution,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // File info
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Text(
+                    text = tmdbMetadata?.title ?: file.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium
+                )
+
+                // TMDB year & type
+                if (tmdbMetadata != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        tmdbMetadata.year?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = if (tmdbMetadata.mediaType == "tv") "TV" else "Movie",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // TMDB overview or file info
+                if (tmdbMetadata?.overview != null) {
+                    Text(
+                        text = tmdbMetadata.overview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!file.isFolder && file.size != null) {
+                            Text(
+                                text = FileUtils.formatFileSize(file.size),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (file.fileExtension != null) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = file.fileExtension.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
