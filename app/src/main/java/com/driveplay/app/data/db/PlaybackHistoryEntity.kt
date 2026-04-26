@@ -11,7 +11,8 @@ data class PlaybackHistoryEntity(
     val lastPosition: Long,    // in milliseconds
     val duration: Long,        // in milliseconds
     val lastPlayedAt: Long,    // System.currentTimeMillis()
-    val posterPath: String? = null
+    val posterPath: String? = null,
+    val thumbnailUrl: String? = null
 ) {
     val progressPercent: Float
         get() = if (duration > 0) (lastPosition.toFloat() / duration.toFloat()) else 0f

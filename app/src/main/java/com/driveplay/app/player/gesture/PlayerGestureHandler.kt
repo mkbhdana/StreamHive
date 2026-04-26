@@ -49,6 +49,11 @@ fun PlayerGestureHandler(
     gestureState: MutableState<GestureState> = remember { mutableStateOf(GestureState()) },
     isLocked: Boolean = false,
     onZoomChange: ((Float) -> Unit)? = null,
+    seekEnabled: Boolean = true,
+    volumeEnabled: Boolean = true,
+    brightnessEnabled: Boolean = true,
+    doubleTapEnabled: Boolean = true,
+    zoomEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -63,6 +68,10 @@ fun PlayerGestureHandler(
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     val dragThreshold = with(density) { 15.dp.toPx() }
+
+    // Use rememberUpdatedState so currentPosition is read inside the gesture
+    // without being part of the pointerInput key (which would restart the coroutine)
+    val updatedPosition by rememberUpdatedState(currentPosition)
 
     // Auto-hide gesture indicators
     var hideJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -97,7 +106,7 @@ fun PlayerGestureHandler(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(duration, currentPosition, screenWidthPx, screenHeightPx) {
+            .pointerInput(duration, screenWidthPx, screenHeightPx) {
                 coroutineScope {
                     awaitEachGesture {
                         val firstDown = awaitFirstDown(requireUnconsumed = false)
@@ -146,7 +155,7 @@ fun PlayerGestureHandler(
                                     // It was a tap — check for double-tap
                                     val upTime = System.currentTimeMillis()
                                     val tapDuration = upTime - downTime
-                                    if (tapDuration < 300) {
+                                    if (tapDuration < 300 && doubleTapEnabled) {
                                         // Try to detect double-tap
                                         val secondDown = withTimeoutOrNull(300) {
                                             awaitFirstDown(requireUnconsumed = false)
@@ -174,7 +183,7 @@ fun PlayerGestureHandler(
 
                             val activePointers = changes.filter { it.pressed }
 
-                            if (activePointers.size >= 2 && !isDragging) {
+                            if (activePointers.size >= 2 && !isDragging && zoomEnabled) {
                                 // Pinch gesture
                                 isPinching = true
                                 val p1 = activePointers[0].position
@@ -225,52 +234,58 @@ fun PlayerGestureHandler(
                                     change.consume()
                                     when (gestureDir) {
                                         GestureDir.HORIZONTAL -> {
-                                            val norm = totalDragX / (screenWidthPx * 0.8f)
-                                            val eased = norm.sign() * abs(norm).pow(1.5f)
-                                            val seekDelta = (eased * duration * 0.5f).toLong()
-                                            val newPos = (currentPosition + seekDelta).coerceIn(0, duration)
-                                            gestureState.value = gestureState.value.copy(
-                                                showSeekIndicator = true,
-                                                showVolumeIndicator = false,
-                                                showBrightnessIndicator = false,
-                                                showZoomIndicator = false,
-                                                seekDeltaSeconds = (seekDelta / 1000).toInt(),
-                                                seekToPosition = newPos
-                                            )
+                                            if (seekEnabled) {
+                                                val norm = totalDragX / (screenWidthPx * 0.8f)
+                                                val eased = norm.sign() * abs(norm).pow(1.5f)
+                                                val seekDelta = (eased * duration * 0.5f).toLong()
+                                                val newPos = (updatedPosition + seekDelta).coerceIn(0, duration)
+                                                gestureState.value = gestureState.value.copy(
+                                                    showSeekIndicator = true,
+                                                    showVolumeIndicator = false,
+                                                    showBrightnessIndicator = false,
+                                                    showZoomIndicator = false,
+                                                    seekDeltaSeconds = (seekDelta / 1000).toInt(),
+                                                    seekToPosition = newPos
+                                                )
+                                            }
                                         }
                                         GestureDir.VERT_RIGHT -> {
-                                            val vDelta = -totalDragY / (screenHeightPx * 0.5f)
-                                            val eased = vDelta.sign() * abs(vDelta).pow(0.8f)
-                                            val newVol = (initialVolume + (eased * maxVolume).toInt())
-                                                .coerceIn(0, maxVolume)
-                                            val pct = newVol.toFloat() / maxVolume
-                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-                                            onVolumeChange(pct)
-                                            gestureState.value = gestureState.value.copy(
-                                                showVolumeIndicator = true,
-                                                showBrightnessIndicator = false,
-                                                showSeekIndicator = false,
-                                                showZoomIndicator = false,
-                                                volumePercent = pct
-                                            )
+                                            if (volumeEnabled) {
+                                                val vDelta = -totalDragY / (screenHeightPx * 0.5f)
+                                                val eased = vDelta.sign() * abs(vDelta).pow(0.8f)
+                                                val newVol = (initialVolume + (eased * maxVolume).toInt())
+                                                    .coerceIn(0, maxVolume)
+                                                val pct = newVol.toFloat() / maxVolume
+                                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                                onVolumeChange(pct)
+                                                gestureState.value = gestureState.value.copy(
+                                                    showVolumeIndicator = true,
+                                                    showBrightnessIndicator = false,
+                                                    showSeekIndicator = false,
+                                                    showZoomIndicator = false,
+                                                    volumePercent = pct
+                                                )
+                                            }
                                         }
                                         GestureDir.VERT_LEFT -> {
-                                            val bDelta = -totalDragY / (screenHeightPx * 0.5f)
-                                            val eased = bDelta.sign() * abs(bDelta).pow(0.8f)
-                                            val newBright = (initialBrightness + eased).coerceIn(0.01f, 1f)
-                                            window?.let { w ->
-                                                val lp = w.attributes
-                                                lp.screenBrightness = newBright
-                                                w.attributes = lp
+                                            if (brightnessEnabled) {
+                                                val bDelta = -totalDragY / (screenHeightPx * 0.5f)
+                                                val eased = bDelta.sign() * abs(bDelta).pow(0.8f)
+                                                val newBright = (initialBrightness + eased).coerceIn(0.01f, 1f)
+                                                window?.let { w ->
+                                                    val lp = w.attributes
+                                                    lp.screenBrightness = newBright
+                                                    w.attributes = lp
+                                                }
+                                                onBrightnessChange(newBright)
+                                                gestureState.value = gestureState.value.copy(
+                                                    showBrightnessIndicator = true,
+                                                    showVolumeIndicator = false,
+                                                    showSeekIndicator = false,
+                                                    showZoomIndicator = false,
+                                                    brightnessPercent = newBright
+                                                )
                                             }
-                                            onBrightnessChange(newBright)
-                                            gestureState.value = gestureState.value.copy(
-                                                showBrightnessIndicator = true,
-                                                showVolumeIndicator = false,
-                                                showSeekIndicator = false,
-                                                showZoomIndicator = false,
-                                                brightnessPercent = newBright
-                                            )
                                         }
                                         null -> {}
                                     }

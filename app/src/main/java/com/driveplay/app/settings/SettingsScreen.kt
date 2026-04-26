@@ -67,6 +67,7 @@ fun SettingsScreen(
                         subtitle = when (state.preferredEngine) {
                             PlayerEngine.EXO_PLAYER -> "ExoPlayer (Media3)"
                             PlayerEngine.MPV -> "MPV Player"
+                            PlayerEngine.EXTERNAL -> "External (Open with)"
                         },
                         expanded = engineExpanded,
                         onToggle = { engineExpanded = !engineExpanded },
@@ -82,6 +83,11 @@ fun SettingsScreen(
                             onClick = { viewModel.setPreferredEngine(PlayerEngine.MPV); engineExpanded = false },
                             leadingIcon = { Icon(Icons.Default.Videocam, null, Modifier.size(20.dp)) },
                             enabled = state.isMpvAvailable
+                        )
+                        DropdownMenuItem(
+                            text = { Text("External (Open with)") },
+                            onClick = { viewModel.setPreferredEngine(PlayerEngine.EXTERNAL); engineExpanded = false },
+                            leadingIcon = { Icon(Icons.Default.OpenInNew, null, Modifier.size(20.dp)) }
                         )
                     }
 
@@ -120,6 +126,21 @@ fun SettingsScreen(
                             DropdownMenuItem(text = { Text(v) }, onClick = { viewModel.setDefaultResizeMode(k); resizeExpanded = false })
                         }
                     }
+                }
+            }
+
+            // ──── Server Settings ────
+            item { SettingsSectionHeader(Icons.Default.Dns, "Server") }
+
+            item {
+                SettingsCard {
+                    SettingsSwitchItem(
+                        "Keep Server Running",
+                        "Keep proxy server active for external players",
+                        Icons.Default.CloudQueue,
+                        state.keepServerRunning,
+                        viewModel::setKeepServerRunning
+                    )
                 }
             }
 
@@ -258,8 +279,10 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
-                    // API Key
+                    // API Key (secured)
                     var apiKeyText by remember { mutableStateOf(state.tmdbApiKey) }
+                    var isKeyVisible by remember { mutableStateOf(false) }
+                    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
@@ -274,9 +297,31 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth().padding(start = 40.dp),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
+                            visualTransformation = if (isKeyVisible)
+                                androidx.compose.ui.text.input.VisualTransformation.None
+                            else
+                                androidx.compose.ui.text.input.PasswordVisualTransformation(),
                             trailingIcon = {
-                                IconButton(onClick = { viewModel.setTmdbApiKey(apiKeyText) }) {
-                                    Icon(Icons.Default.Check, "Save")
+                                Row {
+                                    // Toggle visibility
+                                    IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                        Icon(
+                                            if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            if (isKeyVisible) "Hide" else "Show"
+                                        )
+                                    }
+                                    // Copy to clipboard
+                                    if (apiKeyText.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(apiKeyText))
+                                        }) {
+                                            Icon(Icons.Default.ContentCopy, "Copy")
+                                        }
+                                    }
+                                    // Save
+                                    IconButton(onClick = { viewModel.setTmdbApiKey(apiKeyText) }) {
+                                        Icon(Icons.Default.Check, "Save")
+                                    }
                                 }
                             }
                         )
@@ -292,36 +337,26 @@ fun SettingsScreen(
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
-                    // Folder mappings
-                    TmdbFolderSection(
-                        title = "Movie Folders",
-                        icon = Icons.Default.Movie,
-                        mappedFolderIds = state.tmdbMovieFolders,
+                    // Unified catalog folder management
+                    CatalogFoldersSection(
+                        viewModel = viewModel,
+                        movieFolders = state.tmdbMovieFolders,
+                        tvFolders = state.tmdbTvFolders,
+                        animeFolders = state.tmdbAnimeFolders,
                         allFolders = availableFolders,
-                        onAddFolder = viewModel::addMovieFolder,
-                        onRemoveFolder = viewModel::removeMovieFolder
-                    )
-
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-
-                    TmdbFolderSection(
-                        title = "TV Show Folders",
-                        icon = Icons.Default.Tv,
-                        mappedFolderIds = state.tmdbTvFolders,
-                        allFolders = availableFolders,
-                        onAddFolder = viewModel::addTvFolder,
-                        onRemoveFolder = viewModel::removeTvFolder
-                    )
-
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-
-                    TmdbFolderSection(
-                        title = "Anime Folders",
-                        icon = Icons.Default.Animation,
-                        mappedFolderIds = state.tmdbAnimeFolders,
-                        allFolders = availableFolders,
-                        onAddFolder = viewModel::addAnimeFolder,
-                        onRemoveFolder = viewModel::removeAnimeFolder
+                        onAddFolder = { folderId, type ->
+                            when (type) {
+                                "movie" -> viewModel.addMovieFolder(folderId)
+                                "tv" -> viewModel.addTvFolder(folderId)
+                                "anime_movie" -> viewModel.addAnimeFolder(folderId)
+                                "anime_series" -> viewModel.addAnimeFolder(folderId)
+                            }
+                        },
+                        onRemoveFolder = { folderId ->
+                            viewModel.removeMovieFolder(folderId)
+                            viewModel.removeTvFolder(folderId)
+                            viewModel.removeAnimeFolder(folderId)
+                        }
                     )
                 }
             }
@@ -354,39 +389,63 @@ fun SettingsScreen(
     }
 }
 
-// ──── TMDB Folder Picker Section ────
+// ──── Unified Catalog Folder Management ────
 
 @Composable
-private fun TmdbFolderSection(
-    title: String,
-    icon: ImageVector,
-    mappedFolderIds: Set<String>,
+private fun CatalogFoldersSection(
+    viewModel: SettingsViewModel,
+    movieFolders: Set<String>,
+    tvFolders: Set<String>,
+    animeFolders: Set<String>,
     allFolders: List<MediaFileEntity>,
-    onAddFolder: (String) -> Unit,
-    onRemoveFolder: (String) -> Unit
+    onAddFolder: (folderId: String, type: String) -> Unit,
+    onRemoveFolder: (folderId: String) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
-    val mappedFolders = allFolders.filter { it.id in mappedFolderIds }
+    
+    // Build a unified list of all mapped folders with their type
+    data class MappedFolder(val id: String, val name: String, val type: String)
+    
+    val mappedList = remember(movieFolders, tvFolders, animeFolders, allFolders) {
+        val result = mutableListOf<MappedFolder>()
+        movieFolders.forEach { id ->
+            val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
+            result.add(MappedFolder(id, name, "movie"))
+        }
+        tvFolders.forEach { id ->
+            val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
+            result.add(MappedFolder(id, name, "tv"))
+        }
+        animeFolders.forEach { id ->
+            val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
+            result.add(MappedFolder(id, name, "anime"))
+        }
+        result.distinctBy { it.id }
+    }
 
     Column(Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text("Catalog Folders", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(
-                    if (mappedFolderIds.isEmpty()) "No folders mapped" else "${mappedFolderIds.size} folder(s)",
+                    if (mappedList.isEmpty()) "No folders added" else "${mappedList.size} folder(s)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = { showPicker = true }) {
-                Icon(Icons.Default.Add, "Add folder", tint = MaterialTheme.colorScheme.primary)
+            FilledTonalButton(onClick = { showPicker = true }) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add")
             }
         }
 
-        // Show mapped folders with remove button
-        mappedFolders.forEach { folder ->
+        Spacer(Modifier.height(8.dp))
+
+        // Show mapped folders with type badge and remove button
+        mappedList.forEach { folder ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -401,34 +460,37 @@ private fun TmdbFolderSection(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                IconButton(onClick = { onRemoveFolder(folder.id) }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                // Type badge
+                val (badgeText, badgeColor) = when (folder.type) {
+                    "movie" -> "Movie" to Color(0xFFE91E63)
+                    "tv" -> "Series" to Color(0xFF2196F3)
+                    "anime" -> "Anime" to Color(0xFF9C27B0)
+                    else -> "Other" to Color.Gray
                 }
-            }
-        }
-
-        // Show IDs for mapped folders not in the DB yet
-        (mappedFolderIds - allFolders.map { it.id }.toSet()).forEach { folderId ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(folderId.take(20) + "...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                IconButton(onClick = { onRemoveFolder(folderId) }, modifier = Modifier.size(28.dp)) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(badgeColor.copy(alpha = 0.15f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(badgeText, style = MaterialTheme.typography.labelSmall, color = badgeColor, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = { onRemoveFolder(folder.id) }, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                 }
             }
         }
     }
 
-    // Folder picker dialog
+    // Folder picker with drive browser
     if (showPicker) {
-        FolderPickerDialog(
-            folders = allFolders.filter { it.id !in mappedFolderIds },
-            onSelect = { folderId ->
-                onAddFolder(folderId)
+        val alreadyMapped = (movieFolders + tvFolders + animeFolders)
+        CatalogFolderBrowserDialog(
+            viewModel = viewModel,
+            alreadyMapped = alreadyMapped,
+            onSelect = { folderId, type ->
+                onAddFolder(folderId, type)
                 showPicker = false
             },
             onDismiss = { showPicker = false }
@@ -436,62 +498,183 @@ private fun TmdbFolderSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FolderPickerDialog(
-    folders: List<MediaFileEntity>,
-    onSelect: (String) -> Unit,
+private fun CatalogFolderBrowserDialog(
+    viewModel: SettingsViewModel,
+    alreadyMapped: Set<String>,
+    onSelect: (folderId: String, type: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    val filtered = if (searchQuery.isBlank()) folders
-    else folders.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    val browserState = viewModel.folderBrowserState
+    var selectedFolderId by remember { mutableStateOf<String?>(null) }
+    var selectedType by remember { mutableStateOf("movie") }
+
+    // Init browser when dialog opens
+    LaunchedEffect(Unit) { viewModel.initFolderBrowser() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select Folder") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (browserState.selectedDriveId != null) {
+                    IconButton(
+                        onClick = { viewModel.browserGoBack(); selectedFolderId = null },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowBack, "Back", modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text("Add Catalog Folder", modifier = Modifier.weight(1f))
+            }
+        },
         text = {
             Column {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search folders...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    leadingIcon = { Icon(Icons.Default.Search, null) }
-                )
-                Spacer(Modifier.height(12.dp))
-                if (filtered.isEmpty()) {
+                // Breadcrumb
+                if (browserState.selectedDriveId != null) {
+                    val driveName = browserState.drives.find { it.id == browserState.selectedDriveId }?.name ?: "Drive"
+                    val pathParts = listOf(driveName) + browserState.folderStack.map { it.second }
                     Text(
-                        if (folders.isEmpty()) "No folders cached. Browse some folders in the Folders tab first."
-                        else "No matching folders",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
+                        pathParts.joinToString(" › "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 300.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                }
+
+                // Type selector
+                Text("Content Type:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = selectedType == "movie",
+                            onClick = { selectedType = "movie" },
+                            label = { Text("Movies", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = selectedType == "tv",
+                            onClick = { selectedType = "tv" },
+                            label = { Text("Series", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = selectedType == "anime_movie",
+                            onClick = { selectedType = "anime_movie" },
+                            label = { Text("Anime Movies", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = selectedType == "anime_series",
+                            onClick = { selectedType = "anime_series" },
+                            label = { Text("Anime Series", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                // Loading
+                if (browserState.isLoading) {
+                    Box(
+                        Modifier.fillMaxWidth().height(200.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        items(filtered, key = { it.id }) { folder ->
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    }
+                } else if (browserState.selectedDriveId == null) {
+                    // Drive list
+                    Text("Select a drive:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                        items(browserState.drives) { drive ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onSelect(folder.id) }
+                                    .clickable { viewModel.browserSelectDrive(drive.id) }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(12.dp))
-                                Text(folder.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Default.CloudQueue, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(drive.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             }
                         }
+                    }
+                    if (browserState.drives.isEmpty()) {
+                        Text("No drives found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+                    }
+                } else {
+                    // Folder list inside selected drive
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                        items(browserState.currentFolders) { folder ->
+                            val isMapped = folder.id in alreadyMapped
+                            val isSelected = selectedFolderId == folder.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                        else Color.Transparent
+                                    )
+                                    .clickable {
+                                        if (!isMapped) selectedFolderId = folder.id
+                                    }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder, null,
+                                    tint = if (isMapped) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    else if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    folder.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isMapped) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isMapped) {
+                                    Text("Added", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                } else {
+                                    // Navigate into folder button
+                                    IconButton(
+                                        onClick = { viewModel.browserOpenFolder(folder.id, folder.name); selectedFolderId = null },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ChevronRight, "Open", modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (browserState.currentFolders.isEmpty()) {
+                        Text("No subfolders", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                     }
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            Button(
+                onClick = {
+                    selectedFolderId?.let { onSelect(it, selectedType) }
+                },
+                enabled = selectedFolderId != null
+            ) {
+                Text("Add Folder")
+            }
+        },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }

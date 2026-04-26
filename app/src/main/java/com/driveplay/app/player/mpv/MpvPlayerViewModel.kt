@@ -27,6 +27,7 @@ class MpvPlayerViewModel @Inject constructor(
     private val driveRepository: DriveRepository,
     private val appPreferences: AppPreferences,
     private val playbackHistoryDao: PlaybackHistoryDao,
+    private val streamProxyServer: com.driveplay.app.player.proxy.StreamProxyServer,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -45,6 +46,11 @@ class MpvPlayerViewModel @Inject constructor(
 
     val mpvPlayer = MpvPlayer(context)
 
+    // Resume playback support
+    private var pendingSeekMs: Long = 0L
+    private var hasResumed: Boolean = false
+    private var positionSaveJob: kotlinx.coroutines.Job? = null
+
     init {
         setupPlayer()
     }
@@ -61,6 +67,13 @@ class MpvPlayerViewModel @Inject constructor(
 
                     override fun onPlaybackStateChanged(isPlaying: Boolean) {
                         _uiState.update { it.copy(isPlaying = isPlaying) }
+                        if (isPlaying) {
+                            savePlaybackPosition()
+                            startPeriodicPositionSave()
+                        } else {
+                            positionSaveJob?.cancel()
+                            savePlaybackPosition()
+                        }
                     }
 
                     override fun onDurationChanged(durationMs: Long) {
@@ -69,6 +82,12 @@ class MpvPlayerViewModel @Inject constructor(
 
                     override fun onPositionChanged(positionMs: Long) {
                         _uiState.update { it.copy(currentPosition = positionMs) }
+                        // Resume to saved position once we get a valid position (file loaded)
+                        if (!hasResumed && pendingSeekMs > 0 && positionMs >= 0) {
+                            mpvPlayer.seekTo(pendingSeekMs)
+                            hasResumed = true
+                            pendingSeekMs = 0L
+                        }
                     }
 
                     override fun onError(message: String) {
@@ -86,21 +105,15 @@ class MpvPlayerViewModel @Inject constructor(
                     }
                 })
 
-                val token = driveRepository.getValidToken()
-                    ?: throw Exception("Not authenticated")
-
                 val history = playbackHistoryDao.getByFileId(fileId)
                 val startPosMs = if (history != null && !history.isCompleted && history.lastPosition > 0) history.lastPosition else 0L
-
-                val streamUrl = driveRepository.getStreamUrl(fileId)
-                val headers = mapOf("Authorization" to "Bearer $token")
-
-                mpvPlayer.loadFile(streamUrl, headers)
                 if (startPosMs > 0) {
-                    // Try to seek immediately. In MPV, setting "time-pos" might be needed instead of "seek" command if loading async,
-                    // but the command queue usually caches it.
-                    mpvPlayer.seekTo(startPosMs)
+                    pendingSeekMs = startPosMs
                 }
+
+                // Use proxy URL — no auth headers needed
+                val streamUrl = streamProxyServer.getStreamUrl(fileId)
+                mpvPlayer.loadFile(streamUrl)
                 mpvPlayer.play()
 
                 _uiState.update { it.copy(isLoading = false) }
@@ -184,6 +197,8 @@ class MpvPlayerViewModel @Inject constructor(
         _uiState.update { it.copy(showControls = false) }
     }
 
+    fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(fileId)
+
     fun toggleLock() {
         _uiState.update { it.copy(isLocked = !it.isLocked) }
     }
@@ -223,8 +238,19 @@ class MpvPlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        positionSaveJob?.cancel()
         savePlaybackPosition()
         mpvPlayer.destroy()
+    }
+
+    private fun startPeriodicPositionSave() {
+        positionSaveJob?.cancel()
+        positionSaveJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(15_000)
+                savePlaybackPosition()
+            }
+        }
     }
 
     private fun savePlaybackPosition() {

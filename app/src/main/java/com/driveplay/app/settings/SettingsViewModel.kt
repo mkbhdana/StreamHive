@@ -11,7 +11,9 @@ import com.driveplay.app.player.mpv.PlayerEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -20,6 +22,7 @@ data class SettingsUiState(
     val defaultDecoder: String = "hw+",
     val defaultResizeMode: String = "fit",
     val isMpvAvailable: Boolean = false,
+    val keepServerRunning: Boolean = true,
 
     // Gestures
     val gestureVolumeEnabled: Boolean = true,
@@ -46,7 +49,8 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferences,
-    private val driveRepository: DriveRepository
+    private val driveRepository: DriveRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
     var uiState by mutableStateOf(loadState())
@@ -62,6 +66,7 @@ class SettingsViewModel @Inject constructor(
         defaultDecoder = prefs.defaultDecoder,
         defaultResizeMode = prefs.defaultResizeMode,
         isMpvAvailable = prefs.isMpvAvailable(),
+        keepServerRunning = prefs.keepServerRunning,
         gestureVolumeEnabled = prefs.gestureVolumeEnabled,
         gestureBrightnessEnabled = prefs.gestureBrightnessEnabled,
         gestureSeekEnabled = prefs.gestureSeekEnabled,
@@ -94,6 +99,16 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultResizeMode(mode: String) {
         prefs.defaultResizeMode = mode
         uiState = uiState.copy(defaultResizeMode = mode)
+    }
+
+    fun setKeepServerRunning(enabled: Boolean) {
+        prefs.keepServerRunning = enabled
+        uiState = uiState.copy(keepServerRunning = enabled)
+        if (enabled) {
+            com.driveplay.app.player.proxy.StreamProxyService.start(context)
+        } else {
+            com.driveplay.app.player.proxy.StreamProxyService.stop(context)
+        }
     }
 
     // ──── Gestures ────
@@ -196,5 +211,112 @@ class SettingsViewModel @Inject constructor(
         val updated = prefs.tmdbAnimeFolders - folderId
         prefs.tmdbAnimeFolders = updated
         uiState = uiState.copy(tmdbAnimeFolders = updated)
+    }
+
+    // ──── Folder Browser (for catalog picker) ────
+
+    data class FolderBrowserState(
+        val drives: List<com.driveplay.app.data.model.SharedDrive> = emptyList(),
+        val selectedDriveId: String? = null,
+        val currentFolders: List<MediaFileEntity> = emptyList(),
+        val folderStack: List<Pair<String, String>> = emptyList(), // id to name
+        val isLoading: Boolean = false
+    )
+
+    var folderBrowserState by mutableStateOf(FolderBrowserState())
+        private set
+
+    fun initFolderBrowser() {
+        folderBrowserState = FolderBrowserState(isLoading = true)
+        viewModelScope.launch {
+            val drivesResult = driveRepository.listSharedDrives()
+            drivesResult.onSuccess { drives ->
+                folderBrowserState = folderBrowserState.copy(
+                    drives = drives,
+                    isLoading = false
+                )
+            }.onFailure {
+                folderBrowserState = folderBrowserState.copy(isLoading = false)
+            }
+        }
+    }
+
+    fun browserSelectDrive(driveId: String) {
+        folderBrowserState = folderBrowserState.copy(
+            selectedDriveId = driveId,
+            folderStack = emptyList(),
+            isLoading = true,
+            currentFolders = emptyList()
+        )
+        viewModelScope.launch {
+            val result = driveRepository.listFilesInDrive(driveId, driveId)
+            result.onSuccess {
+                val cached = driveRepository.getCachedFiles(driveId, driveId).first()
+                folderBrowserState = folderBrowserState.copy(
+                    currentFolders = cached.filter { it.isFolder },
+                    isLoading = false
+                )
+            }.onFailure {
+                folderBrowserState = folderBrowserState.copy(isLoading = false)
+            }
+        }
+    }
+
+    fun browserOpenFolder(folderId: String, folderName: String) {
+        val driveId = folderBrowserState.selectedDriveId ?: return
+        folderBrowserState = folderBrowserState.copy(
+            folderStack = folderBrowserState.folderStack + (folderId to folderName),
+            isLoading = true,
+            currentFolders = emptyList()
+        )
+        viewModelScope.launch {
+            val result = driveRepository.listFilesInDrive(driveId, folderId)
+            result.onSuccess {
+                val cached = driveRepository.getCachedFiles(driveId, folderId).first()
+                folderBrowserState = folderBrowserState.copy(
+                    currentFolders = cached.filter { it.isFolder },
+                    isLoading = false
+                )
+            }.onFailure {
+                folderBrowserState = folderBrowserState.copy(isLoading = false)
+            }
+        }
+    }
+
+    fun browserGoBack() {
+        val stack = folderBrowserState.folderStack
+        if (stack.isEmpty()) {
+            // Go back to drive list
+            folderBrowserState = folderBrowserState.copy(
+                selectedDriveId = null,
+                currentFolders = emptyList()
+            )
+            return
+        }
+        val newStack = stack.dropLast(1)
+        val driveId = folderBrowserState.selectedDriveId ?: return
+        val parentId = newStack.lastOrNull()?.first ?: driveId
+        folderBrowserState = folderBrowserState.copy(
+            folderStack = newStack,
+            isLoading = true,
+            currentFolders = emptyList()
+        )
+        viewModelScope.launch {
+            val result = driveRepository.listFilesInDrive(driveId, parentId)
+            result.onSuccess {
+                val cached = driveRepository.getCachedFiles(driveId, parentId).first()
+                folderBrowserState = folderBrowserState.copy(
+                    currentFolders = cached.filter { it.isFolder },
+                    isLoading = false
+                )
+            }.onFailure {
+                folderBrowserState = folderBrowserState.copy(isLoading = false)
+            }
+        }
+    }
+
+    /** Returns the current folder ID (for adding as catalog folder) */
+    fun browserCurrentFolderId(): String? {
+        return folderBrowserState.folderStack.lastOrNull()?.first
     }
 }

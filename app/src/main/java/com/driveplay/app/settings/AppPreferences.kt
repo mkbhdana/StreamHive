@@ -46,6 +46,10 @@ class AppPreferences @Inject constructor(
         get() = prefs.getString(KEY_RESIZE_MODE, "fit") ?: "fit"
         set(value) = prefs.edit().putString(KEY_RESIZE_MODE, value).apply()
 
+    var keepServerRunning: Boolean
+        get() = prefs.getBoolean(KEY_KEEP_SERVER_RUNNING, true)
+        set(value) = prefs.edit().putBoolean(KEY_KEEP_SERVER_RUNNING, value).apply()
+
     // ──── Gesture Settings ────
 
     var gestureVolumeEnabled: Boolean
@@ -118,9 +122,9 @@ class AppPreferences @Inject constructor(
 
     fun isMpvAvailable(): Boolean {
         return try {
-            System.loadLibrary("mpv")
+            Class.forName("is.xyz.mpv.MPVLib")
             true
-        } catch (_: UnsatisfiedLinkError) {
+        } catch (_: ClassNotFoundException) {
             false
         }
     }
@@ -133,6 +137,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_ENGINE = "player_engine"
         private const val KEY_DECODER = "default_decoder"
         private const val KEY_RESIZE_MODE = "default_resize_mode"
+        private const val KEY_KEEP_SERVER_RUNNING = "keep_server_running"
 
         // Gestures
         private const val KEY_GESTURE_VOLUME = "gesture_volume_enabled"

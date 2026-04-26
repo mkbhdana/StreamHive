@@ -47,4 +47,20 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("language") language: String = "en-US"
     ): TmdbTvShow
+
+    @GET("3/tv/{tv_id}/season/{season_number}")
+    suspend fun getTvSeasonDetails(
+        @Path("tv_id") tvId: Int,
+        @Path("season_number") seasonNumber: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "en-US"
+    ): TmdbSeasonResponse
+
+    @GET("3/find/{external_id}")
+    suspend fun findByExternalId(
+        @Path("external_id") externalId: String,
+        @Query("api_key") apiKey: String,
+        @Query("external_source") externalSource: String = "imdb_id",
+        @Query("language") language: String = "en-US"
+    ): TmdbFindResponse
 }

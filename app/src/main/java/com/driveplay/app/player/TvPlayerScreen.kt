@@ -25,6 +25,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.driveplay.app.ui.theme.*
 import com.driveplay.app.util.FileUtils
+import com.driveplay.app.player.ui.TrackSelectionSheet
+import com.driveplay.app.player.ui.ChapterListSheet
 import kotlinx.coroutines.delay
 
 @UnstableApi
@@ -35,6 +37,8 @@ fun TvPlayerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
+    var showTrackSheet by remember { mutableStateOf(false) }
+    var showChapterSheet by remember { mutableStateOf(false) }
 
     // Auto-hide controls
     LaunchedEffect(uiState.showControls, uiState.isPlaying) {
@@ -112,6 +116,15 @@ fun TvPlayerScreen(
                         }
                         Key.MediaRewind -> {
                             viewModel.seekBackward(30_000)
+                            true
+                        }
+                        Key.Menu -> {
+                            // Menu key opens track/chapter selection
+                            if (uiState.chapters.isNotEmpty()) {
+                                showChapterSheet = true
+                            } else {
+                                showTrackSheet = true
+                            }
                             true
                         }
                         else -> false
@@ -270,5 +283,35 @@ fun TvPlayerScreen(
                 }
             }
         }
+    }
+
+    // Track selection sheet (triggered by Menu key)
+    if (showTrackSheet) {
+        TrackSelectionSheet(
+            title = "Audio & Subtitles",
+            tracks = uiState.audioTracks + uiState.subtitleTracks,
+            onSelect = { index ->
+                if (index < uiState.audioTracks.size) {
+                    viewModel.selectAudioTrack(index)
+                } else {
+                    viewModel.selectSubtitleTrack(index - uiState.audioTracks.size)
+                }
+                showTrackSheet = false
+            },
+            onDismiss = { showTrackSheet = false }
+        )
+    }
+
+    // Chapter list sheet (triggered by Menu key when chapters available)
+    if (showChapterSheet && uiState.chapters.isNotEmpty()) {
+        ChapterListSheet(
+            chapters = uiState.chapters,
+            currentPosition = uiState.currentPosition,
+            onChapterSelect = { index ->
+                viewModel.seekToChapter(index)
+                showChapterSheet = false
+            },
+            onDismiss = { showChapterSheet = false }
+        )
     }
 }

@@ -30,6 +30,8 @@ fun CatalogScreen(
     onPlayFile: (fileId: String, fileName: String, engine: PlayerEngine) -> Unit,
     onLogout: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToInfo: (driveFileId: String, mediaType: String) -> Unit = { _, _ -> },
+    onNavigateToSeeAll: (category: String) -> Unit = {},
     viewModel: CatalogViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -39,8 +41,14 @@ fun CatalogScreen(
     // Load home content when Home tab is selected
     LaunchedEffect(selectedTab) {
         if (selectedTab == 0) {
+            viewModel.refreshPreferences()
             viewModel.loadHomeContent()
         }
+    }
+
+    // Re-read prefs every time screen recomposes (e.g. returning from Settings)
+    LaunchedEffect(Unit) {
+        viewModel.refreshPreferences()
     }
 
     BackHandler(enabled = uiState.folderStack.isNotEmpty() && selectedTab == 1) {
@@ -179,7 +187,13 @@ fun CatalogScreen(
                 SearchResultsView(
                     uiState = uiState,
                     viewModel = viewModel,
-                    onPlayFile = onPlayFile
+                    onPlayFile = onPlayFile,
+                    onFolderNavigate = { folder ->
+                        showSearch = false
+                        viewModel.updateSearchQuery("")
+                        selectedTab = 1 // Switch to Folders tab
+                        viewModel.openFolder(folder.id, folder.name)
+                    }
                 )
                 return@Column
             }
@@ -189,7 +203,11 @@ fun CatalogScreen(
                 0 -> HomeTab(
                     state = uiState,
                     onPlayFile = onPlayFile,
-                    onNavigateToSettings = onNavigateToSettings
+                    onNavigateToSettings = onNavigateToSettings,
+                    onClearHistory = viewModel::clearPlaybackHistory,
+                    onNavigateToInfo = onNavigateToInfo,
+                    onRemoveFromContinue = viewModel::removeFromHistory,
+                    onNavigateToSeeAll = onNavigateToSeeAll
                 )
                 1 -> FoldersTab(
                     uiState = uiState,
@@ -209,11 +227,14 @@ private fun FoldersTab(
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Drive selector
-        if (uiState.sharedDrives.isNotEmpty()) {
+        if (uiState.sharedDrives.isNotEmpty() || uiState.driveSections.isNotEmpty()) {
             DriveSelector(
                 drives = uiState.sharedDrives,
                 selectedDrive = uiState.selectedDrive,
                 onDriveSelected = { viewModel.selectDrive(it) },
+                sections = uiState.driveSections,
+                selectedSection = uiState.selectedSection,
+                onSectionSelected = { viewModel.selectSection(it) },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
@@ -254,6 +275,7 @@ private fun FoldersTab(
                             when (uiState.selectedEngine) {
                                 PlayerEngine.EXO_PLAYER -> "ExoPlayer"
                                 PlayerEngine.MPV -> "MPV"
+                                PlayerEngine.EXTERNAL -> "External"
                             },
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -307,7 +329,7 @@ private fun FoldersTab(
                         items(uiState.files, key = { it.id }) { file ->
                             MediaCard(
                                 file = file,
-                                tmdbMetadata = uiState.tmdbMetadata[file.id],
+                                tmdbMetadata = null, // No TMDB in folder view
                                 onClick = {
                                     if (file.isFolder) {
                                         viewModel.openFolder(file.id, file.name)
@@ -328,7 +350,8 @@ private fun FoldersTab(
 private fun SearchResultsView(
     uiState: CatalogUiState,
     viewModel: CatalogViewModel,
-    onPlayFile: (String, String, PlayerEngine) -> Unit
+    onPlayFile: (String, String, PlayerEngine) -> Unit,
+    onFolderNavigate: (com.driveplay.app.data.db.MediaFileEntity) -> Unit = {}
 ) {
     if (uiState.files.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -369,7 +392,9 @@ private fun SearchResultsView(
                     SearchResultItem(
                         file = file,
                         onClick = {
-                            if (!file.isFolder) {
+                            if (file.isFolder) {
+                                onFolderNavigate(file)
+                            } else {
                                 onPlayFile(file.id, file.name, uiState.selectedEngine)
                             }
                         }
@@ -390,7 +415,9 @@ private fun SearchResultsView(
                     file = file,
                     tmdbMetadata = uiState.tmdbMetadata[file.id],
                     onClick = {
-                        if (!file.isFolder) {
+                        if (file.isFolder) {
+                            onFolderNavigate(file)
+                        } else {
                             onPlayFile(file.id, file.name, uiState.selectedEngine)
                         }
                     }

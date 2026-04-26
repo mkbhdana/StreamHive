@@ -57,7 +57,8 @@ data class TmdbTvShow(
     @SerializedName("first_air_date") val firstAirDate: String? = null,
     @SerializedName("genre_ids") val genreIds: List<Int> = emptyList(),
     val popularity: Float? = null,
-    @SerializedName("original_language") val originalLanguage: String? = null
+    @SerializedName("original_language") val originalLanguage: String? = null,
+    @SerializedName("number_of_seasons") val numberOfSeasons: Int? = null
 ) {
     val year: String?
         get() = firstAirDate?.take(4)
@@ -67,6 +68,34 @@ data class TmdbTvShow(
 
     val fullBackdropUrl: String?
         get() = backdropPath?.let { "${IMAGE_BASE_URL}w780$it" }
+}
+
+// ──── Season / Episode ────
+
+data class TmdbSeasonResponse(
+    val id: Int,
+    val name: String? = null,
+    val overview: String? = null,
+    @SerializedName("season_number") val seasonNumber: Int = 0,
+    @SerializedName("poster_path") val posterPath: String? = null,
+    val episodes: List<TmdbEpisode> = emptyList()
+) {
+    val fullPosterUrl: String?
+        get() = posterPath?.let { "${IMAGE_BASE_URL}w500$it" }
+}
+
+data class TmdbEpisode(
+    val id: Int,
+    @SerializedName("episode_number") val episodeNumber: Int = 0,
+    @SerializedName("season_number") val seasonNumber: Int = 0,
+    val name: String? = null,
+    val overview: String? = null,
+    @SerializedName("still_path") val stillPath: String? = null,
+    val runtime: Int? = null,
+    @SerializedName("vote_average") val voteAverage: Float? = null
+) {
+    val fullStillUrl: String?
+        get() = stillPath?.let { "${IMAGE_BASE_URL}w300$it" }
 }
 
 // ──── Multi Search ────
@@ -96,7 +125,16 @@ data class TmdbMultiResult(
         get() = backdropPath?.let { "${IMAGE_BASE_URL}w780$it" }
 }
 
+
+// ──── Find Response (for IMDB ID lookup) ────
+
+data class TmdbFindResponse(
+    @SerializedName("movie_results") val movieResults: List<TmdbMovie> = emptyList(),
+    @SerializedName("tv_results") val tvResults: List<TmdbTvShow> = emptyList()
+)
+
 // ──── Constants ────
 
 const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/"
 const val TMDB_BASE_URL = "https://api.themoviedb.org/"
+

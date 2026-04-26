@@ -120,6 +120,9 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
+    // Splash Screen
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
     // Coroutines
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
@@ -129,6 +132,9 @@ dependencies {
 
     // MPV Player (community artifact by abdallahmehiz)
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+
+    // NanoHTTPD (local proxy server for secured streaming)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     // FFmpeg Decoder Extension (optional - build from source)
     // Place the built AAR in app/libs/ and uncomment:

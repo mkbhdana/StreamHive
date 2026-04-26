@@ -44,6 +44,7 @@ fun PlayerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val gestureState = remember { mutableStateOf(GestureState()) }
+    var controlsInteractionActive by remember { mutableStateOf(false) }
 
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -84,10 +85,10 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls
-    LaunchedEffect(uiState.showControls, uiState.isPlaying) {
-        if (uiState.showControls && uiState.isPlaying && !uiState.isLocked) {
-            delay(4000)
+    // Auto-hide controls (paused while a panel is open)
+    LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
+        if (uiState.showControls && uiState.isPlaying && !uiState.isLocked && !controlsInteractionActive) {
+            delay(8000)
             viewModel.hideControls()
         }
     }
@@ -137,18 +138,46 @@ fun PlayerScreen(
             onVolumeChange = { },
             onBrightnessChange = { },
             gestureState = gestureState,
-            isLocked = uiState.isLocked
+            isLocked = uiState.isLocked,
+            seekEnabled = uiState.gestureSeekEnabled,
+            volumeEnabled = uiState.gestureVolumeEnabled,
+            brightnessEnabled = uiState.gestureBrightnessEnabled,
+            doubleTapEnabled = uiState.gestureDoubleTapEnabled,
+            zoomEnabled = uiState.gestureZoomEnabled
         ) {
             GestureIndicatorOverlay(gestureState = gestureState.value)
         }
 
-        // Loading
+        // Loading overlay — shown until video content actually loads
         if (uiState.isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = MaterialTheme.colorScheme.primary,
-                strokeWidth = 3.dp
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 4.dp,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Text(
+                        text = "Loading...",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = uiState.fileName,
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1
+                    )
+                }
+            }
         }
 
         // Error
@@ -196,6 +225,7 @@ fun PlayerScreen(
                 subtitleDelay = uiState.subtitleDelay,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
+                chapters = uiState.chapters,
                 onBack = onBack,
                 onPlayPause = viewModel::togglePlayPause,
                 onSeekForward = viewModel::seekForward,
@@ -207,7 +237,21 @@ fun PlayerScreen(
                 onSubtitleTrackSelect = viewModel::selectSubtitleTrack,
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
-                onLoadExternalSubtitle = { subtitlePicker.launch("*/*") }
+                onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
+                onChapterNext = viewModel::seekToNextChapter,
+                onChapterPrevious = viewModel::seekToPreviousChapter,
+                onChapterSelect = viewModel::seekToChapter,
+                onOpenExternal = {
+                    viewModel.getProxyUrl()?.let { url ->
+                        // Pause in-app player before launching external
+                        viewModel.player?.pause()
+                        ExternalPlayerLauncher.launch(context, url, uiState.fileName)
+                        // Navigate back so player screen closes
+                        onBack()
+                    }
+                },
+                onPanelOpened = { controlsInteractionActive = true },
+                onPanelClosed = { controlsInteractionActive = false }
             )
         }
     }

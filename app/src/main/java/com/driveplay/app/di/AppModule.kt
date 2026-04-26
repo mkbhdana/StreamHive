@@ -1,12 +1,14 @@
 package com.driveplay.app.di
 
 import android.content.Context
+import com.driveplay.app.auth.AuthRepository
 import com.driveplay.app.data.db.AppDatabase
 import com.driveplay.app.data.db.MediaFileDao
 import com.driveplay.app.data.db.PlaybackHistoryDao
 import com.driveplay.app.data.db.TmdbMetadataDao
 import com.driveplay.app.data.tmdb.TmdbApiService
 import com.driveplay.app.data.tmdb.TMDB_BASE_URL
+import com.driveplay.app.player.proxy.StreamProxyServer
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -73,5 +75,21 @@ object AppModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(TmdbApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideStreamProxyServer(
+        authRepository: AuthRepository,
+        okHttpClient: OkHttpClient
+    ): StreamProxyServer {
+        return StreamProxyServer(authRepository, okHttpClient).also { server ->
+            try {
+                server.start()
+                android.util.Log.d("StreamProxyServer", "Started on port ${server.listeningPort}")
+            } catch (e: Exception) {
+                android.util.Log.e("StreamProxyServer", "Failed to start proxy", e)
+            }
+        }
     }
 }

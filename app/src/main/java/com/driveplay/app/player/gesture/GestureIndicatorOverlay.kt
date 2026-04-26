@@ -28,14 +28,14 @@ fun GestureIndicatorOverlay(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // Volume indicator — right side
+        // Volume indicator — left side (swipe is on right, indicator on opposite)
         AnimatedVisibility(
             visible = gestureState.showVolumeIndicator,
             enter = fadeIn(tween(150)) + scaleIn(tween(150)),
             exit = fadeOut(tween(300)) + scaleOut(tween(300)),
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 48.dp)
+                .align(Alignment.CenterStart)
+                .padding(start = 48.dp)
         ) {
             VerticalIndicator(
                 icon = if (gestureState.volumePercent > 0.5f) Icons.Default.VolumeUp
@@ -47,14 +47,14 @@ fun GestureIndicatorOverlay(
             )
         }
 
-        // Brightness indicator — left side
+        // Brightness indicator — right side (swipe is on left, indicator on opposite)
         AnimatedVisibility(
             visible = gestureState.showBrightnessIndicator,
             enter = fadeIn(tween(150)) + scaleIn(tween(150)),
             exit = fadeOut(tween(300)) + scaleOut(tween(300)),
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 48.dp)
+                .align(Alignment.CenterEnd)
+                .padding(end = 48.dp)
         ) {
             VerticalIndicator(
                 icon = if (gestureState.brightnessPercent > 0.5f) Icons.Default.LightMode
@@ -65,11 +65,14 @@ fun GestureIndicatorOverlay(
             )
         }
 
-        // Seek indicator — center
+        // Seek indicator — above center play button
         AnimatedVisibility(
             visible = gestureState.showSeekIndicator,
             enter = fadeIn(tween(100)) + scaleIn(tween(150)),
-            exit = fadeOut(tween(250)) + scaleOut(tween(250))
+            exit = fadeOut(tween(250)) + scaleOut(tween(250)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-100).dp)
         ) {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -182,9 +185,9 @@ private fun VerticalIndicator(
             // Vertical progress bar
             Box(
                 modifier = Modifier
-                    .width(6.dp)
-                    .height(120.dp)
-                    .clip(RoundedCornerShape(3.dp))
+                    .width(10.dp)
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(5.dp))
                     .background(Color.White.copy(alpha = 0.2f))
             ) {
                 Box(
@@ -192,7 +195,7 @@ private fun VerticalIndicator(
                         .fillMaxWidth()
                         .fillMaxHeight(animatedPercent)
                         .align(Alignment.BottomCenter)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(RoundedCornerShape(5.dp))
                         .background(color)
                 )
             }

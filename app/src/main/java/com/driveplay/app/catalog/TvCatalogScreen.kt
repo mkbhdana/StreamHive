@@ -77,7 +77,7 @@ fun TvCatalogScreen(
                     )
 
                     // Drive name
-                    if (uiState.selectedDrive != null) {
+                    uiState.selectedDrive?.let { drive ->
                         Spacer(modifier = Modifier.width(24.dp))
                         Text(
                             text = "›",
@@ -86,7 +86,7 @@ fun TvCatalogScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = uiState.selectedDrive!!.name,
+                            text = drive.name,
                             style = MaterialTheme.typography.titleLarge,
                             color = AccentCyan
                         )

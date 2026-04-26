@@ -28,6 +28,12 @@ class MpvPlayer(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var mpvLibClass: Class<*>? = null
 
+    // Pending file load: queued if loadFile() is called before surface is ready
+    private var pendingFileUrl: String? = null
+    private var pendingFileHeaders: Map<String, String> = emptyMap()
+
+    var onSurfaceReady: (() -> Unit)? = null
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -92,6 +98,9 @@ class MpvPlayer(private val context: Context) {
             observeProperty("eof-reached", 3)
             observeProperty("track-list/count", 4)
 
+            // Register EventObserver via reflection + dynamic Proxy
+            registerEventObserver(cls)
+
             isInitialized = true
             Log.d(TAG, "MPV initialized successfully")
         } catch (e: ClassNotFoundException) {
@@ -100,6 +109,57 @@ class MpvPlayer(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MPV", e)
             eventListener?.onError("Failed to initialize MPV: ${e.message}")
+        }
+    }
+
+    /**
+     * Dynamically implements MPVLib.EventObserver and registers it via addObserver().
+     * This routes native callbacks to our onPropertyChanged() method.
+     */
+    private fun registerEventObserver(cls: Class<*>) {
+        try {
+            // Find the inner EventObserver interface
+            val observerInterface = cls.declaredClasses.firstOrNull { it.simpleName == "EventObserver" }
+            if (observerInterface == null) {
+                Log.w(TAG, "EventObserver interface not found in MPVLib")
+                return
+            }
+
+            // Create a dynamic proxy that routes all calls to onPropertyChanged
+            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                observerInterface.classLoader,
+                arrayOf(observerInterface)
+            ) { _, method, args ->
+                when (method.name) {
+                    "eventProperty" -> {
+                        // eventProperty(String property, <T> value)
+                        val property = args?.getOrNull(0) as? String ?: return@newProxyInstance null
+                        val value = args.getOrNull(1)
+                        onPropertyChanged(property, value)
+                    }
+                    "event" -> {
+                        // event(int eventId) — can handle lifecycle events if needed
+                        val eventId = args?.getOrNull(0)
+                        Log.d(TAG, "MPV event: $eventId")
+                    }
+                    else -> {
+                        // Default: toString, equals, hashCode
+                        when (method.name) {
+                            "toString" -> return@newProxyInstance "MpvPlayerEventObserver"
+                            "hashCode" -> return@newProxyInstance System.identityHashCode(this).hashCode()
+                            "equals" -> return@newProxyInstance (args?.getOrNull(0) === this)
+                        }
+                    }
+                }
+                null
+            }
+
+            // Call MPVLib.addObserver(observer)
+            val addObserverMethod = cls.getMethod("addObserver", observerInterface)
+            addObserverMethod.invoke(null, proxy)
+            Log.d(TAG, "EventObserver registered successfully")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register EventObserver: ${e.message}")
         }
     }
 
@@ -115,6 +175,16 @@ class MpvPlayer(private val context: Context) {
                     surfaceAttached = true
                     setPropertyString("force-window", "yes")
                     Log.d(TAG, "Surface attached")
+
+                    // Notify listener that surface is ready
+                    onSurfaceReady?.invoke()
+
+                    // Load pending file if queued before surface was ready
+                    pendingFileUrl?.let { url ->
+                        loadFileInternal(url, pendingFileHeaders)
+                        pendingFileUrl = null
+                        pendingFileHeaders = emptyMap()
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to attach surface", e)
                     eventListener?.onError("Failed to attach surface: ${e.message}")
@@ -136,6 +206,17 @@ class MpvPlayer(private val context: Context) {
 
     fun loadFile(url: String, headers: Map<String, String> = emptyMap()) {
         if (!isInitialized) return
+        if (!surfaceAttached) {
+            // Queue for later — surface will trigger load when ready
+            pendingFileUrl = url
+            pendingFileHeaders = headers
+            Log.d(TAG, "Surface not ready, queuing file: $url")
+            return
+        }
+        loadFileInternal(url, headers)
+    }
+
+    private fun loadFileInternal(url: String, headers: Map<String, String>) {
         try {
             if (headers.isNotEmpty()) {
                 val headerFields = headers.entries.joinToString(",") { "${it.key}: ${it.value}" }

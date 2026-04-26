@@ -1,5 +1,8 @@
 package com.driveplay.app.catalog
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.driveplay.app.auth.AuthRepository
@@ -10,6 +13,7 @@ import com.driveplay.app.data.db.TmdbMetadataEntity
 import com.driveplay.app.data.model.SharedDrive
 import com.driveplay.app.data.tmdb.TmdbRepository
 import com.driveplay.app.player.mpv.PlayerEngine
+import com.driveplay.app.player.proxy.StreamProxyServer
 import com.driveplay.app.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -18,6 +22,16 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class SearchMode { CURRENT_DRIVE, ALL_DRIVES }
+
+// Unified section model for all Drive sources
+sealed class DriveSection(val label: String, val icon: ImageVector, val id: String) {
+    object MyDrive : DriveSection("My Drive", Icons.Default.Home, "my_drive")
+    object SharedWithMe : DriveSection("Shared with Me", Icons.Default.People, "shared_with_me")
+    object Starred : DriveSection("Starred", Icons.Default.Star, "starred")
+    object Recent : DriveSection("Recent", Icons.Default.Schedule, "recent")
+    object Trash : DriveSection("Trash", Icons.Default.Delete, "trash")
+    data class SharedDriveSection(val drive: SharedDrive) : DriveSection(drive.name, Icons.Default.CloudQueue, drive.id)
+}
 
 data class CatalogUiState(
     val isLoading: Boolean = false,
@@ -34,6 +48,10 @@ data class CatalogUiState(
     val selectedEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
     val isMpvAvailable: Boolean = false,
     val isNavigating: Boolean = false,
+
+    // Drive sections
+    val driveSections: List<DriveSection> = emptyList(),
+    val selectedSection: DriveSection? = null,
 
     // TMDB
     val tmdbMetadata: Map<String, TmdbMetadataEntity> = emptyMap(),
@@ -60,7 +78,8 @@ class CatalogViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val appPreferences: AppPreferences,
     private val tmdbRepository: TmdbRepository,
-    private val playbackHistoryDao: PlaybackHistoryDao
+    private val playbackHistoryDao: PlaybackHistoryDao,
+    @Suppress("unused") private val streamProxyServer: StreamProxyServer // ensures proxy starts early
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CatalogUiState())
@@ -88,7 +107,8 @@ class CatalogViewModel @Inject constructor(
     fun toggleEngine() {
         val newEngine = when (_uiState.value.selectedEngine) {
             PlayerEngine.EXO_PLAYER -> PlayerEngine.MPV
-            PlayerEngine.MPV -> PlayerEngine.EXO_PLAYER
+            PlayerEngine.MPV -> PlayerEngine.EXTERNAL
+            PlayerEngine.EXTERNAL -> PlayerEngine.EXO_PLAYER
         }
         appPreferences.preferredEngine = newEngine
         _uiState.update { it.copy(selectedEngine = newEngine) }
@@ -99,6 +119,17 @@ class CatalogViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             driveRepository.listSharedDrives().fold(
                 onSuccess = { drives ->
+                    // Build unified sections list
+                    val builtInSections = listOf(
+                        DriveSection.MyDrive,
+                        DriveSection.SharedWithMe,
+                        DriveSection.Starred,
+                        DriveSection.Recent,
+                        DriveSection.Trash
+                    )
+                    val sharedDriveSections = drives.map { DriveSection.SharedDriveSection(it) }
+                    val allSections = builtInSections + sharedDriveSections
+
                     // Restore saved drive
                     val savedDriveId = appPreferences.selectedDriveId
                     val restoredDrive = if (savedDriveId.isNotEmpty()) {
@@ -106,14 +137,23 @@ class CatalogViewModel @Inject constructor(
                     } else null
                     val selectedDrive = restoredDrive ?: drives.firstOrNull()
 
+                    // Restore saved section
+                    val restoredSection = if (savedDriveId.isNotEmpty()) {
+                        allSections.find { it.id == savedDriveId }
+                    } else null
+
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             sharedDrives = drives,
-                            selectedDrive = selectedDrive
+                            selectedDrive = selectedDrive,
+                            driveSections = allSections,
+                            selectedSection = restoredSection ?: allSections.firstOrNull { it is DriveSection.SharedDriveSection }
                         )
                     }
                     selectedDrive?.let { selectDrive(it, isInitial = true) }
+                    // Auto-load home content now that drives are available
+                    loadHomeContent()
                 },
                 onFailure = { error ->
                     _uiState.update {
@@ -131,11 +171,66 @@ class CatalogViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 selectedDrive = drive,
+                selectedSection = DriveSection.SharedDriveSection(drive),
                 folderStack = emptyList(),
                 files = emptyList()
             )
         }
         loadFiles(drive.id, null)
+    }
+
+    fun selectSection(section: DriveSection) {
+        appPreferences.selectedDriveId = section.id
+        _uiState.update {
+            it.copy(
+                selectedSection = section,
+                selectedDrive = (section as? DriveSection.SharedDriveSection)?.drive,
+                folderStack = emptyList(),
+                files = emptyList(),
+                isLoading = true
+            )
+        }
+
+        when (section) {
+            is DriveSection.SharedDriveSection -> loadFiles(section.drive.id, null)
+            is DriveSection.MyDrive -> loadSectionFiles { driveRepository.listMyDriveFiles() }
+            is DriveSection.SharedWithMe -> loadSectionFiles { driveRepository.listSharedWithMe() }
+            is DriveSection.Starred -> loadSectionFiles { driveRepository.listStarredFiles() }
+            is DriveSection.Recent -> loadSectionFiles { driveRepository.listRecentFiles() }
+            is DriveSection.Trash -> loadSectionFiles { driveRepository.listTrashedFiles() }
+        }
+    }
+
+    private fun loadSectionFiles(fetch: suspend () -> Result<List<com.driveplay.app.data.model.DriveFile>>) {
+        loadFilesJob?.cancel()
+        loadFilesJob = viewModelScope.launch {
+            fetch().fold(
+                onSuccess = { driveFiles ->
+                    val entities = driveFiles.map { file ->
+                        MediaFileEntity(
+                            id = file.id,
+                            name = file.name,
+                            mimeType = file.mimeType,
+                            size = file.size,
+                            thumbnailLink = file.thumbnailLink,
+                            modifiedTime = file.modifiedTime,
+                            parentId = "section",
+                            driveId = "section",
+                            fileExtension = file.fileExtension,
+                            isFolder = file.isFolder,
+                            videoWidth = file.videoMediaMetadata?.width,
+                            videoHeight = file.videoMediaMetadata?.height,
+                            videoDurationMs = file.videoMediaMetadata?.durationMillis
+                        )
+                    }
+                    _uiState.update { it.copy(isLoading = false, files = entities) }
+                    fetchTmdbForFiles(entities)
+                },
+                onFailure = { error ->
+                    _uiState.update { it.copy(isLoading = false, error = error.message) }
+                }
+            )
+        }
     }
 
     fun openFolder(folderId: String, folderName: String) {
@@ -281,9 +376,12 @@ class CatalogViewModel @Inject constructor(
 
         if (!hasTmdb) return
         if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty()) return
+        // Wait for drives to be loaded before attempting to scan folders
+        if (_uiState.value.sharedDrives.isEmpty()) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isHomeLoading = true) }
+            try {
 
             // Load files from each mapped folder set
             val movies = loadFilesFromFolders(movieFolders)
@@ -299,41 +397,91 @@ class CatalogViewModel @Inject constructor(
                 )
             }
 
-            // Fetch TMDB metadata for all home items
-            (movies + tvShows + anime).forEach { file ->
+            // Fetch TMDB metadata — batch-check cache first, only API-call missing ones
+            val allFiles = (movies + tvShows + anime).distinctBy { it.id }
+            val movieFileIds = movies.map { it.id }.toSet()
+            val tvFileIds = tvShows.map { it.id }.toSet()
+            val animeFileIds = anime.map { it.id }.toSet()
+
+            // 1. Batch load cached metadata from DB
+            val allIds = allFiles.map { it.id }
+            val cachedMeta = tmdbRepository.getMetadataForFiles(allIds)
+            val cachedMap = cachedMeta.associateBy { it.driveFileId }
+
+            // Apply cached metadata immediately
+            if (cachedMap.isNotEmpty()) {
+                _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + cachedMap) }
+            }
+
+            // 2. Only fetch from API for files not yet cached
+            val uncachedFiles = allFiles.filter { it.id !in cachedMap }
+            uncachedFiles.forEach { file ->
                 val type = when {
-                    file.parentId in movieFolders -> "movie"
-                    file.parentId in tvFolders -> "tv"
-                    file.parentId in animeFolders -> "tv"
+                    movieFileIds.contains(file.id) -> "movie"
+                    tvFileIds.contains(file.id) -> "tv"
+                    animeFileIds.contains(file.id) -> "tv"
                     else -> "auto"
                 }
-                val meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
+
+                // Check for .txt file with TMDB/IMDB ID inside the folder
+                var meta: TmdbMetadataEntity? = null
+                if (file.isFolder) {
+                    val idFromTxt = detectMetadataIdInFolder(file)
+                    if (idFromTxt != null) {
+                        meta = tmdbRepository.fixMetadataById(file.id, idFromTxt, type)
+                    }
+                }
+
+                // Fall back to name-based search
+                if (meta == null) {
+                    meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
+                }
+
                 meta?.let { m ->
                     _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + (file.id to m)) }
                 }
             }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isHomeLoading = false) }
+            }
         }
     }
 
+    /**
+     * Load subfolders and direct video files from configured parent folders.
+     * Each subfolder represents a single movie or TV show.
+     * Direct video files (not in subfolders) are also included.
+     * Sorted by modifiedTime newest first.
+     */
     private suspend fun loadFilesFromFolders(folderIds: Set<String>): List<MediaFileEntity> {
         val result = mutableListOf<MediaFileEntity>()
+        val drives = _uiState.value.sharedDrives
+
         folderIds.forEach { folderId ->
-            // We need the driveId – search all drives for this folder
-            val drives = _uiState.value.sharedDrives
-            drives.forEach { drive ->
+            var found = false
+            // Try cache first across all drives
+            for (drive in drives) {
                 val cached = driveRepository.getCachedFiles(drive.id, folderId).first()
                 if (cached.isNotEmpty()) {
                     result.addAll(cached)
-                } else {
-                    // Try to load from API
-                    driveRepository.listFilesInDrive(drive.id, folderId).onSuccess {
+                    found = true
+                    break
+                }
+            }
+            // If not cached, fetch from API (try each drive until one works)
+            if (!found) {
+                for (drive in drives) {
+                    val apiResult = driveRepository.listFilesInDrive(drive.id, folderId)
+                    if (apiResult.isSuccess) {
                         val fresh = driveRepository.getCachedFiles(drive.id, folderId).first()
                         result.addAll(fresh)
+                        break
                     }
                 }
             }
         }
-        return result
+        return result.distinctBy { it.id }
+            .sortedByDescending { it.modifiedTime ?: "" }
     }
 
     // ──── TMDB ────
@@ -444,7 +592,73 @@ class CatalogViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 
+    fun clearPlaybackHistory() {
+        viewModelScope.launch {
+            playbackHistoryDao.deleteAll()
+            _uiState.update {
+                it.copy(continuePlayingItems = emptyList())
+            }
+        }
+    }
+
+    fun removeFromHistory(fileId: String) {
+        viewModelScope.launch {
+            playbackHistoryDao.delete(fileId)
+            // Refresh continue playing + last played lists
+            loadContinuePlaying()
+        }
+    }
+
+    /** Re-read all preference-backed state. Call when returning from Settings. */
+    fun refreshPreferences() {
+        _uiState.update {
+            it.copy(
+                selectedEngine = appPreferences.preferredEngine,
+                isMpvAvailable = appPreferences.isMpvAvailable(),
+                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty()
+            )
+        }
+    }
+
     fun logout() {
         authRepository.logout()
+    }
+
+    /**
+     * Check if a title folder contains a .txt file with a TMDB/IMDB ID as filename.
+     * e.g. "12345.txt" → TMDB ID, "tt1234567.txt" → IMDB ID
+     * Only called for uncached titles to avoid unnecessary API calls.
+     */
+    private suspend fun detectMetadataIdInFolder(folder: MediaFileEntity): String? {
+        if (!folder.isFolder) return null
+
+        val drives = _uiState.value.sharedDrives
+        for (drive in drives) {
+            // Use dedicated API call for text/plain files
+            val txtFiles = driveRepository.listTextFilesInFolder(drive.id, folder.id)
+            if (txtFiles.isEmpty()) continue
+
+            for (txt in txtFiles) {
+                val nameWithoutExt = txt.name.substringBeforeLast(".").trim()
+
+                // IMDB ID: tt1234567
+                if (nameWithoutExt.matches(Regex("""tt\d{5,}""", RegexOption.IGNORE_CASE))) {
+                    return nameWithoutExt
+                }
+
+                // TMDB numeric ID: 12345
+                if (nameWithoutExt.matches(Regex("""\d+"""))) {
+                    return nameWithoutExt
+                }
+
+                // Prefixed: tmdb-12345 or imdb-tt1234567
+                val prefixed = Regex("""(?:tmdb|imdb)[- _](.+)""", RegexOption.IGNORE_CASE).find(nameWithoutExt)
+                if (prefixed != null) {
+                    return prefixed.groupValues[1].trim()
+                }
+            }
+            break // Found txt files from this drive, no need to try others
+        }
+        return null
     }
 }

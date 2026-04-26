@@ -1,6 +1,5 @@
 package com.driveplay.app.ui.components
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.driveplay.app.catalog.DriveSection
 import com.driveplay.app.data.model.SharedDrive
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -19,9 +19,16 @@ fun DriveSelector(
     drives: List<SharedDrive>,
     selectedDrive: SharedDrive?,
     onDriveSelected: (SharedDrive) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // New section-based API (backward compatible)
+    sections: List<DriveSection> = emptyList(),
+    selectedSection: DriveSection? = null,
+    onSectionSelected: (DriveSection) -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
+
+    val displayLabel = selectedSection?.label ?: selectedDrive?.name ?: "Select Drive"
+    val displayIcon = selectedSection?.icon ?: Icons.Default.CloudQueue
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -29,7 +36,7 @@ fun DriveSelector(
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = selectedDrive?.name ?: "Select Drive",
+            value = displayLabel,
             onValueChange = {},
             readOnly = true,
             modifier = Modifier
@@ -40,7 +47,7 @@ fun DriveSelector(
             },
             leadingIcon = {
                 Icon(
-                    Icons.Default.CloudQueue,
+                    displayIcon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
@@ -59,32 +66,108 @@ fun DriveSelector(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            drives.forEach { drive ->
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = if (drive == selectedDrive)
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = drive.name,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+            if (sections.isNotEmpty()) {
+                // ── Built-in sections ──
+                val builtIn = sections.filterNot { it is DriveSection.SharedDriveSection }
+                val sharedDriveSections = sections.filterIsInstance<DriveSection.SharedDriveSection>()
+
+                builtIn.forEach { section ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    section.icon, null,
+                                    tint = if (section == selectedSection)
+                                        MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    section.label,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (section == selectedSection) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        },
+                        onClick = {
+                            onSectionSelected(section)
+                            expanded = false
                         }
-                    },
-                    onClick = {
-                        onDriveSelected(drive)
-                        expanded = false
+                    )
+                }
+
+                if (sharedDriveSections.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    // Section header
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Shared Drives",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        onClick = {},
+                        enabled = false
+                    )
+
+                    sharedDriveSections.forEach { section ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.CloudQueue, null,
+                                        tint = if (section == selectedSection)
+                                            MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        section.label,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = if (section == selectedSection) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSectionSelected(section)
+                                expanded = false
+                            }
+                        )
                     }
-                )
+                }
+            } else {
+                // Fallback: old SharedDrive-only mode
+                drives.forEach { drive ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder, null,
+                                    tint = if (drive == selectedDrive)
+                                        MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(drive.name, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        },
+                        onClick = {
+                            onDriveSelected(drive)
+                            expanded = false
+                        }
+                    )
+                }
             }
         }
     }

@@ -40,6 +40,7 @@ fun MpvPlayerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val gestureState = remember { mutableStateOf(GestureState()) }
+    var controlsInteractionActive by remember { mutableStateOf(false) }
 
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -80,10 +81,10 @@ fun MpvPlayerScreen(
         }
     }
 
-    // Auto-hide controls
-    LaunchedEffect(uiState.showControls, uiState.isPlaying) {
-        if (uiState.showControls && uiState.isPlaying && !uiState.isLocked) {
-            delay(4000)
+    // Auto-hide controls (paused while a panel is open)
+    LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
+        if (uiState.showControls && uiState.isPlaying && !uiState.isLocked && !controlsInteractionActive) {
+            delay(8000)
             viewModel.hideControls()
         }
     }
@@ -181,7 +182,14 @@ fun MpvPlayerScreen(
                 onSubtitleTrackSelect = viewModel::selectSubtitleTrack,
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
-                onLoadExternalSubtitle = { subtitlePicker.launch("*/*") }
+                onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
+                onOpenExternal = {
+                    viewModel.getProxyUrl()?.let { url ->
+                        com.driveplay.app.player.ExternalPlayerLauncher.launch(context, url, uiState.fileName)
+                    }
+                },
+                onPanelOpened = { controlsInteractionActive = true },
+                onPanelClosed = { controlsInteractionActive = false }
             )
         }
     }

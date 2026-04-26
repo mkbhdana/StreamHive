@@ -125,4 +125,147 @@ class TmdbRepository @Inject constructor(
     }
 
     fun isConfigured(): Boolean = prefs.tmdbApiKey.isNotBlank()
+
+    suspend fun getFullMovieDetails(tmdbId: Int): TmdbMovie? {
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return null
+        return try {
+            tmdbApiService.getMovieDetails(tmdbId, apiKey)
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun getFullTvDetails(tmdbId: Int): TmdbTvShow? {
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return null
+        return try {
+            tmdbApiService.getTvDetails(tmdbId, apiKey)
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun getTvSeasons(tmdbId: Int, numberOfSeasons: Int): List<TmdbSeasonResponse> {
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return emptyList()
+        return (1..numberOfSeasons).mapNotNull { seasonNum ->
+            try {
+                tmdbApiService.getTvSeasonDetails(tmdbId, seasonNum, apiKey)
+            } catch (e: Exception) { null }
+        }
+    }
+
+    /**
+     * Fix metadata by manually providing a TMDB or IMDB ID.
+     * - Numeric input → treated as TMDB ID, tries movie first then TV
+     * - "tt..." input → treated as IMDB ID, uses /find endpoint
+     */
+    suspend fun fixMetadataById(
+        driveFileId: String,
+        idInput: String,
+        mediaTypeHint: String = "auto"
+    ): TmdbMetadataEntity? = withContext(Dispatchers.IO) {
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return@withContext null
+
+        try {
+            val entity = if (idInput.startsWith("tt", ignoreCase = true)) {
+                // IMDB ID
+                lookupByImdbId(apiKey, idInput, driveFileId)
+            } else {
+                // TMDB ID
+                val tmdbId = idInput.toIntOrNull() ?: return@withContext null
+                lookupByTmdbId(apiKey, tmdbId, driveFileId, mediaTypeHint)
+            }
+
+            if (entity != null) {
+                // Delete old entry and insert new one
+                tmdbMetadataDao.deleteByDriveFileId(driveFileId)
+                tmdbMetadataDao.insert(entity)
+            }
+            entity
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private suspend fun lookupByTmdbId(
+        apiKey: String,
+        tmdbId: Int,
+        driveFileId: String,
+        mediaTypeHint: String
+    ): TmdbMetadataEntity? {
+        // Try movie first (or as specified)
+        if (mediaTypeHint != "tv") {
+            try {
+                val movie = tmdbApiService.getMovieDetails(tmdbId, apiKey)
+                return TmdbMetadataEntity(
+                    driveFileId = driveFileId,
+                    tmdbId = movie.id,
+                    title = movie.title ?: "",
+                    overview = movie.overview,
+                    posterPath = movie.fullPosterUrl,
+                    backdropPath = movie.fullBackdropUrl,
+                    rating = movie.voteAverage,
+                    year = movie.year,
+                    mediaType = "movie"
+                )
+            } catch (_: Exception) {}
+        }
+
+        // Try TV
+        try {
+            val show = tmdbApiService.getTvDetails(tmdbId, apiKey)
+            return TmdbMetadataEntity(
+                driveFileId = driveFileId,
+                tmdbId = show.id,
+                title = show.name ?: "",
+                overview = show.overview,
+                posterPath = show.fullPosterUrl,
+                backdropPath = show.fullBackdropUrl,
+                rating = show.voteAverage,
+                year = show.year,
+                mediaType = "tv"
+            )
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    private suspend fun lookupByImdbId(
+        apiKey: String,
+        imdbId: String,
+        driveFileId: String
+    ): TmdbMetadataEntity? {
+        val findResponse = tmdbApiService.findByExternalId(imdbId, apiKey)
+
+        // Check movie results first
+        findResponse.movieResults.firstOrNull()?.let { movie ->
+            return TmdbMetadataEntity(
+                driveFileId = driveFileId,
+                tmdbId = movie.id,
+                title = movie.title ?: "",
+                overview = movie.overview,
+                posterPath = movie.fullPosterUrl,
+                backdropPath = movie.fullBackdropUrl,
+                rating = movie.voteAverage,
+                year = movie.year,
+                mediaType = "movie"
+            )
+        }
+
+        // Check TV results
+        findResponse.tvResults.firstOrNull()?.let { show ->
+            return TmdbMetadataEntity(
+                driveFileId = driveFileId,
+                tmdbId = show.id,
+                title = show.name ?: "",
+                overview = show.overview,
+                posterPath = show.fullPosterUrl,
+                backdropPath = show.fullBackdropUrl,
+                rating = show.voteAverage,
+                year = show.year,
+                mediaType = "tv"
+            )
+        }
+
+        return null
+    }
 }

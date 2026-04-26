@@ -150,6 +150,47 @@ class DriveRepository @Inject constructor(
         return mediaFileDao.getFilesByFolder(driveId, parentId ?: driveId)
     }
 
+    /**
+     * Fetch only .txt files from a folder via Drive API.
+     * Used to detect metadata hint files (e.g. "tt1234567.txt").
+     * Lightweight call — no caching, no pagination (expect very few txt files).
+     */
+    suspend fun listTextFilesInFolder(
+        driveId: String,
+        folderId: String
+    ): List<DriveFile> = withContext(Dispatchers.IO) {
+        try {
+            val token = authRepository.getValidAccessToken() ?: return@withContext emptyList()
+
+            val query = "'$folderId' in parents and mimeType = 'text/plain' and trashed = false"
+            val url = StringBuilder("${Constants.DRIVE_FILES_URL}?")
+                .append("corpora=drive")
+                .append("&driveId=$driveId")
+                .append("&includeItemsFromAllDrives=true")
+                .append("&supportsAllDrives=true")
+                .append("&q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                .append("&fields=${java.net.URLEncoder.encode("files(id,name,mimeType)", "UTF-8")}")
+                .append("&pageSize=10")
+                .toString()
+
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val body = response.body?.string()
+
+            if (!response.isSuccessful || body == null) return@withContext emptyList()
+
+            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
+            fileListResponse.files
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     fun searchFiles(query: String): Flow<List<MediaFileEntity>> {
         return mediaFileDao.searchFiles(query)
     }
@@ -172,5 +213,126 @@ class DriveRepository @Inject constructor(
 
     suspend fun getValidToken(): String? {
         return authRepository.getValidAccessToken()
+    }
+
+    // ──── Additional Drive Sections (all read-only) ────
+
+    suspend fun listMyDriveFiles(folderId: String? = null): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        try {
+            val token = authRepository.getValidAccessToken()
+                ?: return@withContext Result.failure(Exception("Not authenticated"))
+
+            val parentQuery = if (folderId != null) "'$folderId' in parents" else "'root' in parents"
+            val query = "$parentQuery and trashed = false"
+
+            val allFiles = mutableListOf<DriveFile>()
+            var pageToken: String? = null
+
+            do {
+                val urlBuilder = StringBuilder("${Constants.DRIVE_FILES_URL}?")
+                urlBuilder.append("corpora=user")
+                urlBuilder.append("&q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                urlBuilder.append("&fields=${java.net.URLEncoder.encode(Constants.DRIVE_LIST_FIELDS, "UTF-8")}")
+                urlBuilder.append("&pageSize=100")
+                urlBuilder.append("&orderBy=folder,name")
+                if (pageToken != null) urlBuilder.append("&pageToken=$pageToken")
+
+                val request = Request.Builder()
+                    .url(urlBuilder.toString())
+                    .header("Authorization", "Bearer $token")
+                    .get().build()
+
+                val response = okHttpClient.newCall(request).execute()
+                val body = response.body?.string()
+                if (!response.isSuccessful || body == null) {
+                    return@withContext Result.failure(Exception("Failed: ${response.code}"))
+                }
+
+                val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
+                allFiles.addAll(fileListResponse.files)
+                pageToken = fileListResponse.nextPageToken
+            } while (pageToken != null)
+
+            Result.success(allFiles)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun listSharedWithMe(): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        executeSimpleQuery("sharedWithMe = true and trashed = false")
+    }
+
+    suspend fun listStarredFiles(): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        executeSimpleQuery("starred = true and trashed = false")
+    }
+
+    suspend fun listRecentFiles(): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        try {
+            val token = authRepository.getValidAccessToken()
+                ?: return@withContext Result.failure(Exception("Not authenticated"))
+
+            val urlBuilder = StringBuilder("${Constants.DRIVE_FILES_URL}?")
+            urlBuilder.append("corpora=allDrives")
+            urlBuilder.append("&includeItemsFromAllDrives=true")
+            urlBuilder.append("&supportsAllDrives=true")
+            urlBuilder.append("&q=${java.net.URLEncoder.encode("trashed = false", "UTF-8")}")
+            urlBuilder.append("&fields=${java.net.URLEncoder.encode(Constants.DRIVE_LIST_FIELDS, "UTF-8")}")
+            urlBuilder.append("&pageSize=50")
+            urlBuilder.append("&orderBy=${java.net.URLEncoder.encode("viewedByMeTime desc", "UTF-8")}")
+
+            val request = Request.Builder()
+                .url(urlBuilder.toString())
+                .header("Authorization", "Bearer $token")
+                .get().build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val body = response.body?.string()
+            if (!response.isSuccessful || body == null) {
+                return@withContext Result.failure(Exception("Failed: ${response.code}"))
+            }
+
+            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
+            Result.success(fileListResponse.files)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun listTrashedFiles(): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        executeSimpleQuery("trashed = true")
+    }
+
+    private suspend fun executeSimpleQuery(query: String): Result<List<DriveFile>> {
+        val token = authRepository.getValidAccessToken()
+            ?: return Result.failure(Exception("Not authenticated"))
+
+        val allFiles = mutableListOf<DriveFile>()
+        var pageToken: String? = null
+
+        do {
+            val urlBuilder = StringBuilder("${Constants.DRIVE_FILES_URL}?")
+            urlBuilder.append("corpora=allDrives")
+            urlBuilder.append("&includeItemsFromAllDrives=true")
+            urlBuilder.append("&supportsAllDrives=true")
+            urlBuilder.append("&q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+            urlBuilder.append("&fields=${java.net.URLEncoder.encode(Constants.DRIVE_LIST_FIELDS, "UTF-8")}")
+            urlBuilder.append("&pageSize=100")
+            urlBuilder.append("&orderBy=folder,name")
+            if (pageToken != null) urlBuilder.append("&pageToken=$pageToken")
+
+            val request = Request.Builder()
+                .url(urlBuilder.toString())
+                .header("Authorization", "Bearer $token")
+                .get().build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val body = response.body?.string()
+            if (!response.isSuccessful || body == null) {
+                return Result.failure(Exception("Failed: ${response.code}"))
+            }
+
+            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
+            allFiles.addAll(fileListResponse.files)
+            pageToken = fileListResponse.nextPageToken
+        } while (pageToken != null)
+
+        return Result.success(allFiles)
     }
 }
