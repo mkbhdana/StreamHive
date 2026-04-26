@@ -19,6 +19,7 @@ import com.driveplay.app.catalog.info.MediaInfoScreen
 import com.driveplay.app.player.ExternalPlayerLauncher
 import com.driveplay.app.player.PlayerScreen
 import com.driveplay.app.player.proxy.StreamProxyServer
+import com.driveplay.app.player.proxy.StreamProxyService
 import com.driveplay.app.player.mpv.MpvPlayerScreen
 import com.driveplay.app.player.mpv.PlayerEngine
 import com.driveplay.app.settings.SettingsScreen
@@ -71,7 +72,8 @@ fun AppNavigation(isTv: Boolean = false) {
                             navController.navigate("mpv_player/$fileId/$encodedName")
                         }
                         PlayerEngine.EXTERNAL -> {
-                            // Launch external player via proxy
+                            // Start foreground service to keep proxy alive while external player runs
+                            StreamProxyService.start(ctx)
                             val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
                             if (proxyUrl != null) {
                                 ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
@@ -148,6 +150,8 @@ fun AppNavigation(isTv: Boolean = false) {
                         PlayerEngine.EXO_PLAYER -> navController.navigate("player/$fileId/$encodedName")
                         PlayerEngine.MPV -> navController.navigate("mpv_player/$fileId/$encodedName")
                         PlayerEngine.EXTERNAL -> {
+                            // Start foreground service to keep proxy alive while external player runs
+                            StreamProxyService.start(ctx)
                             val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
                             if (proxyUrl != null) ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
                         }

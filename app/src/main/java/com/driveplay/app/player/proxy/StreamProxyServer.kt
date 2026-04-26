@@ -24,11 +24,15 @@ import java.net.ServerSocket
 class StreamProxyServer(
     private val authRepository: AuthRepository,
     private val okHttpClient: OkHttpClient
-) : NanoHTTPD("0.0.0.0", findAvailablePort()) {
+) : NanoHTTPD("0.0.0.0", selectPort()) {
 
     companion object {
         private const val TAG = "StreamProxyServer"
         private const val DRIVE_FILE_URL = "https://www.googleapis.com/drive/v3/files"
+
+        /** The port selected at construction time (before start()) */
+        @Volatile
+        private var selectedPort: Int = 0
 
         /** Static reference so navigation can build proxy URLs without DI */
         @Volatile
@@ -39,14 +43,32 @@ class StreamProxyServer(
         var instancePort: Int = 0
             private set
 
-        fun findAvailablePort(): Int {
-            return ServerSocket(0).use { it.localPort }
+        /**
+         * Pick an available port and remember it.
+         * Called once from the NanoHTTPD constructor arg.
+         */
+        private fun selectPort(): Int {
+            val port = ServerSocket(0).use { it.localPort }
+            selectedPort = port
+            return port
         }
     }
 
-    init {
-        instancePort = listeningPort
-        instanceUrl = "http://127.0.0.1:$listeningPort"
+    override fun start() {
+        super.start()
+        // After start(), listeningPort is valid. Use selectedPort as fallback.
+        val port = if (listeningPort > 0) listeningPort else selectedPort
+        instancePort = port
+        instanceUrl = "http://127.0.0.1:$port"
+        Log.d(TAG, "Server started on port $port, instanceUrl=$instanceUrl")
+    }
+
+    override fun start(timeout: Int, daemon: Boolean) {
+        super.start(timeout, daemon)
+        val port = if (listeningPort > 0) listeningPort else selectedPort
+        instancePort = port
+        instanceUrl = "http://127.0.0.1:$port"
+        Log.d(TAG, "Server started on port $port, instanceUrl=$instanceUrl")
     }
 
     /**
@@ -54,7 +76,8 @@ class StreamProxyServer(
      * Uses 127.0.0.1 — works for both in-app and on-device external apps.
      */
     fun getStreamUrl(fileId: String): String {
-        return "http://127.0.0.1:$listeningPort/stream/$fileId"
+        val port = if (instancePort > 0) instancePort else selectedPort
+        return "http://127.0.0.1:$port/stream/$fileId"
     }
 
     override fun serve(session: IHTTPSession): Response {
