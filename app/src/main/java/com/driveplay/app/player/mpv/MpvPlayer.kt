@@ -27,6 +27,7 @@ class MpvPlayer(private val context: Context) {
     private var surfaceAttached = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var mpvLibClass: Class<*>? = null
+    private var mpvInstance: Any? = null
 
     // Pending file load: queued if loadFile() is called before surface is ready
     private var pendingFileUrl: String? = null
@@ -65,12 +66,13 @@ class MpvPlayer(private val context: Context) {
     fun initialize() {
         if (isInitialized) return
         try {
-            mpvLibClass = Class.forName("is.xyz.mpv.MPVLib")
+            mpvLibClass = Class.forName("is.xyz.mpv.MPV")
             val cls = mpvLibClass!!
+            mpvInstance = try { cls.getField("INSTANCE").get(null) } catch (e: Exception) { cls.newInstance() }
 
             // MPVLib.create(context) — one param: Context
             val createMethod = cls.getMethod("create", Context::class.java)
-            createMethod.invoke(null, context)
+            createMethod.invoke(mpvInstance, context)
 
             // Set options BEFORE init()
             setOption("vo", "gpu")
@@ -88,7 +90,7 @@ class MpvPlayer(private val context: Context) {
 
             // MPVLib.init() — no params
             val initMethod = cls.getMethod("init")
-            initMethod.invoke(null)
+            initMethod.invoke(mpvInstance)
 
             // Observe properties (format: 0=NONE, 3=FLAG, 4=INT64, 5=DOUBLE)
             observeProperty("pause", 3)
@@ -156,7 +158,7 @@ class MpvPlayer(private val context: Context) {
 
             // Call MPVLib.addObserver(observer)
             val addObserverMethod = cls.getMethod("addObserver", observerInterface)
-            addObserverMethod.invoke(null, proxy)
+            addObserverMethod.invoke(mpvInstance, proxy)
             Log.d(TAG, "EventObserver registered successfully")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to register EventObserver: ${e.message}")
@@ -171,7 +173,7 @@ class MpvPlayer(private val context: Context) {
                 try {
                     val cls = mpvLibClass ?: return
                     val method = cls.getMethod("attachSurface", android.view.Surface::class.java)
-                    method.invoke(null, holder.surface)
+                    method.invoke(mpvInstance, holder.surface)
                     surfaceAttached = true
                     setPropertyString("force-window", "yes")
                     Log.d(TAG, "Surface attached")
@@ -197,7 +199,7 @@ class MpvPlayer(private val context: Context) {
                 try {
                     val cls = mpvLibClass ?: return
                     val method = cls.getMethod("detachSurface")
-                    method.invoke(null)
+                    method.invoke(mpvInstance)
                     surfaceAttached = false
                 } catch (_: Exception) {}
             }
@@ -351,7 +353,7 @@ class MpvPlayer(private val context: Context) {
         if (!isInitialized) return
         try {
             command(arrayOf("quit"))
-            mpvLibClass?.getMethod("destroy")?.invoke(null)
+            mpvLibClass?.getMethod("destroy")?.invoke(mpvInstance)
         } catch (_: Exception) {}
         isInitialized = false
     }
@@ -360,70 +362,70 @@ class MpvPlayer(private val context: Context) {
 
     private fun command(args: Array<String>) {
         try {
-            mpvLibClass?.getMethod("command", Array<String>::class.java)?.invoke(null, args)
+            mpvLibClass?.getMethod("command", Array<String>::class.java)?.invoke(mpvInstance, args)
         } catch (_: Exception) {}
     }
 
     private fun setOption(key: String, value: String) {
         try {
             mpvLibClass?.getMethod("setOptionString", String::class.java, String::class.java)
-                ?.invoke(null, key, value)
+                ?.invoke(mpvInstance, key, value)
         } catch (_: Exception) {}
     }
 
     private fun setPropertyBoolean(key: String, value: Boolean) {
         try {
             mpvLibClass?.getMethod("setPropertyBoolean", String::class.java, Boolean::class.javaPrimitiveType)
-                ?.invoke(null, key, value)
+                ?.invoke(mpvInstance, key, value)
         } catch (_: Exception) {}
     }
 
     private fun setPropertyInt(key: String, value: Int) {
         try {
             mpvLibClass?.getMethod("setPropertyInt", String::class.java, Int::class.javaPrimitiveType)
-                ?.invoke(null, key, value)
+                ?.invoke(mpvInstance, key, value)
         } catch (_: Exception) {}
     }
 
     private fun setPropertyDouble(key: String, value: Double) {
         try {
             mpvLibClass?.getMethod("setPropertyDouble", String::class.java, Double::class.javaPrimitiveType)
-                ?.invoke(null, key, value)
+                ?.invoke(mpvInstance, key, value)
         } catch (_: Exception) {}
     }
 
     private fun setPropertyString(key: String, value: String) {
         try {
             mpvLibClass?.getMethod("setPropertyString", String::class.java, String::class.java)
-                ?.invoke(null, key, value)
+                ?.invoke(mpvInstance, key, value)
         } catch (_: Exception) {}
     }
 
     private fun getPropertyInt(key: String): Int {
         return try {
             mpvLibClass?.getMethod("getPropertyInt", String::class.java)
-                ?.invoke(null, key) as? Int ?: 0
+                ?.invoke(mpvInstance, key) as? Int ?: 0
         } catch (_: Exception) { 0 }
     }
 
     private fun getPropertyBoolean(key: String): Boolean {
         return try {
             mpvLibClass?.getMethod("getPropertyBoolean", String::class.java)
-                ?.invoke(null, key) as? Boolean ?: false
+                ?.invoke(mpvInstance, key) as? Boolean ?: false
         } catch (_: Exception) { false }
     }
 
     private fun getPropertyString(key: String): String {
         return try {
             mpvLibClass?.getMethod("getPropertyString", String::class.java)
-                ?.invoke(null, key) as? String ?: ""
+                ?.invoke(mpvInstance, key) as? String ?: ""
         } catch (_: Exception) { "" }
     }
 
     private fun observeProperty(name: String, format: Int) {
         try {
             mpvLibClass?.getMethod("observeProperty", String::class.java, Int::class.javaPrimitiveType)
-                ?.invoke(null, name, format)
+                ?.invoke(mpvInstance, name, format)
         } catch (_: Exception) {}
     }
 

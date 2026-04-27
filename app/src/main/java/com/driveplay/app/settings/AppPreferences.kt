@@ -122,7 +122,7 @@ class AppPreferences @Inject constructor(
 
     fun isMpvAvailable(): Boolean {
         return try {
-            Class.forName("is.xyz.mpv.MPVLib")
+            Class.forName("is.xyz.mpv.MPV")
             true
         } catch (_: ClassNotFoundException) {
             false
