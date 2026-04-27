@@ -151,14 +151,12 @@ fun PlayerControlsOverlay(
                         listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
                     )
                 )
-                .statusBarsPadding()
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(top = 8.dp)
+                .padding(6.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Back Button
@@ -191,21 +189,6 @@ fun PlayerControlsOverlay(
                 }
                 Spacer(Modifier.width(12.dp))
 
-                // Time Pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black.copy(alpha = 0.4f))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = "${FileUtils.formatDuration(currentPosition)} • ${FileUtils.formatDuration(duration)}",
-                        color = Color.White.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                
                 // Top Right Icons Row
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -284,15 +267,15 @@ fun PlayerControlsOverlay(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
                     )
                 )
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                .padding(6.dp)
+                .padding(horizontal = 8.dp)
+                .padding(bottom = 4.dp)
         ) {
             // Control buttons row (split left and right)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 8.dp)
                     .padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -339,19 +322,18 @@ fun PlayerControlsOverlay(
 
             // Inline Seekbar Row
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Current Time
                 Text(
                     text = FileUtils.formatDuration(if (isSeeking) (seekFraction * duration).toLong() else currentPosition),
                     color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.width(56.dp)
+                    style = MaterialTheme.typography.labelMedium
                 )
                 
-                // Seekbar Box to overlay markers on wavy seekbar
-                Box(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                // Seekbar Box to overlay markers on custom seekbar
+                Box(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     val displayFraction = if (isSeeking) seekFraction
                         else if (duration > 0) currentPosition.toFloat() / duration.toFloat()
                         else 0f
@@ -362,7 +344,7 @@ fun PlayerControlsOverlay(
                         label = "seekbar"
                     )
 
-                    WavySeekbar(
+                    CustomSeekbar(
                         fraction = if (isSeeking) seekFraction else animatedFraction,
                         bufferedFraction = if (duration > 0) bufferedPercentage / 100f else 0f,
                         duration = duration,
@@ -386,8 +368,7 @@ fun PlayerControlsOverlay(
                 Text(
                     text = FileUtils.formatDuration(duration),
                     color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.width(56.dp)
+                    style = MaterialTheme.typography.labelMedium
                 )
             }
         }
@@ -460,10 +441,10 @@ fun PlayerControlsOverlay(
     }
 }
 
-// ──── Wavy Seekbar ────
+// ──── Custom Seekbar ────
 
 @Composable
-private fun WavySeekbar(
+private fun CustomSeekbar(
     fraction: Float,
     bufferedFraction: Float,
     duration: Long = 0L,
@@ -474,24 +455,6 @@ private fun WavySeekbar(
     modifier: Modifier = Modifier
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val wavePhase by rememberInfiniteTransition(label = "wave").animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * Math.PI.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(2000, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wavePhase"
-    )
-
-    // Smoothly transition amplitude: wavy when playing, straight when paused
-    val targetAmplitude = if (isPlaying) 1f else 0f
-    val waveAmplitudeFactor by animateFloatAsState(
-        targetValue = targetAmplitude,
-        animationSpec = androidx.compose.animation.core.tween(400),
-        label = "amplitude"
-    )
-
     var dragX by remember { mutableFloatStateOf(0f) }
 
     Canvas(
@@ -520,55 +483,37 @@ private fun WavySeekbar(
                 }
             }
     ) {
-        val trackY = size.height / 2
-        val trackHeight = 6.dp.toPx()
-        val maxWaveAmplitude = 5.dp.toPx()
-        val waveAmplitude = maxWaveAmplitude * waveAmplitudeFactor
-        val waveFrequency = 0.06f
+        val trackHeight = 12.dp.toPx()
+        val cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2)
+        val trackY = (size.height - trackHeight) / 2
         val activeWidth = fraction * size.width
         val bufferedWidth = bufferedFraction * size.width
 
-        // Inactive portion: very subtle, thin line after the active area
-        val inactiveStartX = activeWidth
-        if (inactiveStartX < size.width) {
-            drawLine(
-                color = Color.White.copy(alpha = 0.15f),
-                start = Offset(inactiveStartX, trackY),
-                end = Offset(size.width, trackY),
-                strokeWidth = 4.dp.toPx(),
-                cap = androidx.compose.ui.graphics.StrokeCap.Round
-            )
-        }
+        // Inactive background (full pill track)
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.15f),
+            topLeft = Offset(0f, trackY),
+            size = androidx.compose.ui.geometry.Size(size.width, trackHeight),
+            cornerRadius = cornerRadius
+        )
 
-        // Buffered track (subtle, slightly brighter than inactive)
-        if (bufferedWidth > activeWidth) {
-            drawLine(
+        // Buffered background
+        if (bufferedWidth > 0f) {
+            drawRoundRect(
                 color = Color.White.copy(alpha = 0.25f),
-                start = Offset(activeWidth, trackY),
-                end = Offset(bufferedWidth, trackY),
-                strokeWidth = 4.dp.toPx(),
-                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                topLeft = Offset(0f, trackY),
+                size = androidx.compose.ui.geometry.Size(bufferedWidth, trackHeight),
+                cornerRadius = cornerRadius
             )
         }
 
-        // Active track: wavy/straight line
-        if (activeWidth > 2f) {
-            val wavePath = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f, trackY)
-                var x = 0f
-                while (x <= activeWidth) {
-                    val y = trackY + kotlin.math.sin((x * waveFrequency + wavePhase).toDouble()).toFloat() * waveAmplitude
-                    lineTo(x, y)
-                    x += 1.5f
-                }
-            }
-            drawPath(
-                path = wavePath,
+        // Active track
+        if (activeWidth > 0f) {
+            drawRoundRect(
                 color = primaryColor,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = trackHeight,
-                    cap = androidx.compose.ui.graphics.StrokeCap.Round
-                )
+                topLeft = Offset(0f, trackY),
+                size = androidx.compose.ui.geometry.Size(activeWidth, trackHeight),
+                cornerRadius = cornerRadius
             )
         }
 
@@ -580,9 +525,9 @@ private fun WavySeekbar(
                     val gapX = chFraction * size.width
                     drawLine(
                         color = Color.Transparent,
-                        start = Offset(gapX, trackY - 12.dp.toPx()),
-                        end = Offset(gapX, trackY + 12.dp.toPx()),
-                        strokeWidth = 2.5.dp.toPx(),
+                        start = Offset(gapX, trackY),
+                        end = Offset(gapX, trackY + trackHeight),
+                        strokeWidth = 2.dp.toPx(),
                         blendMode = androidx.compose.ui.graphics.BlendMode.Clear
                     )
                 }
@@ -590,24 +535,22 @@ private fun WavySeekbar(
         }
 
         // Thumb (Vertical Pill)
-        val thumbWidth = 6.dp.toPx()
-        val thumbHeight = 20.dp.toPx()
+        val thumbWidth = 8.dp.toPx()
+        val thumbHeight = 18.dp.toPx()
         val thumbX = activeWidth.coerceIn(thumbWidth / 2, size.width - thumbWidth / 2)
-        val thumbY = if (activeWidth > 2f && waveAmplitude > 0.1f) {
-            trackY + kotlin.math.sin((thumbX * waveFrequency + wavePhase).toDouble()).toFloat() * waveAmplitude
-        } else trackY
+        val thumbY = (size.height - thumbHeight) / 2
 
         // Thumb glow
         drawRoundRect(
             color = primaryColor.copy(alpha = 0.25f),
-            topLeft = Offset(thumbX - thumbWidth * 1.5f / 2, thumbY - thumbHeight * 1.5f / 2),
+            topLeft = Offset(thumbX - thumbWidth * 1.5f / 2, (size.height - thumbHeight * 1.5f) / 2),
             size = androidx.compose.ui.geometry.Size(thumbWidth * 1.5f, thumbHeight * 1.5f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth * 1.5f / 2)
         )
         // Thumb solid
         drawRoundRect(
-            color = primaryColor,
-            topLeft = Offset(thumbX - thumbWidth / 2, thumbY - thumbHeight / 2),
+            color = Color.White,
+            topLeft = Offset(thumbX - thumbWidth / 2, thumbY),
             size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth / 2)
         )

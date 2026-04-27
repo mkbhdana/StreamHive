@@ -50,9 +50,17 @@ fun PlayerScreen(
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
 
-    // Intercept back navigation to smoothly pause the player before exiting
+    // Intercept back navigation to smoothly pause the player and instantly restore orientation
     val handleBack = {
+        val activity = context as? Activity
         viewModel.player?.pause()
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val window = activity?.window
+        if (window != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
         onBack()
     }
 
@@ -83,17 +91,7 @@ fun PlayerScreen(
         }
     }
 
-    // Show/hide status bar with controls
-    LaunchedEffect(uiState.showControls) {
-        val window = activity?.window ?: return@LaunchedEffect
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        if (uiState.showControls && !uiState.isLocked) {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-    }
+
 
     // Auto-hide controls (paused while a panel is open)
     LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {

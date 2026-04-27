@@ -42,6 +42,19 @@ fun MpvPlayerScreen(
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
 
+    // Intercept back navigation to instantly restore orientation
+    val handleBack = {
+        val activity = context as? Activity
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val window = activity?.window
+        if (window != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+        onBack()
+    }
+
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -69,17 +82,7 @@ fun MpvPlayerScreen(
         }
     }
 
-    // Show/hide status bar with controls
-    LaunchedEffect(uiState.showControls) {
-        val window = activity?.window ?: return@LaunchedEffect
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        if (uiState.showControls && !uiState.isLocked) {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-    }
+
 
     // Auto-hide controls (paused while a panel is open)
     LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
@@ -89,7 +92,7 @@ fun MpvPlayerScreen(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler { handleBack() }
 
     Box(
         modifier = Modifier
@@ -171,7 +174,7 @@ fun MpvPlayerScreen(
                 subtitleDelay = uiState.subtitleDelay,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
-                onBack = onBack,
+                onBack = handleBack,
                 onPlayPause = viewModel::togglePlayPause,
                 onSeekForward = viewModel::seekForward,
                 onSeekBackward = viewModel::seekBackward,
