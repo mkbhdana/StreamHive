@@ -392,7 +392,7 @@ fun SettingsScreen(
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { exportLauncher.launch("driveplay_settings.json") }.padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { exportLauncher.launch("streamhive_settings.json") }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Upload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
