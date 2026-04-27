@@ -13,7 +13,7 @@ lifecycleRuntime = "2.8.7"
 tvMaterial = "1.0.0"
 
 # Media3 / ExoPlayer
-media3 = "1.5.1"
+media3 = "1.10.0"
 
 # Hilt
 hilt = "2.53.1"

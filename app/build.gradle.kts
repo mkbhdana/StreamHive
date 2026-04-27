@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "com.driveplay.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.driveplay.app"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "2.0.0"
 
@@ -138,5 +138,5 @@ dependencies {
 
     // FFmpeg Decoder Extension (optional - build from source)
     // Place the built AAR in app/libs/ and uncomment:
-    // implementation(files("libs/decoder_ffmpeg-release.aar"))
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
 }
