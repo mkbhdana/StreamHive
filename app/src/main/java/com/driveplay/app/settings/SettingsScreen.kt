@@ -23,6 +23,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.driveplay.app.data.db.MediaFileEntity
 import com.driveplay.app.player.mpv.PlayerEngine
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -361,13 +365,65 @@ fun SettingsScreen(
                 }
             }
 
+            // ──── Data Management ────
+            item { SettingsSectionHeader(Icons.Default.Storage, "Data Management") }
+
+            item {
+                SettingsCard {
+                    val context = LocalContext.current
+                    val exportLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.CreateDocument("application/json")
+                    ) { uri ->
+                        if (uri != null) {
+                            viewModel.exportSettings(uri)
+                            Toast.makeText(context, "Settings exported successfully", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    val importLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.OpenDocument()
+                    ) { uri ->
+                        if (uri != null) {
+                            viewModel.importSettings(uri) { success ->
+                                val msg = if (success) "Settings imported successfully" else "Failed to import settings"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { exportLauncher.launch("driveplay_settings.json") }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Upload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Export Settings", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text("Backup your preferences to a file", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { importLauncher.launch(arrayOf("application/json")) }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Download, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Import Settings", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text("Restore your preferences from a file", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
             // ──── About ────
             item { SettingsSectionHeader(Icons.Default.Info, "About") }
 
             item {
                 SettingsCard {
                     Column(Modifier.padding(24.dp)) {
-                        Text("DrivePlay", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("StreamHive", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(4.dp))
                         Text("v2.0.0", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(16.dp))

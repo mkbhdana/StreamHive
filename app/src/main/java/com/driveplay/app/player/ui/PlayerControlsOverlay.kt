@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,12 +27,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import android.graphics.Bitmap
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
 import com.driveplay.app.util.FileUtils
 
 data class TrackInfo(
@@ -64,13 +71,18 @@ fun PlayerControlsOverlay(
     audioTracks: List<TrackInfo>,
     subtitleTracks: List<TrackInfo>,
     chapters: List<ChapterInfo> = emptyList(),
+    seekThumbnail: Bitmap? = null,
+    decoderMode: String = "hw+",
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeekTo: (Long) -> Unit,
+    onScrubbing: (Long) -> Unit = {},
+    onScrubbingFinished: () -> Unit = {},
     onLockToggle: () -> Unit,
     onResizeModeChange: (String) -> Unit,
+    onDecoderModeChange: (String) -> Unit = {},
     onAudioTrackSelect: (Int) -> Unit,
     onSubtitleTrackSelect: (Int) -> Unit,
     onSubtitleDelayChange: (Long) -> Unit,
@@ -93,9 +105,10 @@ fun PlayerControlsOverlay(
     var showSpeedSelector by remember { mutableStateOf(false) }
     var showSubtitleDelay by remember { mutableStateOf(false) }
     var showChapterList by remember { mutableStateOf(false) }
+    var showDecoderSelector by remember { mutableStateOf(false) }
 
     // Track when any panel is open and notify parent
-    val isPanelOpen = showAudioSheet || showSubtitleSheet || showResizeSelector || showSpeedSelector || showSubtitleDelay || showChapterList
+    val isPanelOpen = showAudioSheet || showSubtitleSheet || showResizeSelector || showSpeedSelector || showSubtitleDelay || showChapterList || showDecoderSelector
     LaunchedEffect(isPanelOpen) {
         if (isPanelOpen) onPanelOpened() else onPanelClosed()
     }
@@ -140,86 +153,123 @@ fun PlayerControlsOverlay(
                 )
                 .statusBarsPadding()
                 .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(top = 4.dp)
+                .padding(top = 8.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Back Button
                 IconButton(
                     onClick = onBack,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.4f))
                 ) {
-                    Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
                 }
-                Spacer(Modifier.width(4.dp))
-                Column(
-                    modifier = Modifier.weight(1f, fill = false)
+                Spacer(Modifier.width(12.dp))
+
+                // File Name Pill
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = fileName,
                         color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+                Spacer(Modifier.width(12.dp))
+
+                // Time Pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
                     Text(
-                        text = engineLabel,
-                        color = engineColor,
-                        style = MaterialTheme.typography.labelSmall
+                        text = "${FileUtils.formatDuration(currentPosition)} • ${FileUtils.formatDuration(duration)}",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Spacer(Modifier.width(48.dp))
+                Spacer(Modifier.width(12.dp))
+                
+                // Top Right Icons Row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Decoder Text Button
+                    TextButton(onClick = { showDecoderSelector = true }) {
+                        Text(decoderMode.uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    ControlIconButton(Icons.Default.Audiotrack, "Audio") { showAudioSheet = true }
+                    ControlIconButton(Icons.Default.Subtitles, "Sub") { showSubtitleSheet = true }
+                    ControlIconButton(Icons.Default.Bookmarks, "Chapters") {
+                        if (chapters.isNotEmpty()) showChapterList = true
+                        else Toast.makeText(context, "No chapters found", Toast.LENGTH_SHORT).show()
+                    }
+                    ControlIconButton(Icons.Default.MoreVert, "More") { showSubtitleDelay = true }
+                }
             }
         }
 
         // Center play controls
         Row(
             modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            horizontalArrangement = Arrangement.spacedBy(48.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = onSeekBackward,
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(64.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
             ) {
                 Icon(
                     Icons.Default.Replay10, "Rewind 10s",
-                    tint = Color.White, modifier = Modifier.size(32.dp)
+                    tint = Color.White, modifier = Modifier.size(36.dp)
                 )
             }
 
             IconButton(
                 onClick = onPlayPause,
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(88.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
+                    .background(Color.Black.copy(alpha = 0.5f))
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = "Play/Pause",
                     tint = Color.White,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(56.dp)
                 )
             }
 
             IconButton(
                 onClick = onSeekForward,
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(64.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.4f))
             ) {
                 Icon(
                     Icons.Default.Forward10, "Forward 10s",
-                    tint = Color.White, modifier = Modifier.size(32.dp)
+                    tint = Color.White, modifier = Modifier.size(36.dp)
                 )
             }
         }
@@ -236,130 +286,109 @@ fun PlayerControlsOverlay(
                 )
                 .windowInsetsPadding(WindowInsets.displayCutout)
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
         ) {
-            // Chapter markers on seekbar
-            if (chapters.isNotEmpty() && duration > 0) {
-                val primaryColor = MaterialTheme.colorScheme.primary
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .padding(horizontal = 16.dp)
-                ) {
-                    chapters.forEach { chapter ->
-                        val fraction = chapter.startMs.toFloat() / duration.toFloat()
-                        val x = fraction * size.width
-                        drawCircle(
-                            color = primaryColor,
-                            radius = 4f,
-                            center = Offset(x, size.height / 2),
-                            style = Fill
-                        )
-                    }
-                }
-            }
-
-            // Wavy seekbar
-            val displayFraction = if (isSeeking) seekFraction
-                else if (duration > 0) currentPosition.toFloat() / duration.toFloat()
-                else 0f
-
-            val animatedFraction by animateFloatAsState(
-                targetValue = displayFraction,
-                animationSpec = androidx.compose.animation.core.tween(150),
-                label = "seekbar"
-            )
-
-            WavySeekbar(
-                fraction = if (isSeeking) seekFraction else animatedFraction,
-                bufferedFraction = if (duration > 0) bufferedPercentage / 100f else 0f,
-                onSeek = { fraction ->
-                    isSeeking = true
-                    seekFraction = fraction
-                },
-                onSeekFinished = {
-                    onSeekTo((seekFraction * duration).toLong())
-                    isSeeking = false
-                },
-                isPlaying = isPlaying,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            )
-
-            // Time row in capsule
+            // Control buttons row (split left and right)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
                     .padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = FileUtils.formatDuration(
-                        if (isSeeking) (seekFraction * duration).toLong() else currentPosition
-                    ),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium
-                )
-                if (playbackSpeed != 1.0f) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "${playbackSpeed}x",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                // Left Group
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ControlIconButton(Icons.Default.Lock, "Lock", true) { onLockToggle() }
+                    ControlIconButton(Icons.Default.Speed, "Speed", true) { showSpeedSelector = true }
+                    if (chapters.isNotEmpty()) {
+                        ControlIconButton(Icons.Default.SkipPrevious, "Prev", true) { onChapterPrevious() }
+                        ControlIconButton(Icons.Default.SkipNext, "Next", true) { onChapterNext() }
                     }
                 }
+                
+                // Right Group
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ControlIconButton(Icons.Default.OpenInNew, "Ext", true) { onOpenExternal() }
+                    ControlIconButton(Icons.Default.AspectRatio, "Resize", true) { showResizeSelector = true }
+                }
+            }
+
+            // Thumbnail preview
+            if (isSeeking && seekThumbnail != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    val previewWidth = 160.dp
+                    val thumbXOffset = (seekFraction * LocalConfiguration.current.screenWidthDp).dp - (previewWidth / 2)
+                    
+                    Image(
+                        bitmap = seekThumbnail.asImageBitmap(),
+                        contentDescription = "Seek Preview",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = previewWidth, height = 90.dp)
+                            .offset(x = thumbXOffset.coerceIn(0.dp, LocalConfiguration.current.screenWidthDp.dp - previewWidth))
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                    )
+                }
+            }
+
+            // Inline Seekbar Row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Current Time
+                Text(
+                    text = FileUtils.formatDuration(if (isSeeking) (seekFraction * duration).toLong() else currentPosition),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.width(56.dp)
+                )
+                
+                // Seekbar Box to overlay markers on wavy seekbar
+                Box(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    val displayFraction = if (isSeeking) seekFraction
+                        else if (duration > 0) currentPosition.toFloat() / duration.toFloat()
+                        else 0f
+
+                    val animatedFraction by animateFloatAsState(
+                        targetValue = displayFraction,
+                        animationSpec = androidx.compose.animation.core.tween(150),
+                        label = "seekbar"
+                    )
+
+                    WavySeekbar(
+                        fraction = if (isSeeking) seekFraction else animatedFraction,
+                        bufferedFraction = if (duration > 0) bufferedPercentage / 100f else 0f,
+                        duration = duration,
+                        chapters = chapters,
+                        onSeek = { fraction ->
+                            isSeeking = true
+                            seekFraction = fraction
+                            onScrubbing((fraction * duration).toLong())
+                        },
+                        onSeekFinished = {
+                            onSeekTo((seekFraction * duration).toLong())
+                            isSeeking = false
+                            onScrubbingFinished()
+                        },
+                        isPlaying = isPlaying,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+                }
+                
+                // Total Time
                 Text(
                     text = FileUtils.formatDuration(duration),
                     color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.width(56.dp)
                 )
-            }
-
-            // Control buttons row (icon-only, scrollable)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(Modifier.width(2.dp))
-
-                ControlIconButton(Icons.Default.Lock, "Lock") { onLockToggle() }
-                ControlIconButton(Icons.Default.AspectRatio, currentResizeMode.uppercase()) { showResizeSelector = true }
-                ControlIconButton(Icons.Default.Audiotrack, "Audio") { showAudioSheet = true }
-                ControlIconButton(Icons.Default.Subtitles, "Sub") { showSubtitleSheet = true }
-                ControlIconButton(Icons.Default.Timer, "Delay") { showSubtitleDelay = true }
-                ControlIconButton(Icons.Default.Speed, "${playbackSpeed}x") { showSpeedSelector = true }
-                ControlIconButton(Icons.Default.OpenInNew, "Ext") { onOpenExternal() }
-
-                if (chapters.isNotEmpty()) {
-                    ControlIconButton(Icons.Default.SkipPrevious, "Prev") { onChapterPrevious() }
-                }
-                ControlIconButton(Icons.Default.Bookmarks, "Ch") {
-                    if (chapters.isNotEmpty()) {
-                        showChapterList = true
-                    } else {
-                        Toast.makeText(context, "No chapters found", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                if (chapters.isNotEmpty()) {
-                    ControlIconButton(Icons.Default.SkipNext, "Next") { onChapterNext() }
-                }
-
-                Spacer(Modifier.width(2.dp))
             }
         }
     }
@@ -410,6 +439,14 @@ fun PlayerControlsOverlay(
         )
     }
 
+    if (showDecoderSelector) {
+        DecoderSelector(
+            currentMode = decoderMode,
+            onSelect = { onDecoderModeChange(it); showDecoderSelector = false },
+            onDismiss = { showDecoderSelector = false }
+        )
+    }
+
     if (showChapterList && chapters.isNotEmpty()) {
         ChapterListSheet(
             chapters = chapters,
@@ -429,6 +466,8 @@ fun PlayerControlsOverlay(
 private fun WavySeekbar(
     fraction: Float,
     bufferedFraction: Float,
+    duration: Long = 0L,
+    chapters: List<ChapterInfo> = emptyList(),
     onSeek: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     isPlaying: Boolean = true,
@@ -458,6 +497,7 @@ private fun WavySeekbar(
     Canvas(
         modifier = modifier
             .height(28.dp)
+            .graphicsLayer { alpha = 0.99f } // Required for BlendMode.Clear to only clear the canvas layer
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
@@ -481,8 +521,8 @@ private fun WavySeekbar(
             }
     ) {
         val trackY = size.height / 2
-        val trackHeight = 4.dp.toPx()
-        val maxWaveAmplitude = 4.dp.toPx()
+        val trackHeight = 6.dp.toPx()
+        val maxWaveAmplitude = 5.dp.toPx()
         val waveAmplitude = maxWaveAmplitude * waveAmplitudeFactor
         val waveFrequency = 0.06f
         val activeWidth = fraction * size.width
@@ -495,7 +535,7 @@ private fun WavySeekbar(
                 color = Color.White.copy(alpha = 0.15f),
                 start = Offset(inactiveStartX, trackY),
                 end = Offset(size.width, trackY),
-                strokeWidth = 3.dp.toPx(),
+                strokeWidth = 4.dp.toPx(),
                 cap = androidx.compose.ui.graphics.StrokeCap.Round
             )
         }
@@ -506,7 +546,7 @@ private fun WavySeekbar(
                 color = Color.White.copy(alpha = 0.25f),
                 start = Offset(activeWidth, trackY),
                 end = Offset(bufferedWidth, trackY),
-                strokeWidth = 3.dp.toPx(),
+                strokeWidth = 4.dp.toPx(),
                 cap = androidx.compose.ui.graphics.StrokeCap.Round
             )
         }
@@ -532,30 +572,44 @@ private fun WavySeekbar(
             )
         }
 
-        // Thumb
-        val thumbRadius = 6.dp.toPx()
-        val thumbX = activeWidth.coerceIn(thumbRadius, size.width - thumbRadius)
+        // Cut chapter gaps
+        if (duration > 0 && chapters.isNotEmpty()) {
+            chapters.forEach { chapter ->
+                val chFraction = chapter.startMs.toFloat() / duration.toFloat()
+                if (chFraction > 0f && chFraction < 1f) {
+                    val gapX = chFraction * size.width
+                    drawLine(
+                        color = Color.Transparent,
+                        start = Offset(gapX, trackY - 12.dp.toPx()),
+                        end = Offset(gapX, trackY + 12.dp.toPx()),
+                        strokeWidth = 2.5.dp.toPx(),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Clear
+                    )
+                }
+            }
+        }
+
+        // Thumb (Vertical Pill)
+        val thumbWidth = 6.dp.toPx()
+        val thumbHeight = 20.dp.toPx()
+        val thumbX = activeWidth.coerceIn(thumbWidth / 2, size.width - thumbWidth / 2)
         val thumbY = if (activeWidth > 2f && waveAmplitude > 0.1f) {
             trackY + kotlin.math.sin((thumbX * waveFrequency + wavePhase).toDouble()).toFloat() * waveAmplitude
         } else trackY
 
         // Thumb glow
-        drawCircle(
+        drawRoundRect(
             color = primaryColor.copy(alpha = 0.25f),
-            radius = thumbRadius * 1.5f,
-            center = Offset(thumbX, thumbY)
+            topLeft = Offset(thumbX - thumbWidth * 1.5f / 2, thumbY - thumbHeight * 1.5f / 2),
+            size = androidx.compose.ui.geometry.Size(thumbWidth * 1.5f, thumbHeight * 1.5f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth * 1.5f / 2)
         )
         // Thumb solid
-        drawCircle(
+        drawRoundRect(
             color = primaryColor,
-            radius = thumbRadius,
-            center = Offset(thumbX, thumbY)
-        )
-        // Inner dot
-        drawCircle(
-            color = Color.White,
-            radius = thumbRadius * 0.35f,
-            center = Offset(thumbX, thumbY)
+            topLeft = Offset(thumbX - thumbWidth / 2, thumbY - thumbHeight / 2),
+            size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth / 2)
         )
     }
 }
@@ -566,16 +620,24 @@ private fun WavySeekbar(
 private fun ControlIconButton(
     icon: ImageVector,
     contentDescription: String,
+    hasBackground: Boolean = false,
     onClick: () -> Unit
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(40.dp)
+        modifier = Modifier
+            .size(40.dp)
+            .then(
+                if (hasBackground) Modifier
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.15f))
+                else Modifier
+            )
     ) {
         Icon(
             icon, contentDescription,
             tint = Color.White.copy(alpha = 0.9f),
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -613,6 +675,50 @@ private fun SpeedSelector(
                             text = if (speed == 1.0f) "Normal" else "${speed}x",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (currentSpeed == speed) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+// ──── Decoder Selector ────
+
+@Composable
+private fun DecoderSelector(
+    currentMode: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val modes = listOf("hw", "hw+", "sw", "auto")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Hardware Decoder") },
+        text = {
+            Column {
+                modes.forEach { mode ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSelect(mode) }
+                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentMode == mode,
+                            onClick = { onSelect(mode) }
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = mode.uppercase(),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (currentMode == mode) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }

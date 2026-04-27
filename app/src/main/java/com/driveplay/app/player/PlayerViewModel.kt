@@ -16,7 +16,9 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.inspector.frame.FrameExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
+import android.graphics.Bitmap
 import com.driveplay.app.catalog.DriveRepository
 import com.driveplay.app.data.db.PlaybackHistoryDao
 import com.driveplay.app.data.db.PlaybackHistoryEntity
@@ -59,7 +61,13 @@ data class PlayerUiState(
     val gestureVolumeEnabled: Boolean = true,
     val gestureBrightnessEnabled: Boolean = true,
     val gestureDoubleTapEnabled: Boolean = true,
-    val gestureZoomEnabled: Boolean = true
+    val gestureZoomEnabled: Boolean = true,
+    
+    // Thumbnail
+    val seekThumbnail: Bitmap? = null,
+    
+    // Decoder
+    val decoderMode: String = "auto"
 )
 
 @UnstableApi
@@ -86,7 +94,8 @@ class PlayerViewModel @Inject constructor(
             gestureVolumeEnabled = appPreferences.gestureVolumeEnabled,
             gestureBrightnessEnabled = appPreferences.gestureBrightnessEnabled,
             gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
-            gestureZoomEnabled = appPreferences.gestureZoomEnabled
+            gestureZoomEnabled = appPreferences.gestureZoomEnabled,
+            decoderMode = appPreferences.defaultDecoder
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -100,6 +109,10 @@ class PlayerViewModel @Inject constructor(
     private var pendingSeekMs: Long = 0L
     private var hasResumed: Boolean = false
     private var positionSaveJob: kotlinx.coroutines.Job? = null
+    
+    // Frame extraction
+    private var frameExtractorJob: kotlinx.coroutines.Job? = null
+    private var persistentFrameExtractor: FrameExtractor? = null
 
     init {
         initializePlayer()
@@ -188,6 +201,11 @@ class PlayerViewModel @Inject constructor(
                             )
                         }
                     }
+
+                    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                        super.onTimelineChanged(timeline, reason)
+                        extractChapters()
+                    }
                 })
 
                 _player = exoPlayer
@@ -250,13 +268,17 @@ class PlayerViewModel @Inject constructor(
 
     private fun extractChapters() {
         val player = _player ?: return
-        val chapters = mutableListOf<com.driveplay.app.player.ui.ChapterInfo>()
 
         try {
             val timeline = player.currentTimeline
             if (timeline.windowCount > 0) {
                 val window = androidx.media3.common.Timeline.Window()
                 timeline.getWindow(0, window)
+                
+                // Fast path: if chapters are already populated
+                if (_uiState.value.chapters.isNotEmpty()) return
+                
+                val chapters = mutableListOf<com.driveplay.app.player.ui.ChapterInfo>()
                 val mediaItem = window.mediaItem
                 val extras = mediaItem.mediaMetadata.extras
 
@@ -271,13 +293,28 @@ class PlayerViewModel @Inject constructor(
                         chapters.add(com.driveplay.app.player.ui.ChapterInfo(title, startMs, endMs))
                     }
                 }
+                
+                // Virtual Chapters Fallback
+                if (chapters.isEmpty()) {
+                    val duration = player.duration
+                    if (duration > 0 && duration != androidx.media3.common.C.TIME_UNSET) {
+                        val intervalMs = 10 * 60 * 1000L // 10 minutes
+                        var currentMs = 0L
+                        var i = 1
+                        while (currentMs < duration) {
+                            chapters.add(com.driveplay.app.player.ui.ChapterInfo("Chapter $i", currentMs, kotlin.math.min(currentMs + intervalMs, duration)))
+                            currentMs += intervalMs
+                            i++
+                        }
+                    }
+                }
+                
+                if (chapters.isNotEmpty()) {
+                    _uiState.update { it.copy(chapters = chapters) }
+                }
             }
         } catch (e: Exception) {
             Log.w("PlayerVM", "Chapter extraction failed: ${e.message}")
-        }
-
-        if (chapters.isNotEmpty()) {
-            _uiState.update { it.copy(chapters = chapters) }
         }
     }
 
@@ -329,8 +366,40 @@ class PlayerViewModel @Inject constructor(
         _player?.let { it.seekTo((it.currentPosition - ms).coerceAtLeast(0)) }
     }
 
+    fun extractThumbnailAt(positionMs: Long) {
+        val streamUrl = streamProxyServer.getStreamUrl(fileId) ?: return
+        
+        frameExtractorJob?.cancel()
+        frameExtractorJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (persistentFrameExtractor == null) {
+                    val mediaItem = MediaItem.fromUri(streamUrl)
+                    persistentFrameExtractor = FrameExtractor.Builder(context, mediaItem).build()
+                }
+                val extractor = persistentFrameExtractor ?: return@launch
+                val future = extractor.getFrame(positionMs)
+                val frame = future.get() // get() blocks on IO thread until future completes
+                _uiState.update { it.copy(seekThumbnail = frame.bitmap) }
+            } catch (e: Exception) {
+                Log.w("PlayerVM", "Thumbnail extraction failed: ${e.message}")
+            }
+        }
+    }
+    
+    fun clearThumbnail() {
+        frameExtractorJob?.cancel()
+        _uiState.update { it.copy(seekThumbnail = null) }
+    }
+
     fun toggleControls() {
         _uiState.update { it.copy(showControls = !it.showControls) }
+    }
+    
+    fun setDecoderMode(mode: String) {
+        _uiState.update { it.copy(decoderMode = mode) }
+        appPreferences.defaultDecoder = mode
+        // For a full decoder change, ExoPlayer would need to be re-initialized.
+        // We save it to preferences so it applies on next playback or manual reload.
     }
 
     fun showControls() {
@@ -462,9 +531,15 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         positionSaveJob?.cancel()
+        frameExtractorJob?.cancel()
         savePlaybackPosition()
+        
+        // Revert to releasing on the main thread to prevent IllegalStateException.
+        // ExoPlayer must be released on the thread it was created on.
         _player?.release()
         _player = null
+        persistentFrameExtractor?.close()
+        persistentFrameExtractor = null
     }
 
     private fun startPeriodicPositionSave() {

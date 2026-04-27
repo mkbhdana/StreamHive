@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.driveplay.app.player.mpv.PlayerEngine
 import com.driveplay.app.ui.components.*
+import androidx.compose.ui.res.painterResource
+import com.driveplay.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,13 +93,14 @@ fun CatalogScreen(
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                Icons.Default.PlayCircle, null,
+                                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(32.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "DrivePlay",
+                                "StreamHive",
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold
                             )

@@ -13,12 +13,21 @@ import com.driveplay.app.ui.theme.DrivePlayTheme
 import com.driveplay.app.util.DeviceUtils
 import dagger.hilt.android.AndroidEntryPoint
 
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Install splash screen before super.onCreate
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
+        var keepSplash = true
+        lifecycleScope.launch {
+            delay(1500)
+            keepSplash = false
+        }
+        splashScreen.setKeepOnScreenCondition { keepSplash }
 
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

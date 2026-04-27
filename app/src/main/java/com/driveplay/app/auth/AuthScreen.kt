@@ -34,6 +34,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.driveplay.app.data.model.AuthState
+import androidx.compose.ui.res.painterResource
+import com.driveplay.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,16 +100,16 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(48.dp))
 
             Icon(
-                imageVector = Icons.Default.PlayCircle,
+                painter = painterResource(id = R.drawable.ic_launcher_foreground),
                 contentDescription = null,
-                modifier = Modifier.size(80.dp),
+                modifier = Modifier.size(100.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "DrivePlay",
+                text = "StreamHive",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground

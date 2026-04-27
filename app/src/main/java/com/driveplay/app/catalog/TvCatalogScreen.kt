@@ -18,9 +18,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.driveplay.app.R
 import com.driveplay.app.ui.components.LoadingIndicator
 import com.driveplay.app.ui.components.TvMediaCard
 import com.driveplay.app.ui.theme.*
@@ -61,19 +64,22 @@ fun TvCatalogScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
-                        Icons.Default.PlayCircle,
+                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
                         contentDescription = null,
-                        tint = Purple60,
-                        modifier = Modifier.size(40.dp)
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(Modifier.width(12.dp))
                     Text(
-                        text = "DrivePlay",
+                        text = "StreamHive",
                         style = MaterialTheme.typography.headlineMedium,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     // Drive name

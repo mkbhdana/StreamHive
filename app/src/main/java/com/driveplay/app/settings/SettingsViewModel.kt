@@ -319,4 +319,39 @@ class SettingsViewModel @Inject constructor(
     fun browserCurrentFolderId(): String? {
         return folderBrowserState.folderStack.lastOrNull()?.first
     }
+
+    // ──── Data Management ────
+
+    fun exportSettings(uri: android.net.Uri) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val json = prefs.exportToJson()
+                context.contentResolver.openOutputStream(uri)?.use {
+                    it.write(json.toByteArray())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun importSettings(uri: android.net.Uri, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (json != null) {
+                    val success = prefs.importFromJson(json)
+                    if (success) {
+                        uiState = loadState()
+                    }
+                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(success) }
+                } else {
+                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false) }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false) }
+            }
+        }
+    }
 }

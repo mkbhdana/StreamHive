@@ -28,6 +28,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.driveplay.app.player.gesture.GestureIndicatorOverlay
 import com.driveplay.app.player.gesture.GestureState
 import com.driveplay.app.player.gesture.PlayerGestureHandler
@@ -43,8 +46,15 @@ fun PlayerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
+
+    // Intercept back navigation to smoothly pause the player before exiting
+    val handleBack = {
+        viewModel.player?.pause()
+        onBack()
+    }
 
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -101,7 +111,20 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler { onBack() }
+    // Auto pause player on backgrounding
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.player?.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    BackHandler { handleBack() }
 
     Box(
         modifier = Modifier
@@ -122,6 +145,12 @@ fun PlayerScreen(
                 },
                 update = { view ->
                     view.resizeMode = resizeMode
+                    if (view.player != player) {
+                        view.player = player
+                    }
+                },
+                onRelease = { view ->
+                    view.player = null
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -148,35 +177,18 @@ fun PlayerScreen(
             GestureIndicatorOverlay(gestureState = gestureState.value)
         }
 
-        // Loading overlay — shown until video content actually loads
+        // Loading indicator (modern, no text)
+        // Keeps play/pause and seek buttons interactable because it doesn't have a background overlay blocking touches
         if (uiState.isLoading) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.7f)),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 4.dp,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Text(
-                        text = "Loading...",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = uiState.fileName,
-                        color = Color.White.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1
-                    )
-                }
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 4.dp,
+                    modifier = Modifier.size(64.dp)
+                )
             }
         }
 
@@ -199,7 +211,8 @@ fun PlayerScreen(
                     Spacer(Modifier.height(16.dp))
                     Text(uiState.error ?: "", color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = onBack) { Text("Go Back") }
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = handleBack) { Text("Go Back") }
                 }
             }
         }
@@ -221,18 +234,23 @@ fun PlayerScreen(
                 bufferedPercentage = uiState.bufferedPercentage,
                 isLocked = uiState.isLocked,
                 currentResizeMode = uiState.resizeMode,
+                decoderMode = uiState.decoderMode,
                 playbackSpeed = uiState.playbackSpeed,
                 subtitleDelay = uiState.subtitleDelay,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
                 chapters = uiState.chapters,
-                onBack = onBack,
+                seekThumbnail = uiState.seekThumbnail,
+                onBack = handleBack,
                 onPlayPause = viewModel::togglePlayPause,
                 onSeekForward = viewModel::seekForward,
                 onSeekBackward = viewModel::seekBackward,
                 onSeekTo = viewModel::seekTo,
+                onScrubbing = { positionMs -> viewModel.extractThumbnailAt(positionMs) },
+                onScrubbingFinished = { viewModel.clearThumbnail() },
                 onLockToggle = viewModel::toggleLock,
                 onResizeModeChange = viewModel::setResizeMode,
+                onDecoderModeChange = viewModel::setDecoderMode,
                 onAudioTrackSelect = viewModel::selectAudioTrack,
                 onSubtitleTrackSelect = viewModel::selectSubtitleTrack,
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
@@ -247,7 +265,7 @@ fun PlayerScreen(
                         viewModel.player?.pause()
                         ExternalPlayerLauncher.launch(context, url, uiState.fileName)
                         // Navigate back so player screen closes
-                        onBack()
+                        handleBack()
                     }
                 },
                 onPanelOpened = { controlsInteractionActive = true },

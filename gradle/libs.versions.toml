@@ -46,10 +46,12 @@ kotlinxSerialization = "1.7.3"
 
 # Core
 coreKtx = "1.15.0"
+coreSplashscreen = "1.0.1"
 
 [libraries]
 # Core
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 
 # Compose BOM
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -82,7 +84,9 @@ media3-session = { group = "androidx.media3", name = "media3-session", version.r
 media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exoplayer-dash", version.ref = "media3" }
 media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
-
+media3-ui-compose = { group = "androidx.media3", name = "media3-ui-compose", version.ref = "media3" }
+media3-common-ktx = { group = "androidx.media3", name = "media3-common-ktx", version.ref = "media3" }
+media3-inspector-frame = { group = "androidx.media3", name = "media3-inspector-frame", version.ref = "media3" }
 # Hilt
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }

@@ -129,6 +129,60 @@ class AppPreferences @Inject constructor(
         }
     }
 
+    fun clearAll() {
+        prefs.edit().clear().apply()
+    }
+
+    fun exportToJson(): String {
+        val allPrefs = prefs.all
+        val jsonObject = org.json.JSONObject()
+        for ((key, value) in allPrefs) {
+            if (value is Set<*>) {
+                val jsonArray = org.json.JSONArray()
+                value.forEach { jsonArray.put(it) }
+                jsonObject.put(key, jsonArray)
+            } else {
+                jsonObject.put(key, value)
+            }
+        }
+        return jsonObject.toString(2)
+    }
+
+    fun importFromJson(jsonString: String): Boolean {
+        return try {
+            val jsonObject = org.json.JSONObject(jsonString)
+            val editor = prefs.edit()
+            
+            // Optional: clear existing first if we want a pure import, 
+            // but usually we just overwrite keys present in json.
+            
+            val keys = jsonObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = jsonObject.get(key)
+                when (value) {
+                    is Boolean -> editor.putBoolean(key, value)
+                    is Int -> editor.putInt(key, value)
+                    is Float -> editor.putFloat(key, value)
+                    is Long -> editor.putLong(key, value)
+                    is String -> editor.putString(key, value)
+                    is org.json.JSONArray -> {
+                        val set = HashSet<String>()
+                        for (i in 0 until value.length()) {
+                            set.add(value.getString(i))
+                        }
+                        editor.putStringSet(key, set)
+                    }
+                }
+            }
+            editor.apply()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     companion object {
         // Drive
         private const val KEY_SELECTED_DRIVE = "selected_drive_id"

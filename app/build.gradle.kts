@@ -59,6 +59,7 @@ android {
 dependencies {
     // Core
     implementation(libs.core.ktx)
+    implementation(libs.core.splashscreen)
 
     // Compose
     implementation(platform(libs.compose.bom))
@@ -91,7 +92,9 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.datasource.okhttp)
-
+    implementation(libs.media3.ui.compose)
+    implementation(libs.media3.common.ktx)
+    implementation(libs.media3.inspector.frame)
     // Hilt DI
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
