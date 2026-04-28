@@ -29,6 +29,7 @@ fun TrackSelectionSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
+        HideBottomSheetSystemUI()
         Column(
             modifier = Modifier
                 .fillMaxWidth()

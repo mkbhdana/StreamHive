@@ -39,7 +39,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.viewinterop.AndroidView
 import com.driveplay.app.util.FileUtils
+
+@Composable
+fun HideBottomSheetSystemUI() {
+    AndroidView(
+        factory = { ctx ->
+            object : android.view.View(ctx) {
+                override fun onAttachedToWindow() {
+                    super.onAttachedToWindow()
+                    var parentView = this.parent
+                    var dialogWindow: android.view.Window? = null
+                    while (parentView != null) {
+                        if (parentView is DialogWindowProvider) {
+                            dialogWindow = parentView.window
+                            break
+                        }
+                        parentView = parentView.parent
+                    }
+                    dialogWindow?.let { win ->
+                        WindowCompat.setDecorFitsSystemWindows(win, false)
+                        WindowInsetsControllerCompat(win, win.decorView).apply {
+                            hide(WindowInsetsCompat.Type.systemBars())
+                            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        }
+                    }
+                }
+            }
+        },
+        modifier = androidx.compose.ui.Modifier.size(0.dp)
+    )
+}
 
 data class TrackInfo(
     val index: Int,
@@ -698,7 +734,10 @@ private fun SpeedSelector(
 ) {
     val speeds = listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        HideBottomSheetSystemUI()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -740,7 +779,10 @@ private fun DecoderSelector(
 ) {
     val modes = listOf("hw", "hw+", "sw", "auto")
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        HideBottomSheetSystemUI()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
