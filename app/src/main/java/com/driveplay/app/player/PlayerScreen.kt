@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -147,11 +148,19 @@ fun PlayerScreen(
                     if (view.player != player) {
                         view.player = player
                     }
+                    view.subtitleView?.setFractionalTextSize(
+                        androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION / gestureState.value.zoomLevel
+                    )
                 },
                 onRelease = { view ->
                     view.player = null
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = gestureState.value.zoomLevel
+                        scaleY = gestureState.value.zoomLevel
+                    }
             )
         }
 

@@ -51,6 +51,10 @@ class MpvPlayerViewModel @Inject constructor(
     private var pendingSeekMs: Long = 0L
     private var hasResumed: Boolean = false
     private var positionSaveJob: kotlinx.coroutines.Job? = null
+    
+    // Error retry mechanism
+    private var retryCount = 0
+    private val MAX_RETRIES = 3
 
     init {
         setupPlayer()
@@ -131,6 +135,8 @@ class MpvPlayerViewModel @Inject constructor(
 
                     override fun onPositionChanged(positionMs: Long) {
                         _uiState.update { it.copy(currentPosition = positionMs) }
+                        // Reset retries once we have a valid playback position
+                        if (positionMs > 0) retryCount = 0
                         // Resume to saved position once we get a valid position (file loaded)
                         if (!hasResumed && pendingSeekMs > 0 && positionMs >= 0) {
                             mpvPlayer.seekTo(pendingSeekMs)
@@ -140,8 +146,19 @@ class MpvPlayerViewModel @Inject constructor(
                     }
 
                     override fun onError(message: String) {
-                        _uiState.update {
-                            it.copy(error = "MPV Error: $message", isLoading = false)
+                        if (retryCount < MAX_RETRIES) {
+                            retryCount++
+                            val pos = _uiState.value.currentPosition
+                            if (pos > 0) pendingSeekMs = pos
+                            hasResumed = false
+                            android.util.Log.w("MpvVM", "MPV Error. Retrying ($retryCount/$MAX_RETRIES): $message")
+                            val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
+                            mpvPlayer.loadFile(streamUrl)
+                            mpvPlayer.play()
+                        } else {
+                            _uiState.update {
+                                it.copy(error = "MPV Error: $message (Failed after $MAX_RETRIES retries)", isLoading = false)
+                            }
                         }
                     }
 

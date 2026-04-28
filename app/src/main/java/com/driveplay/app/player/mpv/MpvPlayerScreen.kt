@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -92,6 +93,10 @@ fun MpvPlayerScreen(
         }
     }
 
+    LaunchedEffect(gestureState.value.zoomLevel) {
+        viewModel.mpvPlayer.setSubScale((1.0 / gestureState.value.zoomLevel).toDouble())
+    }
+
     BackHandler { handleBack() }
 
     Box(
@@ -106,7 +111,12 @@ fun MpvPlayerScreen(
                     viewModel.attachSurface(surface)
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = gestureState.value.zoomLevel
+                    scaleY = gestureState.value.zoomLevel
+                }
         )
 
         // Gesture layer

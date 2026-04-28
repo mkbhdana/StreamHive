@@ -114,6 +114,10 @@ class PlayerViewModel @Inject constructor(
     private var hasResumed: Boolean = false
     private var positionSaveJob: kotlinx.coroutines.Job? = null
     
+    // Error retry mechanism
+    private var retryCount = 0
+    private val MAX_RETRIES = 3
+    
     // Frame extraction
     private var frameExtractorJob: kotlinx.coroutines.Job? = null
     private var persistentFrameExtractor: FrameExtractor? = null
@@ -224,6 +228,7 @@ class PlayerViewModel @Inject constructor(
                             )
                         }
                         if (playbackState == Player.STATE_READY) {
+                            retryCount = 0 // Reset retries on successful playback
                             // Resume to saved position once player is ready
                             if (!hasResumed && pendingSeekMs > 0) {
                                 exoPlayer.seekTo(pendingSeekMs)
@@ -249,11 +254,21 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        _uiState.update {
-                            it.copy(
-                                error = "Playback error: ${error.message}",
-                                isLoading = false
-                            )
+                        if (retryCount < MAX_RETRIES) {
+                            retryCount++
+                            val pos = _player?.currentPosition ?: 0L
+                            if (pos > 0) pendingSeekMs = pos
+                            hasResumed = false
+                            Log.w("PlayerVM", "Playback error. Retrying ($retryCount/$MAX_RETRIES)", error)
+                            _player?.prepare()
+                            _player?.playWhenReady = true
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    error = "Playback error: ${error.message} (Failed after $MAX_RETRIES retries)",
+                                    isLoading = false
+                                )
+                            }
                         }
                     }
 

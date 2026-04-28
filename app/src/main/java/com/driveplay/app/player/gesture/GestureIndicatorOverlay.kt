@@ -75,13 +75,13 @@ fun GestureIndicatorOverlay(
                 .offset(y = (-100).dp)
         ) {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
                 colors = CardDefaults.cardColors(
                     containerColor = Color.Black.copy(alpha = 0.75f)
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
@@ -115,20 +115,23 @@ fun GestureIndicatorOverlay(
             }
         }
 
-        // Zoom indicator — center
+        // Zoom indicator — center top
         AnimatedVisibility(
             visible = gestureState.showZoomIndicator,
-            enter = fadeIn(tween(100)) + scaleIn(tween(150)),
-            exit = fadeOut(tween(300)) + scaleOut(tween(300))
+            enter = fadeIn(tween(100)) + slideInVertically(initialOffsetY = { -20 }),
+            exit = fadeOut(tween(300)) + slideOutVertically(targetOffsetY = { -20 }),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp)
         ) {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
                 colors = CardDefaults.cardColors(
                     containerColor = Color.Black.copy(alpha = 0.75f)
                 )
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

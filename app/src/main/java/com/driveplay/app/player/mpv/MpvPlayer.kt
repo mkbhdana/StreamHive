@@ -285,6 +285,11 @@ class MpvPlayer(private val context: Context) {
         setPropertyString("sid", "no")
     }
 
+    fun setSubScale(scale: Double) {
+        if (!isInitialized) return
+        setPropertyDouble("sub-scale", scale)
+    }
+
     fun setSubtitleDelay(delaySeconds: Double) {
         if (!isInitialized) return
         setPropertyDouble("sub-delay", delaySeconds)

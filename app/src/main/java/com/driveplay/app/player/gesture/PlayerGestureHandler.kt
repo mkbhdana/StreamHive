@@ -81,7 +81,12 @@ fun PlayerGestureHandler(
         hideJob?.cancel()
         hideJob = coroutineScope.launch {
             delay(800)
-            gestureState.value = GestureState()
+            gestureState.value = gestureState.value.copy(
+                showVolumeIndicator = false,
+                showBrightnessIndicator = false,
+                showSeekIndicator = false,
+                showZoomIndicator = false
+            )
         }
     }
 
@@ -120,6 +125,14 @@ fun PlayerGestureHandler(
                         var isPinching = false
                         var lastPinchDist = 0f
                         var currentZoom = gestureState.value.zoomLevel.coerceIn(0.5f, 3f)
+
+                        var ignoreGesture = false
+                        val edgeMarginX = screenWidthPx * 0.08f
+                        val edgeMarginY = screenHeightPx * 0.08f
+                        if (downPos.x < edgeMarginX || downPos.x > screenWidthPx - edgeMarginX ||
+                            downPos.y < edgeMarginY || downPos.y > screenHeightPx - edgeMarginY) {
+                            ignoreGesture = true
+                        }
 
                         val initialVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                         val window = (context as? android.app.Activity)?.window
@@ -183,7 +196,7 @@ fun PlayerGestureHandler(
 
                             val activePointers = changes.filter { it.pressed }
 
-                            if (activePointers.size >= 2 && !isDragging && zoomEnabled) {
+                            if (activePointers.size >= 2 && !isDragging && zoomEnabled && !ignoreGesture) {
                                 // Pinch gesture
                                 isPinching = true
                                 val p1 = activePointers[0].position
@@ -213,7 +226,7 @@ fun PlayerGestureHandler(
                                 totalDragX += dragDelta.x
                                 totalDragY += dragDelta.y
 
-                                if (!isDragging) {
+                                if (!isDragging && !ignoreGesture) {
                                     val absX = abs(totalDragX)
                                     val absY = abs(totalDragY)
                                     if (absX > dragThreshold || absY > dragThreshold) {
