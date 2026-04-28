@@ -162,7 +162,7 @@ fun PlayerControlsOverlay(
                         listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
                     )
                 )
-                .padding(6.dp)
+                .padding(start = 6.dp, end = 6.dp, bottom = 6.dp, top = 8.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -319,7 +319,7 @@ fun PlayerControlsOverlay(
                         val modes = listOf("fit", "fill", "zoom", "16:9", "4:3")
                         val nextMode = modes[(modes.indexOf(currentResizeMode) + 1) % modes.size]
                         onResizeModeChange(nextMode)
-                        resizePillText = nextMode.replaceFirstChar { it.uppercase() }
+                        resizePillText = if (nextMode == "zoom") "Crop" else nextMode.replaceFirstChar { it.uppercase() }
                         showResizePill = true
                     }
                 }

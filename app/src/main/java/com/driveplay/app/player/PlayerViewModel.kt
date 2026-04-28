@@ -207,6 +207,13 @@ class PlayerViewModel @Inject constructor(
                             .createMediaSource(mediaItem)
 
                         setMediaSource(mediaSource)
+                        
+                        val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+                            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                            .build()
+                        setAudioAttributes(audioAttributes, true)
+                        
                         playWhenReady = true
                         prepare()
                     }

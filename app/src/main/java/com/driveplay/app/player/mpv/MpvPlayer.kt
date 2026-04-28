@@ -35,6 +35,56 @@ class MpvPlayer(private val context: Context) {
 
     var onSurfaceReady: (() -> Unit)? = null
 
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+    private val audioFocusRequest = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener { focusChange ->
+                handleAudioFocusChange(focusChange)
+            }
+            .build()
+    } else null
+
+    private val audioFocusChangeListener = android.media.AudioManager.OnAudioFocusChangeListener { focusChange ->
+        handleAudioFocusChange(focusChange)
+    }
+
+    private fun handleAudioFocusChange(focusChange: Int) {
+        if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS ||
+            focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            pause()
+        } else if (focusChange == android.media.AudioManager.AUDIOFOCUS_GAIN) {
+            play()
+        }
+    }
+
+    private fun requestAudioFocus() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.requestAudioFocus(audioFocusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                android.media.AudioManager.STREAM_MUSIC,
+                android.media.AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+    }
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -234,12 +284,14 @@ class MpvPlayer(private val context: Context) {
 
     fun play() {
         if (!isInitialized) return
+        requestAudioFocus()
         setPropertyBoolean("pause", false)
         _isPlaying.value = true
     }
 
     fun pause() {
         if (!isInitialized) return
+        abandonAudioFocus()
         setPropertyBoolean("pause", true)
         _isPlaying.value = false
     }
@@ -356,6 +408,7 @@ class MpvPlayer(private val context: Context) {
 
     fun destroy() {
         if (!isInitialized) return
+        abandonAudioFocus()
         try {
             command(arrayOf("quit"))
             mpvLibClass?.getMethod("destroy")?.invoke(mpvInstance)

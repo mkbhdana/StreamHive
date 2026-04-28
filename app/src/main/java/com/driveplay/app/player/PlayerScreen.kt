@@ -132,35 +132,73 @@ fun PlayerScreen(
     ) {
         // Video surface
         viewModel.player?.let { player ->
-            val resizeMode = viewModel.getAspectRatioResizeMode()
+            val resizeModeInt = when (uiState.resizeMode) {
+                "fit" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                "fill" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                "zoom" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                "16:9" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+                "4:3" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+                else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            }
+            val currentZoom = gestureState.value.zoomLevel
+            val context = androidx.compose.ui.platform.LocalContext.current
+            
+            // Create an independent subtitle view
+            val independentSubtitleView = remember { 
+                androidx.media3.ui.SubtitleView(context).apply {
+                    setUserDefaultStyle()
+                    setUserDefaultTextSize()
+                }
+            }
+            
+            // Listen to ExoPlayer cues manually for the independent subtitle view
+            DisposableEffect(player) {
+                val listener = object : androidx.media3.common.Player.Listener {
+                    override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                        independentSubtitleView.setCues(cueGroup.cues)
+                    }
+                }
+                player.addListener(listener)
+                independentSubtitleView.setCues(player.currentCues.cues)
+                onDispose {
+                    player.removeListener(listener)
+                }
+            }
+
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
                         useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        this.resizeMode = resizeMode
+                        this.resizeMode = resizeModeInt
                         this.layoutTransition = android.animation.LayoutTransition()
+                        this.subtitleView?.visibility = android.view.View.GONE
                     }
                 },
                 update = { view ->
-                    view.resizeMode = resizeMode
+                    view.resizeMode = resizeModeInt
                     if (view.player != player) {
                         view.player = player
                     }
-                    view.subtitleView?.setFractionalTextSize(
-                        androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION / gestureState.value.zoomLevel
-                    )
+                    
+                    // Apply zoom directly to the video frame, leaving the subtitle canvas completely untouched
+                    val contentFrame = view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_content_frame)
+                    contentFrame?.scaleX = currentZoom
+                    contentFrame?.scaleY = currentZoom
+                    
+                    view.subtitleView?.visibility = android.view.View.GONE
                 },
                 onRelease = { view ->
                     view.player = null
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = gestureState.value.zoomLevel
-                        scaleY = gestureState.value.zoomLevel
-                    }
+                modifier = Modifier.fillMaxSize()
+            )
+            
+            // Independent subtitle canvas overlaid on top
+            AndroidView(
+                factory = { independentSubtitleView },
+                modifier = Modifier.fillMaxSize()
             )
         }
 
