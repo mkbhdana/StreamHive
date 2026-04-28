@@ -191,6 +191,8 @@ fun MpvPlayerScreen(
                         com.driveplay.app.player.ExternalPlayerLauncher.launch(context, url, uiState.fileName)
                     }
                 },
+                episodeList = uiState.episodeList,
+                onEpisodeSelect = viewModel::playEpisode,
                 onPanelOpened = { controlsInteractionActive = true },
                 onPanelClosed = { controlsInteractionActive = false }
             )

@@ -139,6 +139,7 @@ fun PlayerScreen(
                         useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                         this.resizeMode = resizeMode
+                        this.layoutTransition = android.animation.LayoutTransition()
                     }
                 },
                 update = { view ->
@@ -262,10 +263,10 @@ fun PlayerScreen(
                         // Pause in-app player before launching external
                         viewModel.player?.pause()
                         ExternalPlayerLauncher.launch(context, url, uiState.fileName)
-                        // Navigate back so player screen closes
-                        handleBack()
                     }
                 },
+                episodeList = uiState.episodeList,
+                onEpisodeSelect = viewModel::playEpisode,
                 onPanelOpened = { controlsInteractionActive = true },
                 onPanelClosed = { controlsInteractionActive = false }
             )

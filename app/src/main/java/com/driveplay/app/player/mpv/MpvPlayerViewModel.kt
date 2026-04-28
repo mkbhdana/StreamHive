@@ -27,18 +27,19 @@ class MpvPlayerViewModel @Inject constructor(
     private val driveRepository: DriveRepository,
     private val appPreferences: AppPreferences,
     private val playbackHistoryDao: PlaybackHistoryDao,
+    private val mediaFileDao: com.driveplay.app.data.db.MediaFileDao,
     private val streamProxyServer: com.driveplay.app.player.proxy.StreamProxyServer,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val fileId: String = savedStateHandle.get<String>("fileId") ?: ""
-    private val fileName: String = java.net.URLDecoder.decode(
+    private var currentFileId: String = savedStateHandle.get<String>("fileId") ?: ""
+    private var currentFileName: String = java.net.URLDecoder.decode(
         savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
     )
 
     private val _uiState = MutableStateFlow(
         PlayerUiState(
-            fileName = fileName,
+            fileName = currentFileName,
             resizeMode = appPreferences.defaultResizeMode
         )
     )
@@ -53,6 +54,54 @@ class MpvPlayerViewModel @Inject constructor(
 
     init {
         setupPlayer()
+        fetchEpisodeList()
+    }
+
+    private fun extractSeriesName(name: String): String {
+        val regex = Regex("""(?i)(.*?)[.\s-_]*(?:S\d{1,2}\s*E\d{1,2}|\d{1,2}x\d{1,2}|Season\s*\d+\s*Episode\s*\d+)""")
+        val match = regex.find(name)
+        return if (match != null) match.groupValues[1].trim() else name.substringBeforeLast('.')
+    }
+
+    private fun fetchEpisodeList() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val currentFile = mediaFileDao.getFileById(currentFileId) ?: return@launch
+                val allFiles = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+                val seriesName = extractSeriesName(currentFileName)
+                val episodes = allFiles.filter { 
+                    !it.isFolder && 
+                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true) 
+                }
+                _uiState.update { it.copy(episodeList = episodes) }
+            } catch (e: Exception) {
+                // Log or handle error
+            }
+        }
+    }
+
+    fun playEpisode(fileId: String, fileName: String) {
+        if (fileId == currentFileId) return
+        
+        savePlaybackPosition()
+        currentFileId = fileId
+        currentFileName = fileName
+        
+        _uiState.update { 
+            it.copy(
+                fileName = fileName, 
+                isLoading = true,
+                currentPosition = 0L,
+                bufferedPercentage = 0
+            ) 
+        }
+        
+        hasResumed = false
+        pendingSeekMs = 0L
+        
+        val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
+        mpvPlayer.loadFile(streamUrl)
+        mpvPlayer.play()
     }
 
     private fun setupPlayer() {
@@ -105,14 +154,14 @@ class MpvPlayerViewModel @Inject constructor(
                     }
                 })
 
-                val history = playbackHistoryDao.getByFileId(fileId)
+                val history = playbackHistoryDao.getByFileId(currentFileId)
                 val startPosMs = if (history != null && !history.isCompleted && history.lastPosition > 0) history.lastPosition else 0L
                 if (startPosMs > 0) {
                     pendingSeekMs = startPosMs
                 }
 
                 // Use proxy URL — no auth headers needed
-                val streamUrl = streamProxyServer.getStreamUrl(fileId)
+                val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                 mpvPlayer.loadFile(streamUrl)
                 mpvPlayer.play()
 
@@ -197,7 +246,7 @@ class MpvPlayerViewModel @Inject constructor(
         _uiState.update { it.copy(showControls = false) }
     }
 
-    fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(fileId)
+    fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(currentFileId)
 
     fun toggleLock() {
         _uiState.update { it.copy(isLocked = !it.isLocked) }
@@ -260,8 +309,8 @@ class MpvPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playbackHistoryDao.upsert(
                 PlaybackHistoryEntity(
-                    fileId = fileId,
-                    fileName = fileName,
+                    fileId = currentFileId,
+                    fileName = currentFileName,
                     driveId = "",
                     lastPosition = pos,
                     duration = dur,

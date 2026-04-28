@@ -67,7 +67,10 @@ data class PlayerUiState(
     val seekThumbnail: Bitmap? = null,
     
     // Decoder
-    val decoderMode: String = "auto"
+    val decoderMode: String = "auto",
+
+    // Series episodes
+    val episodeList: List<com.driveplay.app.data.db.MediaFileEntity> = emptyList()
 )
 
 @UnstableApi
@@ -77,18 +80,19 @@ class PlayerViewModel @Inject constructor(
     private val driveRepository: DriveRepository,
     private val appPreferences: AppPreferences,
     private val playbackHistoryDao: PlaybackHistoryDao,
+    private val mediaFileDao: com.driveplay.app.data.db.MediaFileDao,
     private val streamProxyServer: com.driveplay.app.player.proxy.StreamProxyServer,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val fileId: String = savedStateHandle.get<String>("fileId") ?: ""
-    private val fileName: String = java.net.URLDecoder.decode(
+    private var currentFileId: String = savedStateHandle.get<String>("fileId") ?: ""
+    private var currentFileName: String = java.net.URLDecoder.decode(
         savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
     )
 
     private val _uiState = MutableStateFlow(
         PlayerUiState(
-            fileName = fileName,
+            fileName = currentFileName,
             resizeMode = appPreferences.defaultResizeMode,
             gestureSeekEnabled = appPreferences.gestureSeekEnabled,
             gestureVolumeEnabled = appPreferences.gestureVolumeEnabled,
@@ -116,6 +120,57 @@ class PlayerViewModel @Inject constructor(
 
     init {
         initializePlayer()
+        fetchEpisodeList()
+    }
+
+    private fun extractSeriesName(name: String): String {
+        val regex = Regex("""(?i)(.*?)[.\s-_]*(?:S\d{1,2}\s*E\d{1,2}|\d{1,2}x\d{1,2}|Season\s*\d+\s*Episode\s*\d+)""")
+        val match = regex.find(name)
+        return if (match != null) match.groupValues[1].trim() else name.substringBeforeLast('.')
+    }
+
+    private fun fetchEpisodeList() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val currentFile = mediaFileDao.getFileById(currentFileId) ?: return@launch
+                val allFiles = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+                val seriesName = extractSeriesName(currentFileName)
+                val episodes = allFiles.filter { 
+                    !it.isFolder && 
+                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true) 
+                }
+                _uiState.update { it.copy(episodeList = episodes) }
+            } catch (e: Exception) {
+                Log.e("PlayerVM", "Failed to fetch episodes", e)
+            }
+        }
+    }
+
+    fun playEpisode(fileId: String, fileName: String) {
+        if (fileId == currentFileId) return
+        
+        // Save current position before switching
+        savePlaybackPosition()
+        
+        currentFileId = fileId
+        currentFileName = fileName
+        _uiState.update { 
+            it.copy(
+                fileName = fileName, 
+                isLoading = true,
+                currentPosition = 0L,
+                bufferedPercentage = 0,
+                chapters = emptyList() // clear chapters for new file
+            ) 
+        }
+        
+        hasResumed = false
+        pendingSeekMs = 0L
+        
+        // Re-initialize player
+        _player?.release()
+        _player = null
+        initializePlayer()
     }
 
     private fun initializePlayer() {
@@ -138,7 +193,7 @@ class PlayerViewModel @Inject constructor(
                 val exoPlayer = ExoPlayer.Builder(context, renderersFactory)
                     .build()
                     .apply {
-                        val streamUrl = streamProxyServer.getStreamUrl(fileId)
+                        val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                         Log.d("ExoPlayer", "Stream URL: $streamUrl")
                         val mediaItem = MediaItem.fromUri(streamUrl)
 
@@ -153,7 +208,7 @@ class PlayerViewModel @Inject constructor(
                     }
 
                 // Load resume position (deferred until STATE_READY)
-                val history = playbackHistoryDao.getByFileId(fileId)
+                val history = playbackHistoryDao.getByFileId(currentFileId)
                 if (history != null && !history.isCompleted && history.lastPosition > 0) {
                     pendingSeekMs = history.lastPosition
                 }
@@ -294,20 +349,7 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 
-                // Virtual Chapters Fallback
-                if (chapters.isEmpty()) {
-                    val duration = player.duration
-                    if (duration > 0 && duration != androidx.media3.common.C.TIME_UNSET) {
-                        val intervalMs = 10 * 60 * 1000L // 10 minutes
-                        var currentMs = 0L
-                        var i = 1
-                        while (currentMs < duration) {
-                            chapters.add(com.driveplay.app.player.ui.ChapterInfo("Chapter $i", currentMs, kotlin.math.min(currentMs + intervalMs, duration)))
-                            currentMs += intervalMs
-                            i++
-                        }
-                    }
-                }
+                // Virtual Chapters Fallback removed
                 
                 if (chapters.isNotEmpty()) {
                     _uiState.update { it.copy(chapters = chapters) }
@@ -367,7 +409,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun extractThumbnailAt(positionMs: Long) {
-        val streamUrl = streamProxyServer.getStreamUrl(fileId) ?: return
+        val streamUrl = streamProxyServer.getStreamUrl(currentFileId) ?: return
         
         frameExtractorJob?.cancel()
         frameExtractorJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -410,7 +452,7 @@ class PlayerViewModel @Inject constructor(
         _uiState.update { it.copy(showControls = false) }
     }
 
-    fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(fileId)
+    fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(currentFileId)
 
     fun updatePosition() {
         _player?.let { player ->
@@ -560,8 +602,8 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playbackHistoryDao.upsert(
                 PlaybackHistoryEntity(
-                    fileId = fileId,
-                    fileName = fileName,
+                    fileId = currentFileId,
+                    fileName = currentFileName,
                     driveId = "",
                     lastPosition = pos,
                     duration = dur,

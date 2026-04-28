@@ -41,8 +41,14 @@ fun TvCatalogScreen(
         viewModel.navigateBack()
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    LaunchedEffect(uiState.isLoading, uiState.files.isNotEmpty()) {
+        if (!uiState.isLoading && uiState.files.isNotEmpty()) {
+            try {
+                focusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Ignore if not yet laid out
+            }
+        }
     }
 
     Box(

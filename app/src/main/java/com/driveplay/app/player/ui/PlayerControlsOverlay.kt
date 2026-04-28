@@ -92,6 +92,8 @@ fun PlayerControlsOverlay(
     onChapterPrevious: () -> Unit = {},
     onChapterSelect: (Int) -> Unit = {},
     onOpenExternal: () -> Unit = {},
+    episodeList: List<com.driveplay.app.data.db.MediaFileEntity> = emptyList(),
+    onEpisodeSelect: (String, String) -> Unit = { _, _ -> },
     onPanelOpened: () -> Unit = {},
     onPanelClosed: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -101,14 +103,23 @@ fun PlayerControlsOverlay(
     var seekFraction by remember { mutableFloatStateOf(0f) }
     var showAudioSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
-    var showResizeSelector by remember { mutableStateOf(false) }
     var showSpeedSelector by remember { mutableStateOf(false) }
     var showSubtitleDelay by remember { mutableStateOf(false) }
     var showChapterList by remember { mutableStateOf(false) }
     var showDecoderSelector by remember { mutableStateOf(false) }
+    var showEpisodeList by remember { mutableStateOf(false) }
+    var showResizePill by remember { mutableStateOf(false) }
+    var resizePillText by remember { mutableStateOf("") }
+
+    LaunchedEffect(showResizePill) {
+        if (showResizePill) {
+            kotlinx.coroutines.delay(1000)
+            showResizePill = false
+        }
+    }
 
     // Track when any panel is open and notify parent
-    val isPanelOpen = showAudioSheet || showSubtitleSheet || showResizeSelector || showSpeedSelector || showSubtitleDelay || showChapterList || showDecoderSelector
+    val isPanelOpen = showAudioSheet || showSubtitleSheet || showSpeedSelector || showSubtitleDelay || showChapterList || showDecoderSelector || showEpisodeList
     LaunchedEffect(isPanelOpen) {
         if (isPanelOpen) onPanelOpened() else onPanelClosed()
     }
@@ -197,6 +208,9 @@ fun PlayerControlsOverlay(
                     // Decoder Text Button
                     TextButton(onClick = { showDecoderSelector = true }) {
                         Text(decoderMode.uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    if (episodeList.size > 1) {
+                        ControlIconButton(Icons.Default.VideoLibrary, "Episodes") { showEpisodeList = true }
                     }
                     ControlIconButton(Icons.Default.Audiotrack, "Audio") { showAudioSheet = true }
                     ControlIconButton(Icons.Default.Subtitles, "Sub") { showSubtitleSheet = true }
@@ -293,7 +307,21 @@ fun PlayerControlsOverlay(
                 // Right Group
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlIconButton(Icons.Default.OpenInNew, "Ext", true) { onOpenExternal() }
-                    ControlIconButton(Icons.Default.AspectRatio, "Resize", true) { showResizeSelector = true }
+                    
+                    val resizeIcon = when (currentResizeMode) {
+                        "fill" -> Icons.Default.Fullscreen
+                        "zoom" -> Icons.Default.ZoomIn
+                        "16:9" -> Icons.Default.Crop169
+                        "4:3" -> Icons.Default.Crop54
+                        else -> Icons.Default.AspectRatio
+                    }
+                    ControlIconButton(resizeIcon, "Resize", true) {
+                        val modes = listOf("fit", "fill", "zoom", "16:9", "4:3")
+                        val nextMode = modes[(modes.indexOf(currentResizeMode) + 1) % modes.size]
+                        onResizeModeChange(nextMode)
+                        resizePillText = nextMode.replaceFirstChar { it.uppercase() }
+                        showResizePill = true
+                    }
                 }
             }
 
@@ -372,6 +400,90 @@ fun PlayerControlsOverlay(
                 )
             }
         }
+        
+        // Resize Mode Pill
+        AnimatedVisibility(
+            visible = showResizePill,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 90.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = resizePillText,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Episode List Sidebar
+        AnimatedVisibility(
+            visible = showEpisodeList,
+            enter = slideInHorizontally(initialOffsetX = { it }),
+            exit = slideOutHorizontally(targetOffsetX = { it }),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(300.dp)
+                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp))
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Episodes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { showEpisodeList = false }) {
+                            Icon(Icons.Default.Close, "Close")
+                        }
+                    }
+                    HorizontalDivider()
+                    androidx.compose.foundation.lazy.LazyColumn {
+                        items(episodeList.size) { index ->
+                            val episode = episodeList[index]
+                            val isPlaying = episode.name == fileName
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showEpisodeList = false
+                                        onEpisodeSelect(episode.id, episode.name)
+                                    }
+                                    .background(if (isPlaying) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isPlaying) {
+                                    Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = episode.name,
+                                    color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── Bottom sheets / dialogs ──
@@ -393,14 +505,6 @@ fun PlayerControlsOverlay(
             onDismiss = { showSubtitleSheet = false },
             showExternalOption = true,
             onLoadExternal = { onLoadExternalSubtitle(); showSubtitleSheet = false }
-        )
-    }
-
-    if (showResizeSelector) {
-        ResizeModeSelector(
-            currentMode = currentResizeMode,
-            onSelect = { onResizeModeChange(it); showResizeSelector = false },
-            onDismiss = { showResizeSelector = false }
         )
     }
 
@@ -585,8 +689,7 @@ private fun ControlIconButton(
     }
 }
 
-// ──── Speed Selector ────
-
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SpeedSelector(
     currentSpeed: Float,
@@ -595,42 +698,40 @@ private fun SpeedSelector(
 ) {
     val speeds = listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Playback Speed") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "Playback Speed",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 speeds.forEach { speed ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(speed) }
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = currentSpeed == speed,
-                            onClick = { onSelect(speed) }
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = if (speed == 1.0f) "Normal" else "${speed}x",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (currentSpeed == speed) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
+                    FilterChip(
+                        selected = currentSpeed == speed,
+                        onClick = { onSelect(speed) },
+                        label = { Text(if (speed == 1.0f) "Normal" else "${speed}x") }
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
         }
-    )
+    }
 }
 
 // ──── Decoder Selector ────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DecoderSelector(
     currentMode: String,
@@ -639,36 +740,41 @@ private fun DecoderSelector(
 ) {
     val modes = listOf("hw", "hw+", "sw", "auto")
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Hardware Decoder") },
-        text = {
-            Column {
-                modes.forEach { mode ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(mode) }
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = currentMode == mode,
-                            onClick = { onSelect(mode) }
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = mode.uppercase(),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (currentMode == mode) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "Hardware Decoder",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            modes.forEach { mode ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelect(mode) }
+                        .padding(vertical = 12.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentMode == mode,
+                        onClick = { onSelect(mode) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = mode.uppercase(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (currentMode == mode) FontWeight.Bold else FontWeight.Normal
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
         }
-    )
+    }
 }

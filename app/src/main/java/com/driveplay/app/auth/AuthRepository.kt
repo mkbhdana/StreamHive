@@ -1,7 +1,10 @@
 package com.driveplay.app.auth
 
+import android.content.Context
 import com.driveplay.app.data.model.AuthCredentials
 import com.driveplay.app.data.model.AuthState
+import com.driveplay.app.util.NetworkUtils
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,6 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class AuthRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val tokenManager: TokenManager,
     private val oAuth2Client: OAuth2Client,
     private val serviceAccountClient: ServiceAccountClient
@@ -81,6 +85,11 @@ class AuthRepository @Inject constructor(
 
     suspend fun getValidAccessToken(): String? {
         if (tokenManager.isTokenExpired()) {
+            if (!NetworkUtils.isNetworkAvailable(context)) {
+                _authState.value = AuthState.Error("No internet connectivity. Using expired token.")
+                return tokenManager.getAccessToken() // Return expired token instead of failing/wiping
+            }
+            
             val refreshResult = when (tokenManager.getStoredCredentials()) {
                 is AuthCredentials.OAuth2Credentials -> oAuth2Client.refreshAccessToken()
                 is AuthCredentials.ServiceAccountCredentials -> serviceAccountClient.refreshAccessToken()
