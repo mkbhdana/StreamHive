@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.driveplay.app"
+    namespace = "com.mkbhdana.streamhive"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.driveplay.app"
+        applicationId = "com.mkbhdana.streamhive"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -52,6 +52,9 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/INDEX.LIST"
+        }
+        jniLibs {
+            pickFirsts.add("**/*.so")
         }
     }
 }
@@ -123,8 +126,9 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Splash Screen
+    // Splash Screen & Startup
     implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.startup:startup-runtime:1.1.1")
 
     // Coroutines
     implementation(libs.coroutines.core)
@@ -134,12 +138,14 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // MPV Player (community artifact by abdallahmehiz)
-    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    // implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
 
     // NanoHTTPD (local proxy server for secured streaming)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     // FFmpeg Decoder Extension (optional - build from source)
     // Place the built AAR in app/libs/ and uncomment:
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
+    // implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.0-0.12.1") // To add media3 software decoders and extensions
+    implementation("io.github.anilbeesetti:nextlib-mediainfo:1.10.0-0.12.1")
 }
