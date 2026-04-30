@@ -30,6 +30,7 @@ data class FileSeason(
 
 data class MediaInfoUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val metadata: TmdbMetadataEntity? = null,
 
@@ -354,6 +355,37 @@ class MediaInfoViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(isLoading = false, error = "Could not find metadata for that ID")
                 }
+            }
+        }
+    }
+
+    /** Pull-to-refresh: re-fetch files from Drive API */
+    fun refreshFiles() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true) }
+            try {
+                val driveFile = mediaFileDao.getFileById(driveFileId)
+                if (driveFile != null && driveFile.isFolder) {
+                    val result = driveRepository.listFilesInDrive(
+                        driveId = driveFile.driveId,
+                        folderId = driveFile.id
+                    )
+                    val folderChildren = result.getOrNull() ?: emptyList()
+                    val allFiles = collectVideoFiles(driveFile, folderChildren)
+                    val isTv = _uiState.value.metadata?.mediaType == "tv" || mediaTypeHint == "tv"
+                    val seasons = if (isTv) groupFilesBySeason(allFiles) else emptyList()
+                    _uiState.update {
+                        it.copy(
+                            isRefreshing = false,
+                            driveFiles = allFiles,
+                            fileSeasons = seasons
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isRefreshing = false) }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isRefreshing = false, error = "Refresh failed: ${e.message}") }
             }
         }
     }

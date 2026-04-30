@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -182,21 +183,30 @@ fun CatalogScreen(
         ) {
             // Tab content
             when (selectedTab) {
-                0 -> HomeTab(
-                    state = uiState,
-                    onPlayFile = onPlayFile,
-                    onNavigateToSettings = onNavigateToSettings,
-                    onClearHistory = viewModel::clearPlaybackHistory,
-                    onNavigateToInfo = onNavigateToInfo,
-                    onRemoveFromContinue = viewModel::removeFromHistory,
-                    onPlayFromStart = { fileId, fileName, engine ->
-                        scope.launch {
-                            viewModel.removeFromHistorySync(fileId)
-                            onPlayFile(fileId, fileName, engine)
-                        }
-                    },
-                    onNavigateToSeeAll = onNavigateToSeeAll
-                )
+                0 -> {
+                    // Pull-to-refresh for HomeTab -> same logic as refresh icon
+                    PullToRefreshBox(
+                        isRefreshing = uiState.isHomeRefreshing,
+                        onRefresh = { viewModel.refreshHomeContent() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        HomeTab(
+                            state = uiState,
+                            onPlayFile = onPlayFile,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onClearHistory = viewModel::clearPlaybackHistory,
+                            onNavigateToInfo = onNavigateToInfo,
+                            onRemoveFromContinue = viewModel::removeFromHistory,
+                            onPlayFromStart = { fileId, fileName, engine ->
+                                scope.launch {
+                                    viewModel.removeFromHistorySync(fileId)
+                                    onPlayFile(fileId, fileName, engine)
+                                }
+                            },
+                            onNavigateToSeeAll = onNavigateToSeeAll
+                        )
+                    }
+                }
                 1 -> FoldersTab(
                     uiState = uiState,
                     viewModel = viewModel,
@@ -216,14 +226,14 @@ fun CatalogScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun FoldersTab(
     uiState: CatalogUiState,
     viewModel: CatalogViewModel,
     onPlayFile: (String, String, PlayerEngine) -> Unit
 ) {
-    var isGridView by rememberSaveable { mutableStateOf(true) }
+    val isGridView = uiState.isGridView
     var tooltipName by remember { mutableStateOf<String?>(null) }
 
     // Long-press tooltip dialog
@@ -299,7 +309,7 @@ private fun FoldersTab(
                     leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
                 )
                 AssistChip(
-                    onClick = { isGridView = !isGridView },
+                    onClick = { viewModel.toggleGridView() },
                     label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
                     leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
                 )
@@ -315,14 +325,19 @@ private fun FoldersTab(
                     leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
                 )
                 AssistChip(
-                    onClick = { isGridView = !isGridView },
+                    onClick = { viewModel.toggleGridView() },
                     label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
                     leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
                 )
             }
         }
 
-        // Files grid
+        // Files grid - wrapped in PullToRefreshBox (same logic as Refresh chip)
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing || (uiState.isLoading && uiState.files.isNotEmpty()),
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.fillMaxSize()
+        ) {
         Box(modifier = Modifier.fillMaxSize()) {
             when {
                 uiState.isLoading && uiState.files.isEmpty() -> {
@@ -395,9 +410,9 @@ private fun FoldersTab(
                 }
             }
         }
+        } // end PullToRefreshBox
     }
 }
-
 
 
 @Composable

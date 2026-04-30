@@ -347,6 +347,7 @@ fun SettingsScreen(
                         movieFolders = state.tmdbMovieFolders,
                         tvFolders = state.tmdbTvFolders,
                         animeFolders = state.tmdbAnimeFolders,
+                        recentFolders = state.tmdbRecentFolders,
                         allFolders = availableFolders,
                         onAddFolder = { folderId, type ->
                             when (type) {
@@ -360,6 +361,10 @@ fun SettingsScreen(
                             viewModel.removeMovieFolder(folderId)
                             viewModel.removeTvFolder(folderId)
                             viewModel.removeAnimeFolder(folderId)
+                            // Optionally, if removing a folder, we could also remove it from recents, but the logic handles it by only showing marked items.
+                        },
+                        onToggleRecent = { folderId ->
+                            viewModel.toggleRecentFolder(folderId)
                         }
                     )
                 }
@@ -371,11 +376,15 @@ fun SettingsScreen(
             item {
                 SettingsCard {
                     val context = LocalContext.current
+                    var showExportDialog by remember { mutableStateOf(false) }
+                    var exportIncludeApiKey by remember { mutableStateOf(true) }
+                    var exportIncludeMetadata by remember { mutableStateOf(true) }
+
                     val exportLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.CreateDocument("application/json")
                     ) { uri ->
                         if (uri != null) {
-                            viewModel.exportSettings(uri)
+                            viewModel.exportSettings(uri, exportIncludeApiKey, exportIncludeMetadata)
                             Toast.makeText(context, "Settings exported successfully", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -385,21 +394,21 @@ fun SettingsScreen(
                     ) { uri ->
                         if (uri != null) {
                             viewModel.importSettings(uri) { success ->
-                                val msg = if (success) "Settings imported successfully" else "Failed to import settings"
+                                val msg = if (success) "Settings imported successfully (including metadata if present)" else "Failed to import settings"
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { exportLauncher.launch("streamhive_settings.json") }.padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { showExportDialog = true }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Upload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Export Settings", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text("Backup your preferences to a file", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Backup preferences, API key & metadata", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -411,8 +420,69 @@ fun SettingsScreen(
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Import Settings", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            Text("Restore your preferences from a file", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Restore preferences & metadata from file", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                    }
+
+                    // Export options dialog
+                    if (showExportDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showExportDialog = false },
+                            icon = { Icon(Icons.Default.Upload, null, tint = MaterialTheme.colorScheme.primary) },
+                            title = { Text("Export Options", fontWeight = FontWeight.Bold) },
+                            text = {
+                                Column {
+                                    Text(
+                                        "Choose what to include in the export file:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { exportIncludeApiKey = !exportIncludeApiKey }.padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = exportIncludeApiKey,
+                                            onCheckedChange = { exportIncludeApiKey = it }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column {
+                                            Text("TMDB API Key", style = MaterialTheme.typography.bodyMedium)
+                                            Text("Include your API key in the backup", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { exportIncludeMetadata = !exportIncludeMetadata }.padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = exportIncludeMetadata,
+                                            onCheckedChange = { exportIncludeMetadata = it }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column {
+                                            Text("TMDB Metadata", style = MaterialTheme.typography.bodyMedium)
+                                            Text("Include manually edited metadata fixes", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showExportDialog = false
+                                    exportLauncher.launch("streamhive_settings.json")
+                                }) {
+                                    Text("Export")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showExportDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            },
+                            shape = RoundedCornerShape(20.dp)
+                        )
                     }
                 }
             }
@@ -453,30 +523,30 @@ private fun CatalogFoldersSection(
     movieFolders: Set<String>,
     tvFolders: Set<String>,
     animeFolders: Set<String>,
+    recentFolders: Set<String>,
     allFolders: List<MediaFileEntity>,
     onAddFolder: (folderId: String, type: String) -> Unit,
-    onRemoveFolder: (folderId: String) -> Unit
+    onRemoveFolder: (folderId: String) -> Unit,
+    onToggleRecent: (folderId: String) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
     
-    // Build a unified list of all mapped folders with their type
     data class MappedFolder(val id: String, val name: String, val type: String)
     
-    val mappedList = remember(movieFolders, tvFolders, animeFolders, allFolders) {
-        val result = mutableListOf<MappedFolder>()
-        movieFolders.forEach { id ->
+    // Use ordered folder IDs from ViewModel for display sequence
+    val orderedIds = viewModel.getOrderedFolderIds()
+    
+    val mappedList = remember(movieFolders, tvFolders, animeFolders, allFolders, orderedIds) {
+        val folderTypeMap = mutableMapOf<String, String>()
+        movieFolders.forEach { folderTypeMap[it] = "movie" }
+        tvFolders.forEach { folderTypeMap[it] = "tv" }
+        animeFolders.forEach { folderTypeMap[it] = "anime" }
+        
+        orderedIds.mapNotNull { id ->
+            val type = folderTypeMap[id] ?: return@mapNotNull null
             val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
-            result.add(MappedFolder(id, name, "movie"))
+            MappedFolder(id, name, type)
         }
-        tvFolders.forEach { id ->
-            val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
-            result.add(MappedFolder(id, name, "tv"))
-        }
-        animeFolders.forEach { id ->
-            val name = allFolders.find { it.id == id }?.name ?: id.take(20) + "..."
-            result.add(MappedFolder(id, name, "anime"))
-        }
-        result.distinctBy { it.id }
     }
 
     Column(Modifier.padding(16.dp)) {
@@ -486,7 +556,7 @@ private fun CatalogFoldersSection(
             Column(Modifier.weight(1f)) {
                 Text("Catalog Folders", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(
-                    if (mappedList.isEmpty()) "No folders added" else "${mappedList.size} folder(s)",
+                    if (mappedList.isEmpty()) "No folders added" else "${mappedList.size} folder(s) • use arrows to reorder",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -500,12 +570,40 @@ private fun CatalogFoldersSection(
 
         Spacer(Modifier.height(8.dp))
 
-        // Show mapped folders with type badge and remove button
-        mappedList.forEach { folder ->
+        // Show mapped folders with reorder, type badge, recent star, and remove
+        mappedList.forEachIndexed { index, folder ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Move up/down
+                Column {
+                    IconButton(
+                        onClick = { viewModel.moveFolderUp(folder.id) },
+                        enabled = index > 0,
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp, "Move up",
+                            tint = if (index > 0) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.moveFolderDown(folder.id) },
+                        enabled = index < mappedList.size - 1,
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown, "Move down",
+                            tint = if (index < mappedList.size - 1) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
                 Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -517,7 +615,6 @@ private fun CatalogFoldersSection(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.width(6.dp))
-                // Type badge
                 val (badgeText, badgeColor) = when (folder.type) {
                     "movie" -> "Movie" to Color(0xFFE91E63)
                     "tv" -> "Series" to Color(0xFF2196F3)
@@ -531,6 +628,15 @@ private fun CatalogFoldersSection(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(badgeText, style = MaterialTheme.typography.labelSmall, color = badgeColor, fontWeight = FontWeight.Bold)
+                }
+                val isRecent = folder.id in recentFolders
+                IconButton(onClick = { onToggleRecent(folder.id) }, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        if (isRecent) Icons.Default.Star else Icons.Default.StarBorder,
+                        "Toggle Recently Added",
+                        tint = if (isRecent) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
                 IconButton(onClick = { onRemoveFolder(folder.id) }, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))

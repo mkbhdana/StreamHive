@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +33,7 @@ import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.util.FileUtils
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaInfoScreen(
     onBack: () -> Unit,
@@ -48,6 +50,11 @@ fun MediaInfoScreen(
 
     val meta = uiState.metadata
 
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refreshFiles() },
+        modifier = Modifier.fillMaxSize()
+    ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         // ──── Backdrop header ────
         item {
@@ -239,6 +246,7 @@ fun MediaInfoScreen(
 
         item { Spacer(Modifier.height(32.dp)) }
     }
+    } // end PullToRefreshBox
 
     // ──── Fix Metadata Dialog ────
     if (showFixMetadataDialog) {

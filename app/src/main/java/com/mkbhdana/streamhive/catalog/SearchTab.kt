@@ -35,7 +35,7 @@ fun SearchTab(
     onFolderNavigate: (MediaFileEntity) -> Unit,
     onNavigateToInfo: (String, String) -> Unit
 ) {
-    var isGridView by remember { mutableStateOf(false) }
+    val isGridView = state.isGridView
     var tooltipName by remember { mutableStateOf<String?>(null) }
     var selectedSection by remember { mutableStateOf<String?>(null) }
 
@@ -216,7 +216,7 @@ fun SearchTab(
                     )
                     Spacer(Modifier.weight(1f))
                     if (selectedSection != "tmdb") {
-                        IconButton(onClick = { isGridView = !isGridView }) {
+                        IconButton(onClick = { viewModel.toggleGridView() }) {
                             Icon(
                                 imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
                                 contentDescription = "Toggle View",

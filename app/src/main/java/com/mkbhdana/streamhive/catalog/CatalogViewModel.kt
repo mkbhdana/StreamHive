@@ -24,6 +24,14 @@ import javax.inject.Inject
 
 enum class SearchMode { CURRENT_DRIVE, ALL_DRIVES }
 
+data class TmdbCatalogSection(
+    val folderId: String,
+    val folderName: String,
+    val typeLabel: String, // "Movie", "Series", "Anime"
+    val mediaType: String, // "movie", "tv"
+    val items: List<MediaFileEntity>
+)
+
 data class CatalogUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false, // subtle refresh vs full loading
@@ -46,11 +54,14 @@ data class CatalogUiState(
     val tmdbMetadata: Map<String, TmdbMetadataEntity> = emptyMap(),
 
     // Home tab content
-    val homeMovies: List<MediaFileEntity> = emptyList(),
-    val homeTvShows: List<MediaFileEntity> = emptyList(),
-    val homeAnime: List<MediaFileEntity> = emptyList(),
+    val homeSections: List<TmdbCatalogSection> = emptyList(),
+    val homeRecentlyAdded: List<MediaFileEntity> = emptyList(),
     val isHomeLoading: Boolean = false,
+    val isHomeRefreshing: Boolean = false,
     val hasTmdbSetup: Boolean = false,
+
+    // App Preferences
+    val isGridView: Boolean = true,
 
     // Continue playing
     val continuePlayingItems: List<PlaybackHistoryEntity> = emptyList(),
@@ -98,7 +109,8 @@ class CatalogViewModel @Inject constructor(
             it.copy(
                 selectedEngine = appPreferences.preferredEngine,
                 isMpvAvailable = appPreferences.isMpvAvailable(),
-                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty()
+                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty(),
+                isGridView = appPreferences.isGridView
             )
         }
         loadSharedDrives()
@@ -113,6 +125,12 @@ class CatalogViewModel @Inject constructor(
         }
         appPreferences.preferredEngine = newEngine
         _uiState.update { it.copy(selectedEngine = newEngine) }
+    }
+
+    fun toggleGridView() {
+        val newValue = !_uiState.value.isGridView
+        appPreferences.isGridView = newValue
+        _uiState.update { it.copy(isGridView = newValue) }
     }
 
     fun loadSharedDrives() {
@@ -385,91 +403,128 @@ class CatalogViewModel @Inject constructor(
 
     // ──── Home Tab ────
 
-    fun loadHomeContent() {
+    fun loadHomeContent(isRefresh: Boolean = false) {
         val movieFolders = appPreferences.tmdbMovieFolders
         val tvFolders = appPreferences.tmdbTvFolders
         val animeFolders = appPreferences.tmdbAnimeFolders
+        val recentFolders = appPreferences.tmdbRecentFolders
         val hasTmdb = appPreferences.tmdbApiKey.isNotEmpty()
 
         _uiState.update { it.copy(hasTmdbSetup = hasTmdb) }
 
-        if (!hasTmdb) return
-        if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty()) return
-        // Wait for drives to be loaded before attempting to scan folders
-        if (_uiState.value.sharedDrives.isEmpty()) return
+        if (!hasTmdb) {
+            _uiState.update { it.copy(isHomeRefreshing = false) }
+            return
+        }
+        if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty() && recentFolders.isEmpty()) {
+            _uiState.update { it.copy(isHomeRefreshing = false) }
+            return
+        }
+        if (_uiState.value.sharedDrives.isEmpty()) {
+            _uiState.update { it.copy(isHomeRefreshing = false) }
+            return
+        }
 
-        val needsSpinner = _uiState.value.homeMovies.isEmpty() &&
-                _uiState.value.homeTvShows.isEmpty() &&
-                _uiState.value.homeAnime.isEmpty()
+        val needsSpinner = _uiState.value.homeSections.isEmpty() && _uiState.value.homeRecentlyAdded.isEmpty()
 
         viewModelScope.launch {
-            if (needsSpinner) {
+            if (needsSpinner && !isRefresh) {
                 _uiState.update { it.copy(isHomeLoading = true) }
             }
             try {
-            // Load files from each mapped folder set
-            val movies = loadFilesFromFolders(movieFolders)
-            val tvShows = loadFilesFromFolders(tvFolders)
-            val anime = loadFilesFromFolders(animeFolders)
+                val allFolders = driveRepository.getAllFolders().first()
+                fun getFolderName(id: String) = allFolders.find { it.id == id }?.name ?: id
 
-            _uiState.update {
-                it.copy(
-                    homeMovies = movies,
-                    homeTvShows = tvShows,
-                    homeAnime = anime,
-                    isHomeLoading = false
-                )
-            }
+                val sections = mutableListOf<TmdbCatalogSection>()
+                val allFetchedFiles = mutableListOf<MediaFileEntity>()
 
-            // Fetch TMDB metadata — batch-check cache first, only API-call missing ones
-            val allFiles = (movies + tvShows + anime).distinctBy { it.id }
-            val movieFileIds = movies.map { it.id }.toSet()
-            val tvFileIds = tvShows.map { it.id }.toSet()
-            val animeFileIds = anime.map { it.id }.toSet()
+                // Build a type map for each folder
+                val folderTypeMap = mutableMapOf<String, Pair<String, String>>() // folderId -> (typeLabel, mediaType)
+                movieFolders.forEach { folderTypeMap[it] = "Movie" to "movie" }
+                tvFolders.forEach { folderTypeMap[it] = "Series" to "tv" }
+                animeFolders.forEach { folderTypeMap[it] = "Anime" to "tv" }
 
-            // 1. Batch load cached metadata from DB
-            val allIds = allFiles.map { it.id }
-            val cachedMeta = tmdbRepository.getMetadataForFiles(allIds)
-            val cachedMap = cachedMeta.associateBy { it.driveFileId }
+                // Use saved display order, appending any new folders not yet in order
+                val savedOrder = appPreferences.tmdbFolderOrder
+                val allFolderIds = folderTypeMap.keys.toList()
+                val orderedIds = savedOrder.filter { it in allFolderIds }.toMutableList()
+                allFolderIds.filter { it !in orderedIds }.forEach { orderedIds.add(it) }
 
-            // Apply cached metadata immediately
-            if (cachedMap.isNotEmpty()) {
-                _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + cachedMap) }
-            }
-
-            // 2. Only fetch from API for files not yet cached
-            val uncachedFiles = allFiles.filter { it.id !in cachedMap }
-            uncachedFiles.forEach { file ->
-                val type = when {
-                    movieFileIds.contains(file.id) -> "movie"
-                    tvFileIds.contains(file.id) -> "tv"
-                    animeFileIds.contains(file.id) -> "tv"
-                    else -> "auto"
-                }
-
-                // Check for TMDB/IMDB ID in the folder name
-                var meta: TmdbMetadataEntity? = null
-                if (file.isFolder) {
-                    val idFromName = detectMetadataIdInFolder(file)
-                    if (idFromName != null) {
-                        meta = tmdbRepository.fixMetadataById(file.id, idFromName, type)
+                for (folderId in orderedIds) {
+                    val (typeLabel, mediaType) = folderTypeMap[folderId] ?: continue
+                    val files = loadFilesFromFolders(setOf(folderId))
+                    if (files.isNotEmpty()) {
+                        val sorted = files.sortedByDescending { it.modifiedTime ?: "" }
+                        sections.add(TmdbCatalogSection(folderId, getFolderName(folderId), typeLabel, mediaType, sorted))
+                        allFetchedFiles.addAll(files)
                     }
                 }
 
-                // Fall back to name-based search
-                if (meta == null) {
-                    meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
+                // Recently Added
+                val recentFiles = mutableListOf<MediaFileEntity>()
+                for (folderId in recentFolders) {
+                    recentFiles.addAll(loadFilesFromFolders(setOf(folderId)))
+                }
+                val homeRecentlyAdded = recentFiles.distinctBy { it.id }
+                    .sortedByDescending { it.createdTime ?: it.modifiedTime ?: "" }
+                    .take(10)
+                allFetchedFiles.addAll(homeRecentlyAdded)
+
+                _uiState.update {
+                    it.copy(
+                        homeSections = sections,
+                        homeRecentlyAdded = homeRecentlyAdded,
+                        isHomeLoading = false,
+                        isHomeRefreshing = false
+                    )
                 }
 
-                meta?.let { m ->
-                    _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + (file.id to m)) }
+                // Fetch TMDB metadata
+                val distinctFiles = allFetchedFiles.distinctBy { it.id }
+                val allIds = distinctFiles.map { it.id }
+                val cachedMeta = tmdbRepository.getMetadataForFiles(allIds)
+                val cachedMap = cachedMeta.associateBy { it.driveFileId }
+
+                if (cachedMap.isNotEmpty()) {
+                    _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + cachedMap) }
                 }
-            }
-            
-            _uiState.update { it.copy(isHomeLoading = false) }
+
+                val uncachedFiles = distinctFiles.filter { it.id !in cachedMap }
+                
+                // Determine mediaType mapping for fallback requests
+                val movieIds = movieFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
+                val tvIds = tvFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
+                val animeIds = animeFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
+
+                uncachedFiles.forEach { file ->
+                    val type = when {
+                        movieIds.contains(file.id) -> "movie"
+                        tvIds.contains(file.id) -> "tv"
+                        animeIds.contains(file.id) -> "tv"
+                        else -> "auto"
+                    }
+
+                    var meta: TmdbMetadataEntity? = null
+                    if (file.isFolder) {
+                        val idFromName = detectMetadataIdInFolder(file)
+                        if (idFromName != null) {
+                            meta = tmdbRepository.fixMetadataById(file.id, idFromName, type)
+                        }
+                    }
+
+                    if (meta == null) {
+                        meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
+                    }
+
+                    meta?.let { m ->
+                        _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + (file.id to m)) }
+                    }
+                }
+                
+                _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             
             } catch (e: Exception) {
-                _uiState.update { it.copy(isHomeLoading = false) }
+                _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             }
         }
     }
@@ -692,12 +747,12 @@ class CatalogViewModel @Inject constructor(
 
     /** Force-refresh home content, clearing folder cache timestamps and TMDB metadata */
     fun refreshHomeContent() {
-        // Clear TMDB metadata cache
-        _uiState.update { it.copy(tmdbMetadata = emptyMap()) }
+        // Set refreshing flag for pull-to-refresh indicator
+        _uiState.update { it.copy(isHomeRefreshing = true, tmdbMetadata = emptyMap()) }
         // Clear folder timestamp cache to force API refresh
         lastLoadedTimestamps.clear()
         // Re-load home content from Drive API
-        loadHomeContent()
+        loadHomeContent(isRefresh = true)
     }
 
     // ──── Continue Playing ────
@@ -751,7 +806,8 @@ class CatalogViewModel @Inject constructor(
             it.copy(
                 selectedEngine = appPreferences.preferredEngine,
                 isMpvAvailable = appPreferences.isMpvAvailable(),
-                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty()
+                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty(),
+                isGridView = appPreferences.isGridView
             )
         }
     }

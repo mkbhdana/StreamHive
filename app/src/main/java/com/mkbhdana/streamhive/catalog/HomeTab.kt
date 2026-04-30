@@ -30,6 +30,7 @@ import com.mkbhdana.streamhive.util.FileUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import android.widget.Toast
+import com.mkbhdana.streamhive.ui.components.LoadingIndicator
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -49,9 +50,7 @@ fun HomeTab(
     modifier: Modifier = Modifier
 ) {
     val hasContinuePlaying = state.continuePlayingItems.isNotEmpty()
-    val hasAnyContent = state.homeMovies.isNotEmpty() ||
-            state.homeTvShows.isNotEmpty() ||
-            state.homeAnime.isNotEmpty()
+    val hasAnyContent = state.homeSections.isNotEmpty() || state.homeRecentlyAdded.isNotEmpty()
 
     if (!state.hasTmdbSetup && !hasContinuePlaying) {
         TmdbSetupPrompt(onNavigateToSettings = onNavigateToSettings, modifier = modifier)
@@ -82,55 +81,46 @@ fun HomeTab(
             }
         }
 
-
-
-        // ──── Movies ────
-        if (state.homeMovies.isNotEmpty()) {
-            val sorted = state.homeMovies.sortedByDescending { it.modifiedTime ?: "" }
+        // ──── Recently Added ────
+        if (state.homeRecentlyAdded.isNotEmpty()) {
             item {
                 TmdbHorizontalSection(
-                    title = "Movies",
-                    icon = Icons.Default.Movie,
-                    files = sorted.take(10),
-                    totalCount = sorted.size,
+                    title = "Recently Added",
+                    icon = Icons.Default.NewReleases,
+                    files = state.homeRecentlyAdded,
+                    totalCount = state.homeRecentlyAdded.size,
                     tmdbMetadata = state.tmdbMetadata,
-                    mediaType = "movie",
+                    mediaType = "auto",
                     onNavigateToInfo = onNavigateToInfo,
-                    onSeeAll = { onNavigateToSeeAll("movies") }
+                    onSeeAll = {}
                 )
             }
         }
 
-        // ──── TV Shows ────
-        if (state.homeTvShows.isNotEmpty()) {
-            val sorted = state.homeTvShows.sortedByDescending { it.modifiedTime ?: "" }
-            item {
+        // ──── Dynamic Catalog Sections ────
+        state.homeSections.forEach { section ->
+            item(key = "section_${section.folderId}") {
+                val sectionIcon = when (section.typeLabel) {
+                    "Movie" -> Icons.Default.Movie
+                    "Series" -> Icons.Default.Tv
+                    "Anime" -> Icons.Default.Animation
+                    else -> Icons.Default.Movie
+                }
+                val seeAllCategory = when (section.typeLabel) {
+                    "Movie" -> "movies"
+                    "Series" -> "tv"
+                    "Anime" -> "anime"
+                    else -> "movies"
+                }
                 TmdbHorizontalSection(
-                    title = "TV Shows",
-                    icon = Icons.Default.Tv,
-                    files = sorted.take(10),
-                    totalCount = sorted.size,
+                    title = "${section.folderName} - ${section.typeLabel}",
+                    icon = sectionIcon,
+                    files = section.items.take(10),
+                    totalCount = section.items.size,
                     tmdbMetadata = state.tmdbMetadata,
-                    mediaType = "tv",
+                    mediaType = section.mediaType,
                     onNavigateToInfo = onNavigateToInfo,
-                    onSeeAll = { onNavigateToSeeAll("tv") }
-                )
-            }
-        }
-
-        // ──── Anime ────
-        if (state.homeAnime.isNotEmpty()) {
-            val sorted = state.homeAnime.sortedByDescending { it.modifiedTime ?: "" }
-            item {
-                TmdbHorizontalSection(
-                    title = "Anime",
-                    icon = Icons.Default.Animation,
-                    files = sorted.take(10),
-                    totalCount = sorted.size,
-                    tmdbMetadata = state.tmdbMetadata,
-                    mediaType = "tv",
-                    onNavigateToInfo = onNavigateToInfo,
-                    onSeeAll = { onNavigateToSeeAll("anime") }
+                    onSeeAll = { onNavigateToSeeAll(seeAllCategory) }
                 )
             }
         }
@@ -144,10 +134,15 @@ fun HomeTab(
         if (state.isHomeLoading) {
             item {
                 Box(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.5f))
+                    LoadingIndicator(
+                        modifier = Modifier.fillMaxSize(),
+                        message = "Getting Ready..."
+                    )
                 }
             }
         }

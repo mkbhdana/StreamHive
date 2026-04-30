@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mkbhdana.streamhive.catalog.DriveRepository
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
+import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
+import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,13 +45,16 @@ data class SettingsUiState(
     val tmdbApiKey: String = "",
     val tmdbMovieFolders: Set<String> = emptySet(),
     val tmdbTvFolders: Set<String> = emptySet(),
-    val tmdbAnimeFolders: Set<String> = emptySet()
+    val tmdbAnimeFolders: Set<String> = emptySet(),
+    val tmdbRecentFolders: Set<String> = emptySet(),
+    val tmdbFolderOrder: List<String> = emptyList()
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferences,
     private val driveRepository: DriveRepository,
+    private val tmdbMetadataDao: TmdbMetadataDao,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
@@ -81,7 +86,9 @@ class SettingsViewModel @Inject constructor(
         tmdbApiKey = prefs.tmdbApiKey,
         tmdbMovieFolders = prefs.tmdbMovieFolders,
         tmdbTvFolders = prefs.tmdbTvFolders,
-        tmdbAnimeFolders = prefs.tmdbAnimeFolders
+        tmdbAnimeFolders = prefs.tmdbAnimeFolders,
+        tmdbRecentFolders = prefs.tmdbRecentFolders,
+        tmdbFolderOrder = prefs.tmdbFolderOrder
     )
 
     // ──── Player ────
@@ -213,6 +220,51 @@ class SettingsViewModel @Inject constructor(
         uiState = uiState.copy(tmdbAnimeFolders = updated)
     }
 
+    fun toggleRecentFolder(folderId: String) {
+        val current = prefs.tmdbRecentFolders
+        val updated = if (current.contains(folderId)) {
+            current - folderId
+        } else {
+            current + folderId
+        }
+        prefs.tmdbRecentFolders = updated
+        uiState = uiState.copy(tmdbRecentFolders = updated)
+    }
+
+    // ──── Folder Ordering ────
+
+    /** Get the ordered list of all mapped folder IDs, synced with current folder sets */
+    fun getOrderedFolderIds(): List<String> {
+        val allFolderIds = (uiState.tmdbMovieFolders + uiState.tmdbTvFolders + uiState.tmdbAnimeFolders).toList()
+        val currentOrder = uiState.tmdbFolderOrder
+        // Start with items that are in the saved order, then append any new ones
+        val ordered = currentOrder.filter { it in allFolderIds }.toMutableList()
+        allFolderIds.filter { it !in ordered }.forEach { ordered.add(it) }
+        return ordered
+    }
+
+    fun moveFolderUp(folderId: String) {
+        val ordered = getOrderedFolderIds().toMutableList()
+        val index = ordered.indexOf(folderId)
+        if (index > 0) {
+            ordered.removeAt(index)
+            ordered.add(index - 1, folderId)
+            prefs.tmdbFolderOrder = ordered
+            uiState = uiState.copy(tmdbFolderOrder = ordered)
+        }
+    }
+
+    fun moveFolderDown(folderId: String) {
+        val ordered = getOrderedFolderIds().toMutableList()
+        val index = ordered.indexOf(folderId)
+        if (index >= 0 && index < ordered.size - 1) {
+            ordered.removeAt(index)
+            ordered.add(index + 1, folderId)
+            prefs.tmdbFolderOrder = ordered
+            uiState = uiState.copy(tmdbFolderOrder = ordered)
+        }
+    }
+
     // ──── Folder Browser (for catalog picker) ────
 
     data class FolderBrowserState(
@@ -322,12 +374,42 @@ class SettingsViewModel @Inject constructor(
 
     // ──── Data Management ────
 
-    fun exportSettings(uri: android.net.Uri) {
+    fun exportSettings(uri: android.net.Uri, includeApiKey: Boolean, includeMetadata: Boolean) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val json = prefs.exportToJson()
+                val settingsJson = prefs.exportToJson()
+                val rootObject = org.json.JSONObject(settingsJson)
+
+                // Remove API key if user chose not to export it
+                if (!includeApiKey) {
+                    rootObject.remove("tmdb_api_key")
+                }
+
+                // Export fixed/edited metadata
+                if (includeMetadata) {
+                    val allMeta = tmdbMetadataDao.getByMediaType("movie") + tmdbMetadataDao.getByMediaType("tv")
+                    if (allMeta.isNotEmpty()) {
+                        val metaArray = org.json.JSONArray()
+                        allMeta.forEach { m ->
+                            val obj = org.json.JSONObject()
+                            obj.put("driveFileId", m.driveFileId)
+                            obj.put("tmdbId", m.tmdbId)
+                            obj.put("title", m.title)
+                            obj.put("overview", m.overview ?: "")
+                            obj.put("posterPath", m.posterPath ?: "")
+                            obj.put("backdropPath", m.backdropPath ?: "")
+                            obj.put("rating", m.rating?.toDouble() ?: 0.0)
+                            obj.put("year", m.year ?: "")
+                            obj.put("mediaType", m.mediaType)
+                            obj.put("cachedAt", m.cachedAt)
+                            metaArray.put(obj)
+                        }
+                        rootObject.put("tmdb_metadata", metaArray)
+                    }
+                }
+
                 context.contentResolver.openOutputStream(uri)?.use {
-                    it.write(json.toByteArray())
+                    it.write(rootObject.toString(2).toByteArray())
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -340,7 +422,35 @@ class SettingsViewModel @Inject constructor(
             try {
                 val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 if (json != null) {
-                    val success = prefs.importFromJson(json)
+                    val jsonObject = org.json.JSONObject(json)
+
+                    // Extract and import metadata separately before passing to prefs
+                    if (jsonObject.has("tmdb_metadata")) {
+                        val metaArray = jsonObject.getJSONArray("tmdb_metadata")
+                        val entities = mutableListOf<TmdbMetadataEntity>()
+                        for (i in 0 until metaArray.length()) {
+                            val obj = metaArray.getJSONObject(i)
+                            entities.add(TmdbMetadataEntity(
+                                driveFileId = obj.getString("driveFileId"),
+                                tmdbId = obj.getInt("tmdbId"),
+                                title = obj.getString("title"),
+                                overview = obj.optString("overview").ifBlank { null },
+                                posterPath = obj.optString("posterPath").ifBlank { null },
+                                backdropPath = obj.optString("backdropPath").ifBlank { null },
+                                rating = obj.optDouble("rating", 0.0).toFloat().takeIf { it > 0f },
+                                year = obj.optString("year").ifBlank { null },
+                                mediaType = obj.optString("mediaType", "movie"),
+                                cachedAt = obj.optLong("cachedAt", System.currentTimeMillis())
+                            ))
+                        }
+                        if (entities.isNotEmpty()) {
+                            tmdbMetadataDao.insertAll(entities)
+                        }
+                        // Remove from JSON so prefs import doesn't fail on it
+                        jsonObject.remove("tmdb_metadata")
+                    }
+
+                    val success = prefs.importFromJson(jsonObject.toString())
                     if (success) {
                         uiState = loadState()
                     }

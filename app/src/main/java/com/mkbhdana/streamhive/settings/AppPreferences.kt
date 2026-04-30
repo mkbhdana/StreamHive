@@ -46,6 +46,10 @@ class AppPreferences @Inject constructor(
         get() = prefs.getString(KEY_RESIZE_MODE, "fit") ?: "fit"
         set(value) = prefs.edit().putString(KEY_RESIZE_MODE, value).apply()
 
+    var isGridView: Boolean
+        get() = prefs.getBoolean(KEY_IS_GRID_VIEW, true)
+        set(value) = prefs.edit().putBoolean(KEY_IS_GRID_VIEW, value).apply()
+
     var keepServerRunning: Boolean
         get() = prefs.getBoolean(KEY_KEEP_SERVER_RUNNING, true)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SERVER_RUNNING, value).apply()
@@ -117,6 +121,18 @@ class AppPreferences @Inject constructor(
     var tmdbAnimeFolders: Set<String>
         get() = HashSet(prefs.getStringSet(KEY_TMDB_ANIME_FOLDERS, emptySet()) ?: emptySet())
         set(value) = prefs.edit().putStringSet(KEY_TMDB_ANIME_FOLDERS, HashSet(value)).apply()
+
+    var tmdbRecentFolders: Set<String>
+        get() = HashSet(prefs.getStringSet(KEY_TMDB_RECENT_FOLDERS, emptySet()) ?: emptySet())
+        set(value) = prefs.edit().putStringSet(KEY_TMDB_RECENT_FOLDERS, HashSet(value)).apply()
+
+    /** Ordered list of all TMDB folder IDs for display sequence. Stored as comma-separated string. */
+    var tmdbFolderOrder: List<String>
+        get() {
+            val csv = prefs.getString(KEY_TMDB_FOLDER_ORDER, "") ?: ""
+            return if (csv.isBlank()) emptyList() else csv.split(",")
+        }
+        set(value) = prefs.edit().putString(KEY_TMDB_FOLDER_ORDER, value.joinToString(",")).apply()
 
     // ──── Helpers ────
 
@@ -213,5 +229,8 @@ class AppPreferences @Inject constructor(
         private const val KEY_TMDB_MOVIE_FOLDERS = "tmdb_movie_folders"
         private const val KEY_TMDB_TV_FOLDERS = "tmdb_tv_folders"
         private const val KEY_TMDB_ANIME_FOLDERS = "tmdb_anime_folders"
+        private const val KEY_TMDB_RECENT_FOLDERS = "tmdb_recent_folders"
+        private const val KEY_TMDB_FOLDER_ORDER = "tmdb_folder_order"
+        private const val KEY_IS_GRID_VIEW = "is_grid_view"
     }
 }

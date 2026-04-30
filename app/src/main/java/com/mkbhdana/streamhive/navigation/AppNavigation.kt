@@ -200,9 +200,18 @@ fun AppNavigation(isTv: Boolean = false) {
             val catalogState by catalogVm.uiState.collectAsState()
 
             val files = when (category) {
-                "movies" -> catalogState.homeMovies
-                "tv" -> catalogState.homeTvShows
-                "anime" -> catalogState.homeAnime
+                "movies" -> catalogState.homeSections
+                    .filter { it.typeLabel == "Movie" }
+                    .flatMap { it.items }
+                    .distinctBy { it.id }
+                "tv" -> catalogState.homeSections
+                    .filter { it.typeLabel == "Series" }
+                    .flatMap { it.items }
+                    .distinctBy { it.id }
+                "anime" -> catalogState.homeSections
+                    .filter { it.typeLabel == "Anime" }
+                    .flatMap { it.items }
+                    .distinctBy { it.id }
                 else -> emptyList()
             }
 
