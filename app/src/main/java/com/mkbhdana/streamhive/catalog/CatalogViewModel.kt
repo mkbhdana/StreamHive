@@ -1,5 +1,10 @@
 package com.mkbhdana.streamhive.catalog
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -17,6 +22,7 @@ import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
 import com.mkbhdana.streamhive.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -69,7 +75,10 @@ data class CatalogUiState(
     // Search Isolated Folder Navigation
     val searchFolderStack: List<SearchFolderInfo> = emptyList(),
     val searchFolderFiles: List<MediaFileEntity> = emptyList(),
-    val isSearchFolderLoading: Boolean = false
+    val isSearchFolderLoading: Boolean = false,
+
+    // Connectivity
+    val isOffline: Boolean = false
 )
 
 data class SearchFolderInfo(
@@ -85,6 +94,7 @@ data class FolderInfo(
 
 @HiltViewModel
 class CatalogViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val driveRepository: DriveRepository,
     private val authRepository: AuthRepository,
     private val appPreferences: AppPreferences,
@@ -113,8 +123,45 @@ class CatalogViewModel @Inject constructor(
                 isGridView = appPreferences.isGridView
             )
         }
+        observeNetworkConnectivity()
         loadSharedDrives()
         loadContinuePlaying()
+    }
+
+    /**
+     * Monitor network connectivity changes. Updates [CatalogUiState.isOffline]
+     * reactively and auto-refreshes drives when coming back online.
+     */
+    private fun observeNetworkConnectivity() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        // Set initial state
+        val activeNetwork = cm.activeNetwork
+        val capabilities = activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        val initiallyOnline = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        _uiState.update { it.copy(isOffline = !initiallyOnline) }
+
+        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val wasOffline = _uiState.value.isOffline
+                _uiState.update { it.copy(isOffline = false) }
+                // Auto-refresh when coming back online
+                if (wasOffline) {
+                    viewModelScope.launch {
+                        if (_uiState.value.sharedDrives.isEmpty()) {
+                            loadSharedDrives()
+                        }
+                    }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                _uiState.update { it.copy(isOffline = true) }
+            }
+        })
     }
 
     fun toggleEngine() {
@@ -158,7 +205,10 @@ class CatalogViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     _uiState.update {
-                        it.copy(isLoading = false, error = error.message)
+                        it.copy(
+                            isLoading = false,
+                            error = if (_uiState.value.isOffline) null else error.message
+                        )
                     }
                 }
             )
@@ -189,7 +239,8 @@ class CatalogViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 folderStack = it.folderStack + FolderInfo(folderId, folderName),
-                isNavigating = true
+                isNavigating = true,
+                files = emptyList()
             )
         }
         loadFiles(currentDrive.id, folderId)
@@ -204,7 +255,7 @@ class CatalogViewModel @Inject constructor(
         val newStack = currentStack.dropLast(1)
         val parentFolderId = newStack.lastOrNull()?.id
 
-        _uiState.update { it.copy(folderStack = newStack, isNavigating = true) }
+        _uiState.update { it.copy(folderStack = newStack, isNavigating = true, files = emptyList()) }
         loadFiles(currentDrive.id, parentFolderId)
         return true
     }
@@ -217,7 +268,7 @@ class CatalogViewModel @Inject constructor(
         if (index == currentStack.lastIndex) return
 
         val newStack = currentStack.take(index + 1)
-        _uiState.update { it.copy(folderStack = newStack, isNavigating = true) }
+        _uiState.update { it.copy(folderStack = newStack, isNavigating = true, files = emptyList()) }
         loadFiles(currentDrive.id, newStack.last().id)
     }
 
@@ -231,7 +282,8 @@ class CatalogViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 searchFolderStack = it.searchFolderStack + SearchFolderInfo(folderId, folderName, driveId),
-                isSearchFolderLoading = true
+                isSearchFolderLoading = true,
+                searchFolderFiles = emptyList()
             )
         }
         loadSearchFiles(driveId, folderId)
@@ -244,7 +296,7 @@ class CatalogViewModel @Inject constructor(
 
         val newStack = currentStack.dropLast(1)
         
-        _uiState.update { it.copy(searchFolderStack = newStack, isSearchFolderLoading = true) }
+        _uiState.update { it.copy(searchFolderStack = newStack, isSearchFolderLoading = true, searchFolderFiles = emptyList()) }
         
         if (newStack.isEmpty()) {
             _uiState.update { it.copy(searchFolderFiles = emptyList(), isSearchFolderLoading = false) }
@@ -316,7 +368,7 @@ class CatalogViewModel @Inject constructor(
         val currentDrive = _uiState.value.selectedDrive ?: return
         if (_uiState.value.folderStack.isEmpty()) return
 
-        _uiState.update { it.copy(folderStack = emptyList(), isNavigating = true) }
+        _uiState.update { it.copy(folderStack = emptyList(), isNavigating = true, files = emptyList()) }
         loadFiles(currentDrive.id, null)
     }
 
@@ -393,7 +445,7 @@ class CatalogViewModel @Inject constructor(
                             isLoading = false,
                             isRefreshing = false,
                             isNavigating = false,
-                            error = error.message
+                            error = if (_uiState.value.isOffline) null else error.message
                         )
                     }
                 }
@@ -417,10 +469,6 @@ class CatalogViewModel @Inject constructor(
             return
         }
         if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty() && recentFolders.isEmpty()) {
-            _uiState.update { it.copy(isHomeRefreshing = false) }
-            return
-        }
-        if (_uiState.value.sharedDrives.isEmpty()) {
             _uiState.update { it.copy(isHomeRefreshing = false) }
             return
         }
@@ -541,53 +589,47 @@ class CatalogViewModel @Inject constructor(
     private suspend fun loadFilesFromFolders(folderIds: Set<String>): List<MediaFileEntity> {
         val result = mutableListOf<MediaFileEntity>()
         val drives = _uiState.value.sharedDrives
+        val isOffline = _uiState.value.isOffline
 
         folderIds.forEach { folderId ->
             var found = false
-            // Check if we need fresh data (timestamp cache cleared or TTL expired)
-            val cacheKey = "${drives.firstOrNull()?.id ?: "unknown"}/$folderId"
-            val lastLoaded = lastLoadedTimestamps[cacheKey]
-            val now = System.currentTimeMillis()
-            var needsFreshFetch = lastLoaded == null || (now - lastLoaded) > cacheTtlMs
+            val localFolder = driveRepository.getFileById(folderId)
+            val driveIdToUse = localFolder?.driveId ?: drives.firstOrNull()?.id
 
-            // Compare folder modified time if not already fetching
-            if (!needsFreshFetch) {
-                val driveId = drives.firstOrNull()?.id
-                if (driveId != null) {
-                    val remoteModTime = driveRepository.getFolderModifiedTime(folderId, driveId)
-                    val localFolder = driveRepository.getFileById(folderId)
+            if (!isOffline && driveIdToUse != null) {
+                // Check if we need fresh data (timestamp cache cleared or TTL expired)
+                val cacheKey = "$driveIdToUse/$folderId"
+                val lastLoaded = lastLoadedTimestamps[cacheKey]
+                val now = System.currentTimeMillis()
+                var needsFreshFetch = lastLoaded == null || (now - lastLoaded) > cacheTtlMs
+
+                // Compare folder modified time if not already fetching
+                if (!needsFreshFetch) {
+                    val remoteModTime = driveRepository.getFolderModifiedTime(folderId, driveIdToUse)
                     if (remoteModTime != null && localFolder != null && remoteModTime != localFolder.modifiedTime) {
                         needsFreshFetch = true
                     } else if (remoteModTime != null && localFolder == null) {
-                        // We don't even have the folder locally
                         needsFreshFetch = true
                     }
                 }
-            }
 
-            if (needsFreshFetch) {
-                // Always try API first when cache is stale, cleared, or modified
-                for (drive in drives) {
-                    val apiResult = driveRepository.listFilesInDrive(drive.id, folderId)
+                if (needsFreshFetch) {
+                    val apiResult = driveRepository.listFilesInDrive(driveIdToUse, folderId)
                     if (apiResult.isSuccess) {
-                        val fresh = driveRepository.getCachedFiles(drive.id, folderId).first()
+                        val fresh = driveRepository.getCachedFiles(driveIdToUse, folderId).first()
                         result.addAll(fresh)
                         found = true
                         lastLoadedTimestamps[cacheKey] = now
-                        break
                     }
                 }
             }
 
-            // Fallback to cache if API not needed or failed
-            if (!found) {
-                for (drive in drives) {
-                    val cached = driveRepository.getCachedFiles(drive.id, folderId).first()
-                    if (cached.isNotEmpty()) {
-                        result.addAll(cached)
-                        found = true
-                        break
-                    }
+            // Fallback to cache if API not needed, failed, or offline
+            if (!found && driveIdToUse != null) {
+                val cached = driveRepository.getCachedFiles(driveIdToUse, folderId).first()
+                if (cached.isNotEmpty()) {
+                    result.addAll(cached)
+                    found = true
                 }
             }
         }

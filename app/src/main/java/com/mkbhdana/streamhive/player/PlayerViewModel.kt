@@ -205,7 +205,17 @@ class PlayerViewModel @Inject constructor(
                 val renderersFactory = NextRenderersFactory(context)
                     .setExtensionRendererMode(decoderMode)
 
+                val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 5_000,
+                        /* maxBufferMs = */ 300_000,
+                        /* bufferForPlaybackMs = */ 2_000,
+                        /* bufferForPlaybackAfterRebufferMs = */ 5_000
+                    )
+                    .build()
+
                 val exoPlayer = ExoPlayer.Builder(context, renderersFactory)
+                    .setLoadControl(loadControl)
                     .build()
                     .apply {
                         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)

@@ -14,7 +14,7 @@ interface PlaybackHistoryDao {
     @Query("SELECT * FROM playback_history WHERE fileId = :fileId")
     suspend fun getByFileId(fileId: String): PlaybackHistoryEntity?
 
-    @Query("SELECT * FROM playback_history WHERE lastPosition > 0 AND lastPosition < duration * 0.92 ORDER BY lastPlayedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM playback_history WHERE lastPosition > duration * 0.10 AND lastPosition < duration * 0.90 ORDER BY lastPlayedAt DESC LIMIT :limit")
     fun getContinuePlaying(limit: Int = 10): Flow<List<PlaybackHistoryEntity>>
 
     @Query("SELECT * FROM playback_history ORDER BY lastPlayedAt DESC LIMIT :limit")

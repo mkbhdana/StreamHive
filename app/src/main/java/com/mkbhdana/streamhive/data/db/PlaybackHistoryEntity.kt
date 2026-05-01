@@ -18,5 +18,5 @@ data class PlaybackHistoryEntity(
         get() = if (duration > 0) (lastPosition.toFloat() / duration.toFloat()) else 0f
 
     val isCompleted: Boolean
-        get() = progressPercent > 0.92f
+        get() = progressPercent > 0.90f
 }

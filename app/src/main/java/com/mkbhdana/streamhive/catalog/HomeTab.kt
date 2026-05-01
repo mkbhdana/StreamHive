@@ -57,6 +57,12 @@ fun HomeTab(
         return
     }
 
+    // No connectivity and no cached content → show centered message
+    if (state.isOffline && !hasAnyContent && !hasContinuePlaying) {
+        NoConnectivityMessage(modifier = modifier)
+        return
+    }
+
     // Show skeleton while drives or home content is loading
     if ((state.isLoading || state.isHomeLoading) && !hasAnyContent && !hasContinuePlaying) {
         HomeSkeletonLoading(modifier = modifier)
@@ -68,6 +74,13 @@ fun HomeTab(
         contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
+        // Offline banner when there IS cached content
+        if (state.isOffline) {
+            item {
+                OfflineBanner()
+            }
+        }
+
         // ──── Continue Playing ────
         if (hasContinuePlaying) {
             item {
@@ -806,6 +819,58 @@ private fun NoHomeContent(
                 Text("Open Settings")
             }
         }
+    }
+}
+
+// ──── Connectivity States ────
+
+@Composable
+fun NoConnectivityMessage(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                Icons.Default.WifiOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(64.dp)
+            )
+            Text(
+                "No Connectivity",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun OfflineBanner() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.WifiOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "No Connectivity — showing cached content",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

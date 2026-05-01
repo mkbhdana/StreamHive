@@ -4,6 +4,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -530,6 +532,7 @@ private fun CatalogFoldersSection(
     onToggleRecent: (folderId: String) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
     
     data class MappedFolder(val id: String, val name: String, val type: String)
     
@@ -550,17 +553,28 @@ private fun CatalogFoldersSection(
     }
 
     Column(Modifier.padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { isExpanded = !isExpanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text("Catalog Folders", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(
-                    if (mappedList.isEmpty()) "No folders added" else "${mappedList.size} folder(s) • use arrows to reorder",
+                    if (mappedList.isEmpty()) "No folders added" else "${mappedList.size} folder(s) • tap to view",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Icon(
+                if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = "Toggle Folders",
+                modifier = Modifier.padding(end = 8.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             FilledTonalButton(onClick = { showPicker = true }) {
                 Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
@@ -571,9 +585,13 @@ private fun CatalogFoldersSection(
         Spacer(Modifier.height(8.dp))
 
         // Show mapped folders with reorder, type badge, recent star, and remove
-        mappedList.forEachIndexed { index, folder ->
+        androidx.compose.animation.AnimatedVisibility(visible = isExpanded) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                mappedList.forEachIndexed { index, folder ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Move up/down
@@ -581,40 +599,40 @@ private fun CatalogFoldersSection(
                     IconButton(
                         onClick = { viewModel.moveFolderUp(folder.id) },
                         enabled = index > 0,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             Icons.Default.KeyboardArrowUp, "Move up",
                             tint = if (index > 0) MaterialTheme.colorScheme.primary
                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                     IconButton(
                         onClick = { viewModel.moveFolderDown(folder.id) },
                         enabled = index < mappedList.size - 1,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             Icons.Default.KeyboardArrowDown, "Move down",
                             tint = if (index < mappedList.size - 1) MaterialTheme.colorScheme.primary
                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
                 Text(
                     folder.name,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 val (badgeText, badgeColor) = when (folder.type) {
                     "movie" -> "Movie" to Color(0xFFE91E63)
                     "tv" -> "Series" to Color(0xFF2196F3)
@@ -625,23 +643,26 @@ private fun CatalogFoldersSection(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .background(badgeColor.copy(alpha = 0.15f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 ) {
                     Text(badgeText, style = MaterialTheme.typography.labelSmall, color = badgeColor, fontWeight = FontWeight.Bold)
                 }
+                Spacer(Modifier.width(4.dp))
                 val isRecent = folder.id in recentFolders
-                IconButton(onClick = { onToggleRecent(folder.id) }, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = { onToggleRecent(folder.id) }, modifier = Modifier.size(40.dp)) {
                     Icon(
                         if (isRecent) Icons.Default.Star else Icons.Default.StarBorder,
                         "Toggle Recently Added",
                         tint = if (isRecent) Color(0xFFFFC107) else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-                IconButton(onClick = { onRemoveFolder(folder.id) }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                IconButton(onClick = { onRemoveFolder(folder.id) }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Close, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(24.dp))
                 }
             }
+        }
+        }
         }
     }
 

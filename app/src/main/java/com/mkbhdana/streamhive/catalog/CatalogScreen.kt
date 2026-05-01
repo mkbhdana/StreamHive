@@ -340,6 +340,10 @@ private fun FoldersTab(
         ) {
         Box(modifier = Modifier.fillMaxSize()) {
             when {
+                // Offline with no cached files → centered "No Connectivity"
+                uiState.isOffline && uiState.files.isEmpty() && !uiState.isLoading -> {
+                    NoConnectivityMessage(modifier = Modifier.align(Alignment.Center))
+                }
                 uiState.isLoading && uiState.files.isEmpty() -> {
                     LoadingIndicator(
                         modifier = Modifier.align(Alignment.Center),
