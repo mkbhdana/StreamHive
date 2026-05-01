@@ -494,10 +494,18 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
+                    val context = LocalContext.current
+                    val versionName = remember {
+                        try {
+                            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
+                        } catch (e: Exception) {
+                            "Unknown"
+                        }
+                    }
                     Column(Modifier.padding(24.dp)) {
                         Text("StreamHive", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(4.dp))
-                        Text("v2.0.0", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("v$versionName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(16.dp))
                         Text("Stream videos from Google Drive with advanced playback features.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(20.dp))

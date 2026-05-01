@@ -16,11 +16,17 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "2.0.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk {
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
         }
     }
 
