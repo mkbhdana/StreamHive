@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*' # Triggers on any tag starting with 'v', e.g., 'v1.2.9'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Signed APK
