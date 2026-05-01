@@ -13,17 +13,17 @@ Stream your video files directly from Google Drive with this specialized client.
 </p>
 
 <div align="center">
-    <a href="https://github.com/mkbhdana/drivePlay/releases">
+    <a href="https://github.com/mkbhdana/StreamHive/releases">
 
-  <img alt="Download count" src="https://img.shields.io/github/downloads/mkbhdana/drivePlay/total?style=for-the-badge">
+  <img alt="Download count" src="https://img.shields.io/github/downloads/mkbhdana/StreamHive/total?style=for-the-badge">
   </a>
-      <a href="https://github.com/mkbhdana/drivePlay/latest">
-    <img alt="GitHub release (latest by date)" src="https://img.shields.io/github/v/release/mkbhdana/drivePlay?style=for-the-badge">
+      <a href="https://github.com/mkbhdana/StreamHive/latest">
+    <img alt="GitHub release (latest by date)" src="https://img.shields.io/github/v/release/mkbhdana/StreamHive?style=for-the-badge">
   </a>
-  <a href="https://github.com/mkbhdana/drivePlay/blob/main/LICENSE">
-    <img alt="GitHub" src="https://img.shields.io/github/license/mkbhdana/drivePlay?style=for-the-badge">
+  <a href="https://github.com/mkbhdana/StreamHive/blob/main/LICENSE">
+    <img alt="GitHub" src="https://img.shields.io/github/license/mkbhdana/StreamHive?style=for-the-badge">
   </a>
-  <img alt="Codefactor rating" src="https://img.shields.io/codefactor/grade/github/mkbhdana/drivePlay/main?style=for-the-badge">
+  <img alt="Codefactor rating" src="https://img.shields.io/codefactor/grade/github/mkbhdana/StreamHive/main?style=for-the-badge">
 </div>
 
 <br>
@@ -61,7 +61,7 @@ Stream your video files directly from Google Drive with this specialized client.
 
 ## Download
 
-Go to the [Releases](https://github.com/itsZECHS/DriveStream/releases) to download the latest APK.
+Go to the [Releases](https://github.com/mkbhdana/StreamHive/releases) to download the latest APK.
 
 
 ## What scopes are used?
