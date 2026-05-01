@@ -9,7 +9,7 @@ Stream your video files directly from Google Drive with this specialized client.
 </p>
 
 <p align="center">
-  This app is powered by <a href="https://developers.google.com/drive/api">Drive API</a>, <a href="https://github.com/google/ExoPlayer">ExoPlayer</a> and <a href="https://github.com/anilbeesetti/nextlib">nextlib</a>.
+  This app is powered by <a href="https://developers.google.com/drive/api">Drive API</a> and <a href="https://github.com/google/ExoPlayer">ExoPlayer</a>.
 </p>
 
 <div align="center">
@@ -20,10 +20,10 @@ Stream your video files directly from Google Drive with this specialized client.
       <a href="https://github.com/mkbhdana/StreamHive/latest">
     <img alt="GitHub release (latest by date)" src="https://img.shields.io/github/v/release/mkbhdana/StreamHive?style=for-the-badge">
   </a>
-  <a href="https://github.com/mkbhdana/StreamHive/blob/main/LICENSE">
+  <a href="https://github.com/mkbhdana/StreamHive/blob/master/LICENSE.txt">
     <img alt="GitHub" src="https://img.shields.io/github/license/mkbhdana/StreamHive?style=for-the-badge">
   </a>
-  <img alt="Codefactor rating" src="https://img.shields.io/codefactor/grade/github/mkbhdana/StreamHive/main?style=for-the-badge">
+  <img alt="Codefactor rating" src="https://img.shields.io/codefactor/grade/github/mkbhdana/StreamHive/master?style=for-the-badge">
 </div>
 
 <br>
@@ -69,6 +69,12 @@ Go to the [Releases](https://github.com/mkbhdana/StreamHive/releases) to downloa
 [List of all drive scopes](https://developers.google.com/identity/protocols/oauth2/scopes#drive)
 
 This app uses `https://www.googleapis.com/auth/drive.readonly` scope that for the most part only lists files granted.
+
+## Acknowledgments
+
+- [mpv-android](https://github.com/mpv-android)
+- [mpvKt](https://github.com/abdallahmehiz/mpvKt)
+- [Next player](https://github.com/anilbeesetti/nextplayer)
 
 ## Note
 
