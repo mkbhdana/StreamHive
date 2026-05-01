@@ -227,17 +227,27 @@ This app uses `https://www.googleapis.com/auth/drive.readonly` scope that for th
 - [mpvKt](https://github.com/abdallahmehiz/mpvKt)
 - [Next player](https://github.com/anilbeesetti/nextplayer)
 
-## Note
+## ⚠️ Note
 
-  > The app does **not provide built-in credentials**, so each user needs to configure their own for Drive integration.
-  <summary>A step-by-step video guide on how to create an OAuth client.</summary>
-  
+> The app does **not provide built-in credentials**, so each user must configure their own for Drive integration.
+
 <details>
-
-
-  
+<summary>📺 Step-by-step video guide: Create OAuth client & Service Account</summary>
 
 https://github.com/user-attachments/assets/5506d6c1-b096-4879-96f7-e124b4631e16
 
-  
 </details>
+
+---
+
+## 🔐 Important: Service Account Access
+
+After creating your **Service Account**, you must grant it access to your Shared Drive:
+
+1. Go to your **Google Drive**
+2. Open the **Shared Drive**
+3. Click **Manage Members**
+4. Add your **Service Account email**
+5. Assign role: **Content Manager**
+
+❗ Without this step, the app will **not be able to access your files**
