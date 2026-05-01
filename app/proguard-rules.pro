@@ -42,3 +42,8 @@
 -dontwarn com.google.api.client.**
 -dontwarn com.google.common.**
 -keep class com.google.api.services.drive.** { *; }
+
+# Apache / Javax warnings from Google API / HTTP Client
+-dontwarn javax.naming.**
+-dontwarn org.ietf.jgss.**
+-dontwarn org.apache.http.**
