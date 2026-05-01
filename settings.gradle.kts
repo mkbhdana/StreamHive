@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DrivePlay"
+rootProject.name = "StreamHive"
 include(":app")

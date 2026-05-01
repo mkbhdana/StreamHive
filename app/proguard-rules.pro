@@ -1,4 +1,4 @@
-# ProGuard rules for DrivePlay
+# ProGuard rules for StreamHive
 
 # Google API Client
 -keep class com.google.api.** { *; }
@@ -9,10 +9,10 @@
 # Gson
 -keepattributes Signature
 -keepattributes *Annotation*
--keep class com.driveplay.app.data.model.** { *; }
--keep class com.driveplay.app.auth.ServiceAccountClient$ServiceAccountJson { *; }
--keep class com.driveplay.app.auth.OAuth2Client$TokenResponse { *; }
--keep class com.driveplay.app.auth.ServiceAccountClient$TokenResponse { *; }
+-keep class com.mkbhdana.streamhive.data.model.** { *; }
+-keep class com.mkbhdana.streamhive.auth.ServiceAccountClient$ServiceAccountJson { *; }
+-keep class com.mkbhdana.streamhive.auth.OAuth2Client$TokenResponse { *; }
+-keep class com.mkbhdana.streamhive.auth.ServiceAccountClient$TokenResponse { *; }
 
 # OkHttp
 -dontwarn okhttp3.internal.platform.**

@@ -8,13 +8,13 @@ plugins {
 }
 
 android {
-    namespace = "com.driveplay.app"
-    compileSdk = 35
+    namespace = "com.mkbhdana.streamhive"
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.driveplay.app"
+        applicationId = "com.mkbhdana.streamhive"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "2.0.0"
 
@@ -53,12 +53,16 @@ android {
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/INDEX.LIST"
         }
+        jniLibs {
+            pickFirsts.add("**/*.so")
+        }
     }
 }
 
 dependencies {
     // Core
     implementation(libs.core.ktx)
+    implementation(libs.core.splashscreen)
 
     // Compose
     implementation(platform(libs.compose.bom))
@@ -91,7 +95,9 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.datasource.okhttp)
-
+    implementation(libs.media3.ui.compose)
+    implementation(libs.media3.common.ktx)
+    implementation(libs.media3.inspector.frame)
     // Hilt DI
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -120,6 +126,10 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
+    // Splash Screen & Startup
+    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.startup:startup-runtime:1.1.1")
+
     // Coroutines
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
@@ -128,9 +138,14 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // MPV Player (community artifact by abdallahmehiz)
-    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    // implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+
+    // NanoHTTPD (local proxy server for secured streaming)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     // FFmpeg Decoder Extension (optional - build from source)
     // Place the built AAR in app/libs/ and uncomment:
-    // implementation(files("libs/decoder_ffmpeg-release.aar"))
+    // implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.0-0.12.1") // To add media3 software decoders and extensions
+    implementation("io.github.anilbeesetti:nextlib-mediainfo:1.10.0-0.12.1")
 }
