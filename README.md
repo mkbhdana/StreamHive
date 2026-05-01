@@ -12,6 +12,19 @@ Stream your video files directly from Google Drive with this specialized client.
   This app is powered by <a href="https://developers.google.com/drive/api">Drive API</a> and <a href="https://github.com/google/ExoPlayer">ExoPlayer</a>.
 </p>
 
+**Key Feature**
+- Simpler and Easier to Use UI
+- Material3 Expressive Design
+- Enhanced Playback Features
+- High-Quality Rendering
+- Completely free and open source and without any ads or excessive permissions
+- External Subtitle support
+- Zoom gesture
+- Search Functionality
+
+**This project is still in development and is expected to have bugs. Please report any bugs you find in
+the [Issues](https://github.com/mkbhdana/StreamHive/issues) section.**
+
 <!-- <div align="center">
     <a href="https://github.com/mkbhdana/StreamHive/releases">
 
