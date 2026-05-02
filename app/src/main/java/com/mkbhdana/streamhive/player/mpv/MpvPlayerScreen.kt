@@ -1,9 +1,9 @@
 package com.mkbhdana.streamhive.player.mpv
 
 import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.view.SurfaceView
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,10 +22,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mkbhdana.streamhive.player.PlaybackErrorOverlay
+import com.mkbhdana.streamhive.player.PlayerWindowMode
+import com.mkbhdana.streamhive.player.PlayerSwitchingOverlay
+import com.mkbhdana.streamhive.player.enterPlayerWindowMode
+import com.mkbhdana.streamhive.player.exitPlayerWindowMode
 import com.mkbhdana.streamhive.player.gesture.GestureIndicatorOverlay
 import com.mkbhdana.streamhive.player.gesture.GestureState
 import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
@@ -36,23 +38,28 @@ import kotlinx.coroutines.delay
 @Composable
 fun MpvPlayerScreen(
     onBack: () -> Unit,
+    allowEngineFallback: Boolean = true,
+    switchingMessage: String? = null,
+    onFallbackToExo: (() -> Unit)? = null,
+    onSwitchToExo: (() -> Unit)? = null,
     viewModel: MpvPlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
+    var engineFallbackRequested by remember { mutableStateOf(false) }
+    var keepWindowModeForHandoff by remember { mutableStateOf(false) }
+    var isSwitchingPlayer by remember(switchingMessage) { mutableStateOf(switchingMessage != null) }
+    var activeSwitchingMessage by remember(switchingMessage) { mutableStateOf(switchingMessage) }
 
     // Intercept back navigation to instantly restore orientation
     val handleBack = {
         val activity = context as? Activity
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        val window = activity?.window
-        if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
+        keepWindowModeForHandoff = false
+        isSwitchingPlayer = false
+        activeSwitchingMessage = null
+        activity?.exitPlayerWindowMode()
         onBack()
     }
 
@@ -62,34 +69,39 @@ fun MpvPlayerScreen(
         uri?.let { viewModel.loadExternalSubtitle(it) }
     }
 
-    // Force landscape + immersive mode
-    val activity = context as? Activity
-    DisposableEffect(Unit) {
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        val window = activity?.window
-        if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            if (window != null) {
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-                val controller = WindowInsetsControllerCompat(window, window.decorView)
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-    }
-
-
+    PlayerWindowMode(restoreOnDispose = !keepWindowModeForHandoff)
 
     // Auto-hide controls (paused while a panel is open)
     LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
         if (uiState.showControls && uiState.isPlaying && !uiState.isLocked && !controlsInteractionActive) {
             delay(8000)
             viewModel.hideControls()
+        }
+    }
+
+    LaunchedEffect(uiState.error, allowEngineFallback, onFallbackToExo) {
+        if (uiState.error != null && allowEngineFallback && onFallbackToExo != null && !engineFallbackRequested) {
+            Toast.makeText(context, "There was some error in playing the file", Toast.LENGTH_SHORT).show()
+            engineFallbackRequested = true
+            keepWindowModeForHandoff = true
+            isSwitchingPlayer = true
+            activeSwitchingMessage = "Switching to Exo"
+            viewModel.hideControls()
+            viewModel.prepareForEngineFallback()
+            (context as? Activity)?.enterPlayerWindowMode()
+            onFallbackToExo()
+        } else if (uiState.error != null && (!allowEngineFallback || onFallbackToExo == null)) {
+            isSwitchingPlayer = false
+            activeSwitchingMessage = null
+        }
+    }
+
+    LaunchedEffect(isSwitchingPlayer, uiState.isLoading, uiState.duration, uiState.currentPosition, uiState.isPlaying) {
+        val playerReady = !uiState.isLoading && (uiState.duration > 0L || uiState.currentPosition > 0L || uiState.isPlaying)
+        if (isSwitchingPlayer && playerReady) {
+            delay(220)
+            isSwitchingPlayer = false
+            activeSwitchingMessage = null
         }
     }
 
@@ -136,37 +148,36 @@ fun MpvPlayerScreen(
         }
 
         // Loading
-        if (uiState.isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = MaterialTheme.colorScheme.primary,
-                strokeWidth = 3.dp
-            )
-        }
-
-        // Error
-        if (uiState.error != null) {
-            Card(
-                modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+        if (uiState.isLoading || isSwitchingPlayer) {
+            if (isSwitchingPlayer && activeSwitchingMessage != null) {
+                PlayerSwitchingOverlay(message = activeSwitchingMessage.orEmpty())
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text(uiState.error ?: "", color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = onBack) { Text("Go Back") }
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(56.dp)
+                    )
                 }
             }
         }
 
+        // Error
+        if (uiState.error != null && !isSwitchingPlayer) {
+            PlaybackErrorOverlay(
+                errorMessage = uiState.error.orEmpty(),
+                onBack = handleBack
+            )
+        }
+
         // Controls overlay
         AnimatedVisibility(
-            visible = uiState.showControls && uiState.error == null,
+            visible = uiState.showControls && uiState.error == null && !isSwitchingPlayer,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -196,6 +207,20 @@ fun MpvPlayerScreen(
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
                 onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
+                switchPlayerLabel = if (onSwitchToExo != null) "EXO" else null,
+                onSwitchPlayer = if (onSwitchToExo != null) {
+                    {
+                        keepWindowModeForHandoff = true
+                        isSwitchingPlayer = true
+                        activeSwitchingMessage = "Switching to Exo"
+                        viewModel.hideControls()
+                        viewModel.prepareForEngineFallback()
+                        (context as? Activity)?.enterPlayerWindowMode()
+                        onSwitchToExo()
+                    }
+                } else {
+                    null
+                },
                 onOpenExternal = {
                     viewModel.getProxyUrl()?.let { url ->
                         com.mkbhdana.streamhive.player.ExternalPlayerLauncher.launch(context, url, uiState.fileName)

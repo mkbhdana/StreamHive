@@ -95,6 +95,9 @@ class MpvPlayerViewModel @Inject constructor(
             it.copy(
                 fileName = fileName, 
                 isLoading = true,
+                isPlaying = false,
+                error = null,
+                showControls = false,
                 currentPosition = 0L,
                 bufferedPercentage = 0
             ) 
@@ -106,14 +109,27 @@ class MpvPlayerViewModel @Inject constructor(
         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
         mpvPlayer.loadFile(streamUrl)
         mpvPlayer.play()
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isPlaying = true,
+                error = null,
+                showControls = false
+            )
+        }
     }
 
     private fun setupPlayer() {
         viewModelScope.launch {
             try {
-                _uiState.update { it.copy(isLoading = true) }
-
-                mpvPlayer.initialize()
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        isPlaying = false,
+                        error = null,
+                        showControls = false
+                    )
+                }
 
                 mpvPlayer.setEventListener(object : MpvPlayer.EventListener {
                     override fun onPropertyChange(property: String, value: Any?) {}
@@ -130,11 +146,21 @@ class MpvPlayerViewModel @Inject constructor(
                     }
 
                     override fun onDurationChanged(durationMs: Long) {
-                        _uiState.update { it.copy(duration = durationMs) }
+                        _uiState.update {
+                            it.copy(
+                                duration = durationMs,
+                                isLoading = if (durationMs > 0) false else it.isLoading
+                            )
+                        }
                     }
 
                     override fun onPositionChanged(positionMs: Long) {
-                        _uiState.update { it.copy(currentPosition = positionMs) }
+                        _uiState.update {
+                            it.copy(
+                                currentPosition = positionMs,
+                                isLoading = if (positionMs > 0 || it.duration > 0) false else it.isLoading
+                            )
+                        }
                         // Reset retries once we have a valid playback position
                         if (positionMs > 0) retryCount = 0
                         // Resume to saved position once we get a valid position (file loaded)
@@ -146,30 +172,59 @@ class MpvPlayerViewModel @Inject constructor(
                     }
 
                     override fun onError(message: String) {
-                        if (retryCount < MAX_RETRIES) {
+                        if (isRecoverablePlaybackError(message) && retryCount < MAX_RETRIES) {
                             retryCount++
                             val pos = _uiState.value.currentPosition
                             if (pos > 0) pendingSeekMs = pos
                             hasResumed = false
                             android.util.Log.w("MpvVM", "MPV Error. Retrying ($retryCount/$MAX_RETRIES): $message")
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = true,
+                                    isPlaying = false,
+                                    error = null,
+                                    showControls = false
+                                )
+                            }
                             val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                             mpvPlayer.loadFile(streamUrl)
                             mpvPlayer.play()
                         } else {
+                            val retrySuffix = if (retryCount >= MAX_RETRIES) {
+                                " (Failed after $MAX_RETRIES retries)"
+                            } else {
+                                ""
+                            }
                             _uiState.update {
-                                it.copy(error = "MPV Error: $message (Failed after $MAX_RETRIES retries)", isLoading = false)
+                                it.copy(
+                                    error = "MPV Error: $message$retrySuffix",
+                                    isLoading = false,
+                                    isPlaying = false,
+                                    showControls = false
+                                )
                             }
                         }
                     }
 
                     override fun onBuffering(isBuffering: Boolean) {
-                        _uiState.update { it.copy(isLoading = isBuffering) }
+                        _uiState.update {
+                            val hasLoadedMedia = it.duration > 0 || it.currentPosition > 0
+                            it.copy(
+                                isLoading = when {
+                                    isBuffering -> true
+                                    hasLoadedMedia -> false
+                                    else -> it.isLoading
+                                }
+                            )
+                        }
                     }
 
                     override fun onTracksChanged() {
                         updateTrackInfo()
                     }
                 })
+
+                mpvPlayer.initialize()
 
                 val history = playbackHistoryDao.getByFileId(currentFileId)
                 val startPosMs = if (history != null && !history.isCompleted && history.lastPosition > 0) history.lastPosition else 0L
@@ -181,18 +236,33 @@ class MpvPlayerViewModel @Inject constructor(
                 val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                 mpvPlayer.loadFile(streamUrl)
                 mpvPlayer.play()
-
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        isPlaying = true,
+                        error = null,
+                        showControls = false
+                    )
+                }
 
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        isPlaying = false,
+                        showControls = false,
                         error = "Failed to start MPV player: ${e.message}"
                     )
                 }
             }
         }
+    }
+
+    private fun isRecoverablePlaybackError(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+        return "library not found" !in lowerMessage &&
+            "failed to initialize" !in lowerMessage &&
+            "not initialized" !in lowerMessage
     }
 
     private fun updateTrackInfo() {
@@ -264,6 +334,19 @@ class MpvPlayerViewModel @Inject constructor(
     }
 
     fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(currentFileId)
+
+    fun prepareForEngineFallback() {
+        mpvPlayer.pause()
+        savePlaybackPosition()
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isPlaying = false,
+                error = null,
+                showControls = false
+            )
+        }
+    }
 
     fun toggleLock() {
         _uiState.update { it.copy(isLocked = !it.isLocked) }

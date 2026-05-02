@@ -24,7 +24,6 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
-import android.graphics.Bitmap
 import com.mkbhdana.streamhive.catalog.DriveRepository
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
@@ -34,7 +33,7 @@ import com.mkbhdana.streamhive.player.ui.TrackType
 import com.mkbhdana.streamhive.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
+// import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,9 +83,6 @@ data class PlayerUiState(
 
     // Tap seek
     val tapSeekDuration: Int = 10,
-
-    // Thumbnail
-    val seekThumbnail: Bitmap? = null,
     
     // Decoder
     val decoderMode: String = "auto",
@@ -139,6 +135,7 @@ class PlayerViewModel @Inject constructor(
     val player: ExoPlayer? get() = _player
 
     private val driveDataSourceFactory = DriveDataSource.Factory { driveRepository.getValidToken() }
+    private var sessionDecoderMode: String = appPreferences.defaultDecoder
 
     // Resume playback support
     private var pendingSeekMs: Long = 0L
@@ -234,6 +231,9 @@ class PlayerViewModel @Inject constructor(
             it.copy(
                 fileName = fileName, 
                 isLoading = true,
+                isPlaying = false,
+                error = null,
+                showControls = false,
                 currentPosition = 0L,
                 bufferedPercentage = 0,
                 chapters = emptyList() // clear chapters for new file
@@ -253,12 +253,21 @@ class PlayerViewModel @Inject constructor(
     private fun initializePlayer() {
         viewModelScope.launch {
             try {
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        isPlaying = false,
+                        error = null,
+                        showControls = false
+                    )
+                }
+
                 val token = driveRepository.getValidToken()
                     ?: throw Exception("Not authenticated")
 
                 driveDataSourceFactory.updateToken(token)
 
-                val decoderMode = when (appPreferences.defaultDecoder) {
+                val decoderMode = when (sessionDecoderMode) {
                     "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
                     "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                     else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
@@ -266,7 +275,7 @@ class PlayerViewModel @Inject constructor(
                 val useTunneling =
                     appPreferences.tunneledPlaybackEnabled &&
                         !tunnelingTemporarilyDisabled &&
-                        appPreferences.defaultDecoder == "hw"
+                        sessionDecoderMode == "hw"
 
                 val trackSelector = DefaultTrackSelector(context).apply {
                     setParameters(
@@ -280,7 +289,7 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
 
-                val renderersFactory = NextRenderersFactory(context)
+                val renderersFactory = DefaultRenderersFactory(context)
                     .setExtensionRendererMode(decoderMode)
                     .setMediaCodecSelector(createMediaCodecSelector(appPreferences.mapDv7ToHevc))
                     .applyMapDv7ToHevcIfAvailable(appPreferences.mapDv7ToHevc)
@@ -377,6 +386,14 @@ class PlayerViewModel @Inject constructor(
                             if (pos > 0) pendingSeekMs = pos
                             hasResumed = false
                             Log.w("PlayerVM", "Tunneled playback failed. Retrying without tunneling.", error)
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = true,
+                                    isPlaying = false,
+                                    error = null,
+                                    showControls = false
+                                )
+                            }
                             _player?.release()
                             _player = null
                             initializePlayer()
@@ -389,13 +406,23 @@ class PlayerViewModel @Inject constructor(
                             if (pos > 0) pendingSeekMs = pos
                             hasResumed = false
                             Log.w("PlayerVM", "Playback error. Retrying ($retryCount/$MAX_RETRIES)", error)
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = true,
+                                    isPlaying = false,
+                                    error = null,
+                                    showControls = false
+                                )
+                            }
                             _player?.prepare()
                             _player?.playWhenReady = true
                         } else {
                             _uiState.update {
                                 it.copy(
-                                    error = "Playback error: ${error.message} (Failed after $MAX_RETRIES retries)",
-                                    isLoading = false
+                                    error = buildPlaybackErrorMessage(error),
+                                    isLoading = false,
+                                    isPlaying = false,
+                                    showControls = false
                                 )
                             }
                         }
@@ -408,16 +435,39 @@ class PlayerViewModel @Inject constructor(
                 })
 
                 _player = exoPlayer
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        isPlaying = true,
+                        error = null,
+                        showControls = false
+                    )
+                }
                 // isLoading stays true until onPlaybackStateChanged fires STATE_READY
 
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        isPlaying = false,
+                        showControls = false,
                         error = "Failed to initialize player: ${e.message}"
                     )
                 }
             }
+        }
+    }
+
+    private fun buildPlaybackErrorMessage(error: PlaybackException): String {
+        val detail = error.message
+            ?: error.cause?.message
+            ?: error.errorCodeName
+            ?: error.toString()
+
+        return if (retryCount >= MAX_RETRIES) {
+            "$detail (failed after $MAX_RETRIES retries)"
+        } else {
+            detail
         }
     }
 
@@ -650,23 +700,22 @@ class PlayerViewModel @Inject constructor(
         _player?.let { it.seekTo((it.currentPosition - ms).coerceAtLeast(0)) }
     }
 
-    fun extractThumbnailAt(_positionMs: Long) {
-        _uiState.update { it.copy(seekThumbnail = null) }
-        return
-    }
-
-    fun clearThumbnail() {
-        _uiState.update { it.copy(seekThumbnail = null) }
-    }
-
     fun toggleControls() {
         _uiState.update { it.copy(showControls = !it.showControls) }
     }
     
     fun setDecoderMode(mode: String) {
         if (_uiState.value.decoderMode == mode) return
-        appPreferences.defaultDecoder = mode
-        _uiState.update { it.copy(decoderMode = mode) }
+        sessionDecoderMode = mode
+        _uiState.update {
+            it.copy(
+                decoderMode = mode,
+                isLoading = true,
+                isPlaying = false,
+                error = null,
+                showControls = false
+            )
+        }
         
         // Save current position and release old player synchronously
         val currentPos = _player?.currentPosition ?: 0L
@@ -676,7 +725,6 @@ class PlayerViewModel @Inject constructor(
         pendingSeekMs = currentPos
         hasResumed = false
         preferredTracksApplied = false
-        clearThumbnail()
         
         initializePlayer()
     }
@@ -690,6 +738,21 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(currentFileId)
+
+    fun isMpvAvailable(): Boolean = appPreferences.isMpvAvailable()
+
+    fun prepareForEngineFallback() {
+        _player?.pause()
+        savePlaybackPosition()
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isPlaying = false,
+                error = null,
+                showControls = false
+            )
+        }
+    }
 
     fun updatePosition() {
         _player?.let { player ->

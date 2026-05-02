@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -24,6 +23,7 @@ import com.mkbhdana.streamhive.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -109,6 +109,8 @@ class CatalogViewModel @Inject constructor(
 
     private var loadFilesJob: Job? = null
     private var cacheCollectionJob: Job? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val continueMetadataFetchAttempted = mutableSetOf<String>()
 
     // TTL cache: folderKey -> timestamp of last API fetch
@@ -135,34 +137,58 @@ class CatalogViewModel @Inject constructor(
      */
     private fun observeNetworkConnectivity() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
+        connectivityManager = cm
 
-        // Set initial state
-        val activeNetwork = cm.activeNetwork
-        val capabilities = activeNetwork?.let { cm.getNetworkCapabilities(it) }
-        val initiallyOnline = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        _uiState.update { it.copy(isOffline = !initiallyOnline) }
+        syncConnectivityState(cm)
 
-        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                val wasOffline = _uiState.value.isOffline
-                _uiState.update { it.copy(isOffline = false) }
-                // Auto-refresh when coming back online
-                if (wasOffline) {
-                    viewModelScope.launch {
-                        if (_uiState.value.sharedDrives.isEmpty()) {
-                            loadSharedDrives()
-                        }
-                    }
-                }
+                syncConnectivityState(cm)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                syncConnectivityState(cm)
             }
 
             override fun onLost(network: Network) {
-                _uiState.update { it.copy(isOffline = true) }
+                viewModelScope.launch {
+                    delay(300)
+                    syncConnectivityState(cm)
+                }
             }
-        })
+
+            override fun onUnavailable() {
+                syncConnectivityState(cm)
+            }
+        }
+        networkCallback = callback
+        cm.registerDefaultNetworkCallback(callback)
+    }
+
+    private fun syncConnectivityState(cm: ConnectivityManager) {
+        val wasOffline = _uiState.value.isOffline
+        val isOnline = cm.activeNetwork
+            ?.let { cm.getNetworkCapabilities(it) }
+            ?.let { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            } == true
+        val isOffline = !isOnline
+
+        _uiState.update { it.copy(isOffline = isOffline) }
+
+        if (wasOffline && isOnline) {
+            viewModelScope.launch {
+                if (_uiState.value.sharedDrives.isEmpty()) {
+                    loadSharedDrives()
+                } else {
+                    loadHomeContent(isRefresh = true)
+                    _uiState.value.selectedDrive?.let { drive ->
+                        loadFiles(drive.id, _uiState.value.folderStack.lastOrNull()?.id)
+                    }
+                }
+            }
+        }
     }
 
     fun toggleEngine() {
@@ -888,6 +914,14 @@ class CatalogViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        val callback = networkCallback ?: return
+        runCatching { connectivityManager?.unregisterNetworkCallback(callback) }
+        networkCallback = null
+        connectivityManager = null
     }
 
     fun clearPlaybackHistory() {
