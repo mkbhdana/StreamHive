@@ -53,6 +53,7 @@ data class CatalogUiState(
     val isSearchLoading: Boolean = false,
     val error: String? = null,
     val selectedEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
+    val playFolderFilesExternally: Boolean = false,
     val isMpvAvailable: Boolean = false,
     val isNavigating: Boolean = false,
 
@@ -191,14 +192,10 @@ class CatalogViewModel @Inject constructor(
         }
     }
 
-    fun toggleEngine() {
-        val newEngine = when (_uiState.value.selectedEngine) {
-            PlayerEngine.EXO_PLAYER -> PlayerEngine.MPV
-            PlayerEngine.MPV -> PlayerEngine.EXTERNAL
-            PlayerEngine.EXTERNAL -> PlayerEngine.EXO_PLAYER
+    fun toggleFolderExternalPlayback() {
+        _uiState.update {
+            it.copy(playFolderFilesExternally = !it.playFolderFilesExternally)
         }
-        appPreferences.preferredEngine = newEngine
-        _uiState.update { it.copy(selectedEngine = newEngine) }
     }
 
     fun toggleGridView() {

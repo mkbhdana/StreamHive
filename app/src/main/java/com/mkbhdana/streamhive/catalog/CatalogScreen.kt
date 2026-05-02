@@ -326,55 +326,31 @@ private fun FoldersTab(
         // Error banner
         ErrorBanner(uiState.error, viewModel::clearError)
 
-        // Engine chip
-        if (uiState.isMpvAvailable) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AssistChip(
-                    onClick = viewModel::toggleEngine,
-                    label = {
-                        Text(
-                            when (uiState.selectedEngine) {
-                                PlayerEngine.EXO_PLAYER -> "ExoPlayer"
-                                PlayerEngine.MPV -> "MPV"
-                                PlayerEngine.EXTERNAL -> "External"
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.SmartDisplay, null, Modifier.size(16.dp))
-                    }
-                )
-                AssistChip(
-                    onClick = viewModel::refresh,
-                    label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
-                )
-                AssistChip(
-                    onClick = { viewModel.toggleGridView() },
-                    label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AssistChip(
-                    onClick = viewModel::refresh,
-                    label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
-                )
-                AssistChip(
-                    onClick = { viewModel.toggleGridView() },
-                    label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
-                )
-            }
+        // Folder-only external playback toggle.
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = uiState.playFolderFilesExternally,
+                onClick = viewModel::toggleFolderExternalPlayback,
+                label = {
+                    Text("External", style = MaterialTheme.typography.labelSmall)
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.SmartDisplay, null, Modifier.size(16.dp))
+                }
+            )
+            AssistChip(
+                onClick = viewModel::refresh,
+                label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
+                leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
+            )
+            AssistChip(
+                onClick = { viewModel.toggleGridView() },
+                label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
+                leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
+            )
         }
 
         // Files grid - wrapped in PullToRefreshBox (same logic as Refresh chip)
@@ -429,7 +405,7 @@ private fun FoldersTab(
                                         if (file.isFolder) {
                                             viewModel.openFolder(file.id, file.name)
                                         } else {
-                                            onPlayFile(file.id, file.name, uiState.selectedEngine)
+                                            onPlayFile(file.id, file.name, uiState.folderPlaybackEngine())
                                         }
                                     },
                                     onLongClick = { tooltipName = file.name }
@@ -448,7 +424,7 @@ private fun FoldersTab(
                                         if (file.isFolder) {
                                             viewModel.openFolder(file.id, file.name)
                                         } else {
-                                            onPlayFile(file.id, file.name, uiState.selectedEngine)
+                                            onPlayFile(file.id, file.name, uiState.folderPlaybackEngine())
                                         }
                                     },
                                     onLongClick = { tooltipName = file.name }
@@ -461,6 +437,10 @@ private fun FoldersTab(
         }
         } // end PullToRefreshBox
     }
+}
+
+private fun CatalogUiState.folderPlaybackEngine(): PlayerEngine {
+    return if (playFolderFilesExternally) PlayerEngine.EXTERNAL else selectedEngine
 }
 
 
