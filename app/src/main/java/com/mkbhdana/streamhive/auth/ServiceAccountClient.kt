@@ -63,29 +63,33 @@ class ServiceAccountClient @Inject constructor(
                 .post(formBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string()
+                    return@withContext Result.failure(
+                        Exception("Service account auth failed: ${response.code} - $errorBody")
+                    )
+                }
 
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(
-                    Exception("Service account auth failed: ${response.code} - $body")
+                val body = response.body ?: return@withContext Result.failure(
+                    Exception("Service account auth failed: empty body")
                 )
+
+                val tokenResponse = gson.fromJson(body.charStream(), TokenResponse::class.java)
+                val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
+
+                val credentials = AuthCredentials.ServiceAccountCredentials(
+                    clientEmail = serviceAccount.clientEmail,
+                    privateKey = serviceAccount.privateKey,
+                    tokenUri = serviceAccount.tokenUri,
+                    projectId = serviceAccount.projectId,
+                    accessToken = tokenResponse.accessToken,
+                    expiresAt = expiresAt
+                )
+
+                tokenManager.saveServiceAccountCredentials(credentials)
+                Result.success(credentials)
             }
-
-            val tokenResponse = gson.fromJson(body, TokenResponse::class.java)
-            val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
-
-            val credentials = AuthCredentials.ServiceAccountCredentials(
-                clientEmail = serviceAccount.clientEmail,
-                privateKey = serviceAccount.privateKey,
-                tokenUri = serviceAccount.tokenUri,
-                projectId = serviceAccount.projectId,
-                accessToken = tokenResponse.accessToken,
-                expiresAt = expiresAt
-            )
-
-            tokenManager.saveServiceAccountCredentials(credentials)
-            Result.success(credentials)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -117,20 +121,24 @@ class ServiceAccountClient @Inject constructor(
                 .post(formBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string()
+                    return@withContext Result.failure(
+                        Exception("Token refresh failed: ${response.code} - $errorBody")
+                    )
+                }
 
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(
-                    Exception("Token refresh failed: ${response.code} - $body")
+                val body = response.body ?: return@withContext Result.failure(
+                    Exception("Token refresh failed: empty body")
                 )
+
+                val tokenResponse = gson.fromJson(body.charStream(), TokenResponse::class.java)
+                val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
+
+                tokenManager.updateAccessToken(tokenResponse.accessToken, expiresAt)
+                Result.success(tokenResponse.accessToken)
             }
-
-            val tokenResponse = gson.fromJson(body, TokenResponse::class.java)
-            val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
-
-            tokenManager.updateAccessToken(tokenResponse.accessToken, expiresAt)
-            Result.success(tokenResponse.accessToken)
         } catch (e: Exception) {
             Result.failure(e)
         }

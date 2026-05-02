@@ -39,10 +39,10 @@ data class TmdbMovie(
         get() = releaseDate?.take(4)
 
     val fullPosterUrl: String?
-        get() = posterPath?.let { "${IMAGE_BASE_URL}w500$it" }
+        get() = posterPath?.let { "${IMAGE_BASE_URL}w780$it" }
 
     val fullBackdropUrl: String?
-        get() = backdropPath?.let { "${IMAGE_BASE_URL}w780$it" }
+        get() = backdropPath?.let { "${IMAGE_BASE_URL}w1280$it" }
 }
 
 // ──── TV Show ────
@@ -64,10 +64,10 @@ data class TmdbTvShow(
         get() = firstAirDate?.take(4)
 
     val fullPosterUrl: String?
-        get() = posterPath?.let { "${IMAGE_BASE_URL}w500$it" }
+        get() = posterPath?.let { "${IMAGE_BASE_URL}w780$it" }
 
     val fullBackdropUrl: String?
-        get() = backdropPath?.let { "${IMAGE_BASE_URL}w780$it" }
+        get() = backdropPath?.let { "${IMAGE_BASE_URL}w1280$it" }
 }
 
 // ──── Season / Episode ────
@@ -81,7 +81,7 @@ data class TmdbSeasonResponse(
     val episodes: List<TmdbEpisode> = emptyList()
 ) {
     val fullPosterUrl: String?
-        get() = posterPath?.let { "${IMAGE_BASE_URL}w500$it" }
+        get() = posterPath?.let { "${IMAGE_BASE_URL}w780$it" }
 }
 
 data class TmdbEpisode(
@@ -119,10 +119,10 @@ data class TmdbMultiResult(
         get() = (releaseDate ?: firstAirDate)?.take(4)
 
     val fullPosterUrl: String?
-        get() = posterPath?.let { "${IMAGE_BASE_URL}w500$it" }
+        get() = posterPath?.let { "${IMAGE_BASE_URL}w780$it" }
 
     val fullBackdropUrl: String?
-        get() = backdropPath?.let { "${IMAGE_BASE_URL}w780$it" }
+        get() = backdropPath?.let { "${IMAGE_BASE_URL}w1280$it" }
 }
 
 

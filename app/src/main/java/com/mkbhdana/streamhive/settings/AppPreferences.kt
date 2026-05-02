@@ -42,6 +42,14 @@ class AppPreferences @Inject constructor(
         get() = prefs.getString(KEY_DECODER, "hw+") ?: "hw+"
         set(value) = prefs.edit().putString(KEY_DECODER, value).apply()
 
+    var mapDv7ToHevc: Boolean
+        get() = prefs.getBoolean(KEY_MAP_DV7_TO_HEVC, false)
+        set(value) = prefs.edit().putBoolean(KEY_MAP_DV7_TO_HEVC, value).apply()
+
+    var tunneledPlaybackEnabled: Boolean
+        get() = prefs.getBoolean(KEY_TUNNELED_PLAYBACK, false)
+        set(value) = prefs.edit().putBoolean(KEY_TUNNELED_PLAYBACK, value).apply()
+
     var defaultResizeMode: String
         get() = prefs.getString(KEY_RESIZE_MODE, "fit") ?: "fit"
         set(value) = prefs.edit().putString(KEY_RESIZE_MODE, value).apply()
@@ -72,6 +80,10 @@ class AppPreferences @Inject constructor(
         get() = prefs.getBoolean(KEY_GESTURE_DOUBLE_TAP, true)
         set(value) = prefs.edit().putBoolean(KEY_GESTURE_DOUBLE_TAP, value).apply()
 
+    var tapSeekDuration: Int
+        get() = prefs.getInt(KEY_TAP_SEEK_DURATION, 10)
+        set(value) = prefs.edit().putInt(KEY_TAP_SEEK_DURATION, value.coerceIn(10, 60)).apply()
+
     var gestureZoomEnabled: Boolean
         get() = prefs.getBoolean(KEY_GESTURE_ZOOM, true)
         set(value) = prefs.edit().putBoolean(KEY_GESTURE_ZOOM, value).apply()
@@ -83,10 +95,6 @@ class AppPreferences @Inject constructor(
 
     // ──── Subtitle Settings ────
 
-    var subtitleLanguage: String
-        get() = prefs.getString(KEY_SUBTITLE_LANGUAGE, "eng") ?: "eng"
-        set(value) = prefs.edit().putString(KEY_SUBTITLE_LANGUAGE, value).apply()
-
     var subtitleFontSize: Int
         get() = prefs.getInt(KEY_SUBTITLE_FONT_SIZE, 18)
         set(value) = prefs.edit().putInt(KEY_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
@@ -96,8 +104,32 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putLong(KEY_SUBTITLE_COLOR, value).apply()
 
     var subtitleBgOpacity: Float
-        get() = prefs.getFloat(KEY_SUBTITLE_BG_OPACITY, 0.5f)
+        get() = prefs.getFloat(KEY_SUBTITLE_BG_OPACITY, 0.0f)
         set(value) = prefs.edit().putFloat(KEY_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
+
+    var subtitleEdgeType: String
+        get() = prefs.getString(KEY_SUBTITLE_EDGE_TYPE, "outline") ?: "outline"
+        set(value) = prefs.edit().putString(KEY_SUBTITLE_EDGE_TYPE, value).apply()
+
+    var subtitleEdgeSize: Int
+        get() = prefs.getInt(KEY_SUBTITLE_EDGE_SIZE, 0)
+        set(value) = prefs.edit().putInt(KEY_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
+
+    var subtitleOutlineColor: Long
+        get() = prefs.getLong(KEY_SUBTITLE_OUTLINE_COLOR, 0xFF000000)
+        set(value) = prefs.edit().putLong(KEY_SUBTITLE_OUTLINE_COLOR, value).apply()
+
+    var preferredAudioLanguage: String
+        get() = prefs.getString(KEY_PREF_AUDIO_LANG, "original") ?: "original"
+        set(value) = prefs.edit().putString(KEY_PREF_AUDIO_LANG, value).apply()
+
+    var preferredSubtitleLanguage: String
+        get() = prefs.getString(KEY_PREF_SUBTITLE_LANG, "none") ?: "none"
+        set(value) = prefs.edit().putString(KEY_PREF_SUBTITLE_LANG, value).apply()
+
+    var subtitleExcludeLanguages: Set<String>
+        get() = prefs.getStringSet(KEY_SUBTITLE_EXCLUDE_LANGS, emptySet()) ?: emptySet()
+        set(value) = prefs.edit().putStringSet(KEY_SUBTITLE_EXCLUDE_LANGS, value).apply()
 
     var subtitlePosition: Int
         get() = prefs.getInt(KEY_SUBTITLE_POSITION, 90)
@@ -206,6 +238,8 @@ class AppPreferences @Inject constructor(
         // Player
         private const val KEY_ENGINE = "player_engine"
         private const val KEY_DECODER = "default_decoder"
+        private const val KEY_MAP_DV7_TO_HEVC = "map_dv7_to_hevc"
+        private const val KEY_TUNNELED_PLAYBACK = "tunneled_playback"
         private const val KEY_RESIZE_MODE = "default_resize_mode"
         private const val KEY_KEEP_SERVER_RUNNING = "keep_server_running"
 
@@ -214,6 +248,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_GESTURE_BRIGHTNESS = "gesture_brightness_enabled"
         private const val KEY_GESTURE_SEEK = "gesture_seek_enabled"
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_double_tap_enabled"
+        private const val KEY_TAP_SEEK_DURATION = "tap_seek_duration"
         private const val KEY_GESTURE_ZOOM = "gesture_zoom_enabled"
         private const val KEY_GESTURE_SENSITIVITY = "gesture_sensitivity"
 
@@ -223,6 +258,12 @@ class AppPreferences @Inject constructor(
         private const val KEY_SUBTITLE_COLOR = "subtitle_color"
         private const val KEY_SUBTITLE_BG_OPACITY = "subtitle_bg_opacity"
         private const val KEY_SUBTITLE_POSITION = "subtitle_position"
+        private const val KEY_SUBTITLE_EDGE_TYPE = "subtitle_edge_type"
+        private const val KEY_SUBTITLE_EDGE_SIZE = "subtitle_edge_size"
+        private const val KEY_SUBTITLE_OUTLINE_COLOR = "subtitle_outline_color"
+        private const val KEY_PREF_AUDIO_LANG = "pref_audio_lang"
+        private const val KEY_PREF_SUBTITLE_LANG = "pref_subtitle_lang"
+        private const val KEY_SUBTITLE_EXCLUDE_LANGS = "subtitle_exclude_langs"
 
         // TMDB
         private const val KEY_TMDB_API_KEY = "tmdb_api_key"

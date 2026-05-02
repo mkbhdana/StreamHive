@@ -117,6 +117,26 @@ fun SettingsScreen(
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
+                    SettingsSwitchItem(
+                        "Map DV7 to HEVC",
+                        "Dolby Vision Profile 7 to HEVC fallback for unsupported devices",
+                        Icons.Default.Memory,
+                        state.mapDv7ToHevc,
+                        viewModel::setMapDv7ToHevc
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    SettingsSwitchItem(
+                        "Tunnelled Playback",
+                        "Experimental hardware path; applied only with HW decoder",
+                        Icons.Default.Speed,
+                        state.tunneledPlaybackEnabled,
+                        viewModel::setTunneledPlaybackEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
                     var resizeExpanded by remember { mutableStateOf(false) }
                     SettingsDropdownItem(
                         title = "Default Resize Mode",
@@ -161,7 +181,26 @@ fun SettingsScreen(
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsSwitchItem("Seek Gesture", "Swipe horizontally to seek", Icons.Default.FastForward, state.gestureSeekEnabled, viewModel::setGestureSeekEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsSwitchItem("Double Tap Seek", "Double tap sides to skip 10s", Icons.Default.Replay10, state.gestureDoubleTapEnabled, viewModel::setGestureDoubleTapEnabled)
+                    SettingsSwitchItem("Double Tap Seek", "Double tap sides to skip", Icons.Default.FastForward, state.gestureDoubleTapEnabled, viewModel::setGestureDoubleTapEnabled)
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Tap Seek Duration
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.FastForward, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Tap Seek Duration", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Text("${state.tapSeekDuration} seconds", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Slider(
+                            value = state.tapSeekDuration.toFloat(),
+                            onValueChange = { viewModel.setTapSeekDuration(it.toInt()) },
+                            valueRange = 10f..60f, steps = 4, // 10, 20, 30, 40, 50, 60
+                            modifier = Modifier.padding(start = 40.dp)
+                        )
+                    }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsSwitchItem("Pinch to Zoom", "Pinch gesture to zoom video", Icons.Default.ZoomIn, state.gestureZoomEnabled, viewModel::setGestureZoomEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -188,6 +227,143 @@ fun SettingsScreen(
 
             item {
                 SettingsCard {
+                    val supportedLanguages = listOf(
+                        "eng" to "English", "kor" to "Korean", "jpn" to "Japanese",
+                        "mal" to "Malayalam", "tam" to "Tamil", "hin" to "Hindi",
+                        "spa" to "Spanish", "fra" to "French", "deu" to "German",
+                        "por" to "Portuguese", "ita" to "Italian", "rus" to "Russian",
+                        "ara" to "Arabic", "zho" to "Chinese", "tha" to "Thai"
+                    )
+
+                    // Preferred Audio Language
+                    var expandedAudioLang by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { expandedAudioLang = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.VolumeUp, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Preferred Audio Language", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (state.preferredAudioLanguage == "original") "Original"
+                                else supportedLanguages.find { it.first == state.preferredAudioLanguage }?.second ?: state.preferredAudioLanguage,
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Box {
+                            DropdownMenu(expanded = expandedAudioLang, onDismissRequest = { expandedAudioLang = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Original") },
+                                    onClick = { viewModel.setPreferredAudioLanguage("original"); expandedAudioLang = false }
+                                )
+                                supportedLanguages.forEach { (code, name) ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = { viewModel.setPreferredAudioLanguage(code); expandedAudioLang = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Preferred Subtitle Language
+                    var expandedSubLang by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { expandedSubLang = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Subtitles, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Preferred Subtitle Language", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (state.preferredSubtitleLanguage == "none") "None"
+                                else supportedLanguages.find { it.first == state.preferredSubtitleLanguage }?.second ?: state.preferredSubtitleLanguage,
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Box {
+                            DropdownMenu(expanded = expandedSubLang, onDismissRequest = { expandedSubLang = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("None") },
+                                    onClick = { viewModel.setPreferredSubtitleLanguage("none"); expandedSubLang = false }
+                                )
+                                supportedLanguages.forEach { (code, name) ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = { viewModel.setPreferredSubtitleLanguage(code); expandedSubLang = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Exclude Languages (no subtitles for these audio languages)
+                    var showExcludeDialog by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showExcludeDialog = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Block, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Exclude Languages", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            val excludeCount = state.subtitleExcludeLanguages.size
+                            Text(
+                                if (excludeCount == 0) "None — subtitles auto-select for all"
+                                else "$excludeCount excluded",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (showExcludeDialog) {
+                        var tempExcluded by remember { mutableStateOf(state.subtitleExcludeLanguages) }
+                        AlertDialog(
+                            onDismissRequest = { showExcludeDialog = false },
+                            title = { Text("Exclude Subtitle for Audio") },
+                            text = {
+                                Column(modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                                    Text("Subtitles will NOT auto-select when audio is in these languages.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.height(12.dp))
+                                    supportedLanguages.forEach { (code, name) ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                tempExcluded = if (tempExcluded.contains(code)) tempExcluded - code else tempExcluded + code
+                                            }.padding(vertical = 8.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = tempExcluded.contains(code),
+                                                onCheckedChange = { checked ->
+                                                    tempExcluded = if (checked) tempExcluded + code else tempExcluded - code
+                                                }
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(name)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    viewModel.setSubtitleExcludeLanguages(tempExcluded)
+                                    showExcludeDialog = false
+                                }) { Text("Save") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showExcludeDialog = false }) { Text("Cancel") }
+                            }
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
                     // Font size
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -277,6 +453,89 @@ fun SettingsScreen(
                             modifier = Modifier.padding(start = 40.dp)
                         )
                     }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Edge Type
+                    var expandedEdgeType by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { expandedEdgeType = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.TextFields, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Edge Type", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(state.subtitleEdgeType.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box {
+                            DropdownMenu(expanded = expandedEdgeType, onDismissRequest = { expandedEdgeType = false }) {
+                                listOf("none", "outline", "depressed", "shadow", "raised").forEach { type ->
+                                    DropdownMenuItem(
+                                        text = { Text(type.replaceFirstChar { it.uppercase() }) },
+                                        onClick = { viewModel.setSubtitleEdgeType(type); expandedEdgeType = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Edge Size
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.FormatLineSpacing, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Edge Size", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Text(if (state.subtitleEdgeSize == 0) "Normal" else "${state.subtitleEdgeSize}px", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Slider(
+                            value = state.subtitleEdgeSize.toFloat(),
+                            onValueChange = { viewModel.setSubtitleEdgeSize(it.toInt()) },
+                            valueRange = 0f..20f, steps = 19,
+                            modifier = Modifier.padding(start = 40.dp)
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Outline Color
+                    var showOutlineColorPicker by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showOutlineColorPicker = !showOutlineColorPicker }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.BorderColor, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Outline Color", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                        Box(
+                            modifier = Modifier.size(32.dp).clip(CircleShape)
+                                .background(Color(state.subtitleOutlineColor.toInt()))
+                        )
+                    }
+
+                    if (showOutlineColorPicker) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp, bottom = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val colors = listOf(
+                                0xFF000000 to "Black", 0xFFFFFFFF to "White", 0xFFFFFF00 to "Yellow",
+                                0xFF00FF00 to "Green", 0xFF00FFFF to "Cyan",
+                                0xFFFF6600 to "Orange", 0xFFFF0000 to "Red"
+                            )
+                            colors.forEach { (color, _) ->
+                                Box(
+                                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                                        .background(Color(color.toInt()))
+                                        .clickable { viewModel.setSubtitleOutlineColor(color); showOutlineColorPicker = false }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -287,6 +546,11 @@ fun SettingsScreen(
                 SettingsCard {
                     // API Key (secured)
                     var apiKeyText by remember { mutableStateOf(state.tmdbApiKey) }
+                    LaunchedEffect(state.tmdbApiKey) {
+                        if (apiKeyText != state.tmdbApiKey) {
+                            apiKeyText = state.tmdbApiKey
+                        }
+                    }
                     var isKeyVisible by remember { mutableStateOf(false) }
                     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                     Column(Modifier.padding(16.dp)) {
@@ -395,8 +659,12 @@ fun SettingsScreen(
                         contract = ActivityResultContracts.OpenDocument()
                     ) { uri ->
                         if (uri != null) {
-                            viewModel.importSettings(uri) { success ->
-                                val msg = if (success) "Settings imported successfully (including metadata if present)" else "Failed to import settings"
+                            viewModel.importSettings(uri) { success, errorMsg ->
+                                val msg = if (success) {
+                                    "Settings imported successfully"
+                                } else {
+                                    errorMsg ?: "Failed to import settings"
+                                }
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                         }

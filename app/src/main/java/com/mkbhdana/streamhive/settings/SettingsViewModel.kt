@@ -7,8 +7,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mkbhdana.streamhive.catalog.DriveRepository
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
+import com.mkbhdana.streamhive.data.db.MediaFileDao
 import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
 import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
+import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
+import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +25,8 @@ data class SettingsUiState(
     // Player
     val preferredEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
     val defaultDecoder: String = "hw+",
+    val mapDv7ToHevc: Boolean = false,
+    val tunneledPlaybackEnabled: Boolean = false,
     val defaultResizeMode: String = "fit",
     val isMpvAvailable: Boolean = false,
     val keepServerRunning: Boolean = true,
@@ -35,11 +40,18 @@ data class SettingsUiState(
     val gestureSensitivity: Float = 1.0f,
 
     // Subtitles
-    val subtitleLanguage: String = "eng",
+    val preferredAudioLanguage: String = "original",
+    val preferredSubtitleLanguage: String = "none",
+    val subtitleExcludeLanguages: Set<String> = emptySet(),
     val subtitleFontSize: Int = 18,
     val subtitleColor: Long = 0xFFFFFFFF,
-    val subtitleBgOpacity: Float = 0.5f,
+    val subtitleBgOpacity: Float = 0.0f,
     val subtitlePosition: Int = 90,
+    val subtitleEdgeType: String = "outline",
+    val subtitleEdgeSize: Int = 0,
+    val subtitleOutlineColor: Long = 0xFF000000,
+    
+    val tapSeekDuration: Int = 10,
 
     // TMDB
     val tmdbApiKey: String = "",
@@ -55,6 +67,8 @@ class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferences,
     private val driveRepository: DriveRepository,
     private val tmdbMetadataDao: TmdbMetadataDao,
+    private val mediaFileDao: MediaFileDao,
+    private val playbackHistoryDao: PlaybackHistoryDao,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
@@ -69,6 +83,8 @@ class SettingsViewModel @Inject constructor(
     private fun loadState() = SettingsUiState(
         preferredEngine = prefs.preferredEngine,
         defaultDecoder = prefs.defaultDecoder,
+        mapDv7ToHevc = prefs.mapDv7ToHevc,
+        tunneledPlaybackEnabled = prefs.tunneledPlaybackEnabled,
         defaultResizeMode = prefs.defaultResizeMode,
         isMpvAvailable = prefs.isMpvAvailable(),
         keepServerRunning = prefs.keepServerRunning,
@@ -78,11 +94,17 @@ class SettingsViewModel @Inject constructor(
         gestureDoubleTapEnabled = prefs.gestureDoubleTapEnabled,
         gestureZoomEnabled = prefs.gestureZoomEnabled,
         gestureSensitivity = prefs.gestureSensitivity,
-        subtitleLanguage = prefs.subtitleLanguage,
+        tapSeekDuration = prefs.tapSeekDuration,
+        preferredAudioLanguage = prefs.preferredAudioLanguage,
+        preferredSubtitleLanguage = prefs.preferredSubtitleLanguage,
+        subtitleExcludeLanguages = prefs.subtitleExcludeLanguages,
         subtitleFontSize = prefs.subtitleFontSize,
         subtitleColor = prefs.subtitleColor,
         subtitleBgOpacity = prefs.subtitleBgOpacity,
         subtitlePosition = prefs.subtitlePosition,
+        subtitleEdgeType = prefs.subtitleEdgeType,
+        subtitleEdgeSize = prefs.subtitleEdgeSize,
+        subtitleOutlineColor = prefs.subtitleOutlineColor,
         tmdbApiKey = prefs.tmdbApiKey,
         tmdbMovieFolders = prefs.tmdbMovieFolders,
         tmdbTvFolders = prefs.tmdbTvFolders,
@@ -101,6 +123,16 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultDecoder(decoder: String) {
         prefs.defaultDecoder = decoder
         uiState = uiState.copy(defaultDecoder = decoder)
+    }
+
+    fun setMapDv7ToHevc(enabled: Boolean) {
+        prefs.mapDv7ToHevc = enabled
+        uiState = uiState.copy(mapDv7ToHevc = enabled)
+    }
+
+    fun setTunneledPlaybackEnabled(enabled: Boolean) {
+        prefs.tunneledPlaybackEnabled = enabled
+        uiState = uiState.copy(tunneledPlaybackEnabled = enabled)
     }
 
     fun setDefaultResizeMode(mode: String) {
@@ -150,12 +182,13 @@ class SettingsViewModel @Inject constructor(
         uiState = uiState.copy(gestureSensitivity = sensitivity)
     }
 
-    // ──── Subtitles ────
-
-    fun setSubtitleLanguage(lang: String) {
-        prefs.subtitleLanguage = lang
-        uiState = uiState.copy(subtitleLanguage = lang)
+    fun setTapSeekDuration(duration: Int) {
+        prefs.tapSeekDuration = duration
+        uiState = uiState.copy(tapSeekDuration = duration)
     }
+
+
+    // ──── Subtitles ────
 
     fun setSubtitleFontSize(size: Int) {
         prefs.subtitleFontSize = size
@@ -175,6 +208,36 @@ class SettingsViewModel @Inject constructor(
     fun setSubtitlePosition(position: Int) {
         prefs.subtitlePosition = position
         uiState = uiState.copy(subtitlePosition = position)
+    }
+
+    fun setSubtitleEdgeType(type: String) {
+        prefs.subtitleEdgeType = type
+        uiState = uiState.copy(subtitleEdgeType = type)
+    }
+
+    fun setSubtitleEdgeSize(size: Int) {
+        prefs.subtitleEdgeSize = size
+        uiState = uiState.copy(subtitleEdgeSize = size)
+    }
+
+    fun setSubtitleOutlineColor(color: Long) {
+        prefs.subtitleOutlineColor = color
+        uiState = uiState.copy(subtitleOutlineColor = color)
+    }
+
+    fun setPreferredAudioLanguage(lang: String) {
+        prefs.preferredAudioLanguage = lang
+        uiState = uiState.copy(preferredAudioLanguage = lang)
+    }
+
+    fun setPreferredSubtitleLanguage(lang: String) {
+        prefs.preferredSubtitleLanguage = lang
+        uiState = uiState.copy(preferredSubtitleLanguage = lang)
+    }
+
+    fun setSubtitleExcludeLanguages(langs: Set<String>) {
+        prefs.subtitleExcludeLanguages = langs
+        uiState = uiState.copy(subtitleExcludeLanguages = langs)
     }
 
     // ──── TMDB ────
@@ -380,9 +443,51 @@ class SettingsViewModel @Inject constructor(
                 val settingsJson = prefs.exportToJson()
                 val rootObject = org.json.JSONObject(settingsJson)
 
+                // Add validation key
+                rootObject.put("streamhive_settings_version", 1)
+
                 // Remove API key if user chose not to export it
                 if (!includeApiKey) {
                     rootObject.remove("tmdb_api_key")
+                }
+
+                // Export playback history
+                val history = playbackHistoryDao.getAll()
+                if (history.isNotEmpty()) {
+                    val historyArray = org.json.JSONArray()
+                    history.forEach { h ->
+                        val obj = org.json.JSONObject()
+                        obj.put("fileId", h.fileId)
+                        obj.put("fileName", h.fileName)
+                        obj.put("driveId", h.driveId)
+                        obj.put("lastPosition", h.lastPosition)
+                        obj.put("duration", h.duration)
+                        obj.put("lastPlayedAt", h.lastPlayedAt)
+                        obj.put("posterPath", h.posterPath ?: "")
+                        obj.put("thumbnailUrl", h.thumbnailUrl ?: "")
+                        historyArray.put(obj)
+                    }
+                    rootObject.put("playback_history", historyArray)
+                }
+
+                // Export mapped folder names to avoid weird IDs on import
+                val allMappedFolders = prefs.tmdbMovieFolders + prefs.tmdbTvFolders + prefs.tmdbAnimeFolders
+                if (allMappedFolders.isNotEmpty()) {
+                    val foldersArray = org.json.JSONArray()
+                    val allFoldersFromDb = mediaFileDao.getAllFolders().first()
+                    allMappedFolders.forEach { id ->
+                        val folder = allFoldersFromDb.find { it.id == id }
+                        val obj = org.json.JSONObject()
+                        obj.put("id", id)
+                        obj.put("name", folder?.name ?: id)
+                        obj.put("mimeType", folder?.mimeType ?: "application/vnd.google-apps.folder")
+                        obj.put("parentId", folder?.parentId ?: "")
+                        obj.put("driveId", folder?.driveId ?: "")
+                        obj.put("modifiedTime", folder?.modifiedTime ?: "")
+                        obj.put("createdTime", folder?.createdTime ?: "")
+                        foldersArray.put(obj)
+                    }
+                    rootObject.put("tmdb_folder_names", foldersArray)
                 }
 
                 // Export fixed/edited metadata
@@ -417,12 +522,89 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun importSettings(uri: android.net.Uri, onComplete: (Boolean) -> Unit) {
+    fun importSettings(uri: android.net.Uri, onComplete: (Boolean, String?) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 if (json != null) {
                     val jsonObject = org.json.JSONObject(json)
+
+                    // Validate file, while still accepting backups created before the version marker.
+                    val hasKnownSettingsKey = listOf(
+                        "tmdb_api_key",
+                        "tmdb_movie_folders",
+                        "tmdb_tv_folders",
+                        "tmdb_anime_folders",
+                        "player_engine",
+                        "selected_drive_id"
+                    ).any { jsonObject.has(it) }
+                    if (!jsonObject.has("streamhive_settings_version") && !hasKnownSettingsKey) {
+                        launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false, "Invalid settings file format") }
+                        return@launch
+                    }
+
+                    // Import mapped folder names
+                    if (jsonObject.has("tmdb_folder_names")) {
+                        val foldersArray = jsonObject.getJSONArray("tmdb_folder_names")
+                        val importedFolders = mutableListOf<MediaFileEntity>()
+                        val fallbackDriveId = jsonObject.optString("selected_drive_id")
+                            .takeIf { it.isNotBlank() }
+                            ?: prefs.selectedDriveId.takeIf { it.isNotBlank() }
+                        for (i in 0 until foldersArray.length()) {
+                            val obj = foldersArray.getJSONObject(i)
+                            val folderId = obj.getString("id")
+                            val apiFolder = if (obj.optString("driveId").isBlank()) {
+                                driveRepository.getFileByIdViaApi(folderId).getOrNull()
+                            } else {
+                                null
+                            }
+                            val driveId = obj.optString("driveId")
+                                .takeIf { it.isNotBlank() }
+                                ?: apiFolder?.driveId?.takeIf { it.isNotBlank() }
+                                ?: fallbackDriveId
+                                ?: ""
+                            importedFolders.add(
+                                MediaFileEntity(
+                                    id = folderId,
+                                    name = obj.optString("name").ifBlank { apiFolder?.name ?: folderId },
+                                    mimeType = obj.optString("mimeType")
+                                        .ifBlank { apiFolder?.mimeType ?: "application/vnd.google-apps.folder" },
+                                    size = 0,
+                                    isFolder = true,
+                                    parentId = obj.optString("parentId")
+                                        .ifBlank { apiFolder?.parents?.firstOrNull() ?: driveId },
+                                    driveId = driveId,
+                                    modifiedTime = obj.optString("modifiedTime")
+                                        .ifBlank { apiFolder?.modifiedTime ?: "" },
+                                    createdTime = obj.optString("createdTime")
+                                        .ifBlank { apiFolder?.createdTime ?: "" }
+                                )
+                            )
+                        }
+                        if (importedFolders.isNotEmpty()) {
+                            mediaFileDao.insertFiles(importedFolders)
+                        }
+                        jsonObject.remove("tmdb_folder_names")
+                    }
+
+                    // Import playback history
+                    if (jsonObject.has("playback_history")) {
+                        val historyArray = jsonObject.getJSONArray("playback_history")
+                        for (i in 0 until historyArray.length()) {
+                            val obj = historyArray.getJSONObject(i)
+                            playbackHistoryDao.upsert(PlaybackHistoryEntity(
+                                fileId = obj.getString("fileId"),
+                                fileName = obj.getString("fileName"),
+                                driveId = obj.getString("driveId"),
+                                lastPosition = obj.getLong("lastPosition"),
+                                duration = obj.getLong("duration"),
+                                lastPlayedAt = obj.getLong("lastPlayedAt"),
+                                posterPath = obj.optString("posterPath").ifBlank { null },
+                                thumbnailUrl = obj.optString("thumbnailUrl").ifBlank { null }
+                            ))
+                        }
+                        jsonObject.remove("playback_history")
+                    }
 
                     // Extract and import metadata separately before passing to prefs
                     if (jsonObject.has("tmdb_metadata")) {
@@ -450,17 +632,20 @@ class SettingsViewModel @Inject constructor(
                         jsonObject.remove("tmdb_metadata")
                     }
 
+                    // Remove validation key so AppPreferences doesn't fail parsing it
+                    jsonObject.remove("streamhive_settings_version")
+
                     val success = prefs.importFromJson(jsonObject.toString())
                     if (success) {
                         uiState = loadState()
                     }
-                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(success) }
+                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(success, null) }
                 } else {
-                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false) }
+                    launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false, "Could not read file") }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false) }
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false, "Invalid file format") }
             }
         }
     }

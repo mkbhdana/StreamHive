@@ -50,6 +50,40 @@ fun PlayerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
+    var seekPillSignal by remember { mutableIntStateOf(0) }
+
+    fun showQuickSeekPill(deltaMs: Long) {
+        val basePosition = viewModel.player?.currentPosition ?: uiState.currentPosition
+        val targetPosition = (basePosition + deltaMs).coerceIn(0L, uiState.duration.coerceAtLeast(0L))
+        gestureState.value = gestureState.value.copy(
+            showSeekIndicator = true,
+            showVolumeIndicator = false,
+            showBrightnessIndicator = false,
+            showZoomIndicator = false,
+            seekDeltaSeconds = (deltaMs / 1000L).toInt(),
+            seekToPosition = targetPosition
+        )
+        seekPillSignal++
+    }
+
+    fun quickSeekForward() {
+        val seekMs = uiState.tapSeekDuration * 1000L
+        showQuickSeekPill(seekMs)
+        viewModel.seekForward(seekMs)
+    }
+
+    fun quickSeekBackward() {
+        val seekMs = uiState.tapSeekDuration * 1000L
+        showQuickSeekPill(-seekMs)
+        viewModel.seekBackward(seekMs)
+    }
+
+    LaunchedEffect(seekPillSignal) {
+        if (seekPillSignal > 0) {
+            delay(800)
+            gestureState.value = gestureState.value.copy(showSeekIndicator = false)
+        }
+    }
 
     // Intercept back navigation to smoothly pause the player and instantly restore orientation
     val handleBack = {
@@ -149,18 +183,29 @@ fun PlayerScreen(
             }
             
             // Apply Subtitle Styles
-            LaunchedEffect(uiState.subtitleColor, uiState.subtitleBgOpacity, uiState.subtitleFontSize, uiState.subtitlePosition) {
+            LaunchedEffect(
+                uiState.subtitleColor, uiState.subtitleBgOpacity, uiState.subtitleFontSize, 
+                uiState.subtitlePosition, uiState.subtitleEdgeType, uiState.subtitleOutlineColor
+            ) {
                 val backgroundColor = android.graphics.Color.argb(
                     (uiState.subtitleBgOpacity * 255).toInt(), 0, 0, 0
                 )
                 val foregroundColor = uiState.subtitleColor.toInt()
                 
+                val edgeTypeInt = when (uiState.subtitleEdgeType.lowercase()) {
+                    "outline" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE
+                    "depressed" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DEPRESSED
+                    "shadow" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+                    "raised" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_RAISED
+                    else -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE
+                }
+                
                 val style = androidx.media3.ui.CaptionStyleCompat(
                     foregroundColor,
                     backgroundColor,
                     android.graphics.Color.TRANSPARENT,
-                    androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-                    android.graphics.Color.BLACK,
+                    edgeTypeInt,
+                    uiState.subtitleOutlineColor.toInt(),
                     null
                 )
                 independentSubtitleView.setStyle(style)
@@ -228,8 +273,8 @@ fun PlayerScreen(
             currentPosition = uiState.currentPosition,
             duration = uiState.duration,
             onToggleControls = { viewModel.toggleControls() },
-            onSeekForward = { viewModel.seekForward() },
-            onSeekBackward = { viewModel.seekBackward() },
+            onSeekForward = { quickSeekForward() },
+            onSeekBackward = { quickSeekBackward() },
             onSeekTo = { viewModel.seekTo(it) },
             onVolumeChange = { },
             onBrightnessChange = { },
@@ -241,12 +286,20 @@ fun PlayerScreen(
             doubleTapEnabled = uiState.gestureDoubleTapEnabled,
             zoomEnabled = uiState.gestureZoomEnabled
         ) {
-            GestureIndicatorOverlay(gestureState = gestureState.value)
         }
 
-        // Loading indicator (modern, no text)
-        // Keeps play/pause and seek buttons interactable because it doesn't have a background overlay blocking touches
-        if (uiState.isLoading) {
+        // Loading indicator (modern, no text, delayed to avoid flashing on quick seeks)
+        var showLoader by remember { mutableStateOf(false) }
+        LaunchedEffect(uiState.isLoading) {
+            if (uiState.isLoading) {
+                delay(1000)
+                showLoader = true
+            } else {
+                showLoader = false
+            }
+        }
+
+        if (showLoader) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -310,16 +363,20 @@ fun PlayerScreen(
                 seekThumbnail = uiState.seekThumbnail,
                 onBack = handleBack,
                 onPlayPause = viewModel::togglePlayPause,
-                onSeekForward = viewModel::seekForward,
-                onSeekBackward = viewModel::seekBackward,
+                onSeekForward = { quickSeekForward() },
+                onSeekBackward = { quickSeekBackward() },
                 onSeekTo = viewModel::seekTo,
                 onScrubbing = { positionMs -> viewModel.extractThumbnailAt(positionMs) },
                 onScrubbingFinished = { viewModel.clearThumbnail() },
                 onLockToggle = viewModel::toggleLock,
                 onResizeModeChange = viewModel::setResizeMode,
                 onDecoderModeChange = viewModel::setDecoderMode,
-                onAudioTrackSelect = viewModel::selectAudioTrack,
-                onSubtitleTrackSelect = viewModel::selectSubtitleTrack,
+                onAudioTrackSelect = { track ->
+                    viewModel.selectAudioTrack(track.index, track.trackIndex)
+                },
+                onSubtitleTrackSelect = { track ->
+                    viewModel.selectSubtitleTrack(track?.index ?: -1, track?.trackIndex ?: 0)
+                },
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
                 onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
@@ -339,5 +396,10 @@ fun PlayerScreen(
                 onPanelClosed = { controlsInteractionActive = false }
             )
         }
+
+        GestureIndicatorOverlay(
+            gestureState = gestureState.value,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }

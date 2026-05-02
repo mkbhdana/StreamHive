@@ -1,4 +1,4 @@
-package com.mkbhdana.streamhive.player
+﻿package com.mkbhdana.streamhive.player
 
 import android.content.Context
 import android.net.Uri
@@ -14,15 +14,23 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.inspector.frame.FrameExtractor
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
 import android.graphics.Bitmap
 import com.mkbhdana.streamhive.catalog.DriveRepository
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
+import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
 import com.mkbhdana.streamhive.player.ui.TrackInfo
+import com.mkbhdana.streamhive.player.ui.TrackType
 import com.mkbhdana.streamhive.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -32,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 data class PlayerUiState(
@@ -67,8 +76,14 @@ data class PlayerUiState(
     // Subtitle Style Settings
     val subtitleFontSize: Int = 18,
     val subtitleColor: Long = 0xFFFFFFFF,
-    val subtitleBgOpacity: Float = 0.5f,
+    val subtitleBgOpacity: Float = 0.0f,
     val subtitlePosition: Int = 90,
+    val subtitleEdgeType: String = "outline",
+    val subtitleEdgeSize: Int = 0,
+    val subtitleOutlineColor: Long = 0xFF000000,
+
+    // Tap seek
+    val tapSeekDuration: Int = 10,
 
     // Thumbnail
     val seekThumbnail: Bitmap? = null,
@@ -88,6 +103,7 @@ class PlayerViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val mediaFileDao: com.mkbhdana.streamhive.data.db.MediaFileDao,
+    private val tmdbMetadataDao: TmdbMetadataDao,
     private val streamProxyServer: com.mkbhdana.streamhive.player.proxy.StreamProxyServer,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -110,6 +126,10 @@ class PlayerViewModel @Inject constructor(
             subtitleColor = appPreferences.subtitleColor,
             subtitleBgOpacity = appPreferences.subtitleBgOpacity,
             subtitlePosition = appPreferences.subtitlePosition,
+            subtitleEdgeType = appPreferences.subtitleEdgeType,
+            subtitleEdgeSize = appPreferences.subtitleEdgeSize,
+            subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+            tapSeekDuration = appPreferences.tapSeekDuration,
             decoderMode = appPreferences.defaultDecoder
         )
     )
@@ -129,9 +149,9 @@ class PlayerViewModel @Inject constructor(
     private var retryCount = 0
     private val MAX_RETRIES = 3
     
-    // Frame extraction
-    private var frameExtractorJob: kotlinx.coroutines.Job? = null
-    private var persistentFrameExtractor: FrameExtractor? = null
+    // Preferred track selection should run once per media item, after tracks are known.
+    private var preferredTracksApplied = false
+    private var tunnelingTemporarilyDisabled = false
 
     init {
         initializePlayer()
@@ -161,6 +181,47 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun createMediaCodecSelector(mapDv7ToHevc: Boolean): MediaCodecSelector {
+        if (!mapDv7ToHevc) return MediaCodecSelector.DEFAULT
+
+        return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+            val defaultInfos = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                mimeType,
+                requiresSecureDecoder,
+                requiresTunnelingDecoder
+            )
+
+            if (mimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+                val hevcInfos = try {
+                    MediaCodecSelector.DEFAULT.getDecoderInfos(
+                        MimeTypes.VIDEO_H265,
+                        requiresSecureDecoder,
+                        requiresTunnelingDecoder
+                    )
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (hevcInfos.isEmpty()) defaultInfos else (hevcInfos + defaultInfos).distinctBy { it.name }
+            } else {
+                defaultInfos
+            }
+        }
+    }
+
+    private fun DefaultRenderersFactory.applyMapDv7ToHevcIfAvailable(enabled: Boolean): DefaultRenderersFactory {
+        try {
+            val method = javaClass.methods.firstOrNull { method ->
+                method.name == "setMapDV7ToHevc" &&
+                    method.parameterTypes.size == 1 &&
+                    method.parameterTypes[0] == java.lang.Boolean.TYPE
+            }
+            method?.invoke(this, enabled)
+        } catch (_: Exception) {
+            Log.d("PlayerVM", "setMapDV7ToHevc is not available on this Media3 renderer factory")
+        }
+        return this
+    }
+
     fun playEpisode(fileId: String, fileName: String) {
         if (fileId == currentFileId) return
         
@@ -181,6 +242,7 @@ class PlayerViewModel @Inject constructor(
         
         hasResumed = false
         pendingSeekMs = 0L
+        preferredTracksApplied = false
         
         // Re-initialize player
         _player?.release()
@@ -201,33 +263,56 @@ class PlayerViewModel @Inject constructor(
                     "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                     else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                 }
+                val useTunneling =
+                    appPreferences.tunneledPlaybackEnabled &&
+                        !tunnelingTemporarilyDisabled &&
+                        appPreferences.defaultDecoder == "hw"
+
+                val trackSelector = DefaultTrackSelector(context).apply {
+                    setParameters(
+                        buildUponParameters()
+                            .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
+                            .setTunnelingEnabled(useTunneling)
+                            .setTrackTypeDisabled(
+                                C.TRACK_TYPE_TEXT,
+                                appPreferences.preferredSubtitleLanguage == "none"
+                            )
+                    )
+                }
 
                 val renderersFactory = NextRenderersFactory(context)
                     .setExtensionRendererMode(decoderMode)
+                    .setMediaCodecSelector(createMediaCodecSelector(appPreferences.mapDv7ToHevc))
+                    .applyMapDv7ToHevcIfAvailable(appPreferences.mapDv7ToHevc)
 
-                val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                val loadControl = DefaultLoadControl.Builder()
+                    .setTargetBufferBytes(100 * 1024 * 1024)
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 5_000,
-                        /* maxBufferMs = */ 300_000,
-                        /* bufferForPlaybackMs = */ 2_000,
-                        /* bufferForPlaybackAfterRebufferMs = */ 5_000
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        70_000,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        5_000
                     )
                     .build()
 
+                val extractorsFactory = DefaultExtractorsFactory()
+                    .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+                    .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
+
+                val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
                 val exoPlayer = ExoPlayer.Builder(context, renderersFactory)
+                    .setTrackSelector(trackSelector)
                     .setLoadControl(loadControl)
+                    .setMediaSourceFactory(mediaSourceFactory)
                     .build()
                     .apply {
                         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                         Log.d("ExoPlayer", "Stream URL: $streamUrl")
                         val mediaItem = MediaItem.fromUri(streamUrl)
 
-                        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                        val mediaSource = androidx.media3.exoplayer.source.ProgressiveMediaSource
-                            .Factory(dataSourceFactory)
-                            .createMediaSource(mediaItem)
-
-                        setMediaSource(mediaSource)
+                        setMediaItem(mediaItem)
                         
                         val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
                             .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -286,6 +371,18 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        if (useTunneling && !tunnelingTemporarilyDisabled) {
+                            tunnelingTemporarilyDisabled = true
+                            val pos = _player?.currentPosition ?: 0L
+                            if (pos > 0) pendingSeekMs = pos
+                            hasResumed = false
+                            Log.w("PlayerVM", "Tunneled playback failed. Retrying without tunneling.", error)
+                            _player?.release()
+                            _player = null
+                            initializePlayer()
+                            return
+                        }
+
                         if (retryCount < MAX_RETRIES) {
                             retryCount++
                             val pos = _player?.currentPosition ?: 0L
@@ -331,6 +428,8 @@ class PlayerViewModel @Inject constructor(
         val audioTracks = mutableListOf<TrackInfo>()
         val subtitleTracks = mutableListOf<TrackInfo>()
 
+        var selectedAudioLang: String? = null
+
         tracks.groups.forEachIndexed { groupIndex, group ->
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
@@ -338,9 +437,14 @@ class PlayerViewModel @Inject constructor(
 
                 when (group.type) {
                     C.TRACK_TYPE_AUDIO -> {
+                        if (isSelected && format.language != null) {
+                            selectedAudioLang = format.language
+                        }
                         audioTracks.add(
                             TrackInfo(
                                 index = groupIndex,
+                                trackIndex = trackIndex,
+                                type = TrackType.AUDIO,
                                 name = format.label ?: "Track ${audioTracks.size + 1}",
                                 language = format.language,
                                 codec = format.codecs,
@@ -352,6 +456,8 @@ class PlayerViewModel @Inject constructor(
                         subtitleTracks.add(
                             TrackInfo(
                                 index = groupIndex,
+                                trackIndex = trackIndex,
+                                type = TrackType.SUBTITLE,
                                 name = format.label ?: "Subtitle ${subtitleTracks.size + 1}",
                                 language = format.language,
                                 codec = format.codecs,
@@ -363,8 +469,97 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
+        maybeApplyPreferredTracks(player, audioTracks, subtitleTracks, selectedAudioLang)
+
         _uiState.update {
             it.copy(audioTracks = audioTracks, subtitleTracks = subtitleTracks)
+        }
+    }
+
+    private fun maybeApplyPreferredTracks(
+        player: ExoPlayer,
+        audioTracks: List<TrackInfo>,
+        subtitleTracks: List<TrackInfo>,
+        selectedAudioLang: String?
+    ) {
+        if (preferredTracksApplied || (audioTracks.isEmpty() && subtitleTracks.isEmpty())) return
+
+        val preferredAudioLanguage = appPreferences.preferredAudioLanguage
+        val preferredSubtitleLanguage = appPreferences.preferredSubtitleLanguage
+
+        val preferredAudioTrack = if (preferredAudioLanguage != "original") {
+            audioTracks.firstOrNull { languageMatches(it.language, preferredAudioLanguage) }
+        } else {
+            null
+        }
+
+        val effectiveAudioLanguage = preferredAudioTrack?.language ?: selectedAudioLang
+        if (preferredAudioTrack != null && !preferredAudioTrack.isSelected) {
+            applyAudioTrackOverride(preferredAudioTrack.index, preferredAudioTrack.trackIndex)
+        }
+
+        val shouldDisableSubtitles =
+            preferredSubtitleLanguage == "none" ||
+                isLanguageExcluded(effectiveAudioLanguage, appPreferences.subtitleExcludeLanguages)
+
+        if (shouldDisableSubtitles) {
+            if (subtitleTracks.any { it.isSelected } || preferredSubtitleLanguage == "none") {
+                applySubtitleTrackOverride(-1, 0)
+            }
+        } else {
+            val preferredSubtitleTrack = subtitleTracks.firstOrNull {
+                languageMatches(it.language, preferredSubtitleLanguage)
+            }
+            if (preferredSubtitleTrack != null && !preferredSubtitleTrack.isSelected) {
+                applySubtitleTrackOverride(preferredSubtitleTrack.index, preferredSubtitleTrack.trackIndex)
+            }
+        }
+
+        val hasTextGroups = player.currentTracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
+        val audioResolved = preferredAudioLanguage == "original" || audioTracks.isNotEmpty()
+        val subtitlesResolved =
+            preferredSubtitleLanguage == "none" || subtitleTracks.isNotEmpty() || !hasTextGroups
+
+        if (audioResolved && subtitlesResolved) {
+            preferredTracksApplied = true
+        }
+    }
+
+    private fun languageMatches(trackLanguage: String?, preferredLanguage: String): Boolean {
+        if (trackLanguage.isNullOrBlank() || preferredLanguage.isBlank()) return false
+        return languageAliases(trackLanguage).any { it in languageAliases(preferredLanguage) }
+    }
+
+    private fun isLanguageExcluded(trackLanguage: String?, excludedLanguages: Set<String>): Boolean {
+        if (trackLanguage.isNullOrBlank() || excludedLanguages.isEmpty()) return false
+        val trackAliases = languageAliases(trackLanguage)
+        return excludedLanguages.any { excluded ->
+            languageAliases(excluded).any { it in trackAliases }
+        }
+    }
+
+    private fun languageAliases(language: String): Set<String> {
+        val normalized = language
+            .lowercase(Locale.US)
+            .substringBefore("-")
+            .substringBefore("_")
+        return when (normalized) {
+            "eng", "en" -> setOf("eng", "en")
+            "kor", "ko", "kr" -> setOf("kor", "ko", "kr")
+            "jpn", "ja", "jp" -> setOf("jpn", "ja", "jp")
+            "mal", "ml" -> setOf("mal", "ml")
+            "tam", "ta" -> setOf("tam", "ta")
+            "hin", "hi" -> setOf("hin", "hi")
+            "spa", "es" -> setOf("spa", "es")
+            "fra", "fre", "fr" -> setOf("fra", "fre", "fr")
+            "deu", "ger", "de" -> setOf("deu", "ger", "de")
+            "por", "pt" -> setOf("por", "pt")
+            "ita", "it" -> setOf("ita", "it")
+            "rus", "ru" -> setOf("rus", "ru")
+            "ara", "ar" -> setOf("ara", "ar")
+            "zho", "chi", "zh", "cmn" -> setOf("zho", "chi", "zh", "cmn")
+            "tha", "th" -> setOf("tha", "th")
+            else -> setOf(normalized)
         }
     }
 
@@ -455,28 +650,12 @@ class PlayerViewModel @Inject constructor(
         _player?.let { it.seekTo((it.currentPosition - ms).coerceAtLeast(0)) }
     }
 
-    fun extractThumbnailAt(positionMs: Long) {
-        val streamUrl = streamProxyServer.getStreamUrl(currentFileId) ?: return
-        
-        frameExtractorJob?.cancel()
-        frameExtractorJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                if (persistentFrameExtractor == null) {
-                    val mediaItem = MediaItem.fromUri(streamUrl)
-                    persistentFrameExtractor = FrameExtractor.Builder(context, mediaItem).build()
-                }
-                val extractor = persistentFrameExtractor ?: return@launch
-                val future = extractor.getFrame(positionMs)
-                val frame = future.get() // get() blocks on IO thread until future completes
-                _uiState.update { it.copy(seekThumbnail = frame.bitmap) }
-            } catch (e: Exception) {
-                Log.w("PlayerVM", "Thumbnail extraction failed: ${e.message}")
-            }
-        }
+    fun extractThumbnailAt(_positionMs: Long) {
+        _uiState.update { it.copy(seekThumbnail = null) }
+        return
     }
-    
+
     fun clearThumbnail() {
-        frameExtractorJob?.cancel()
         _uiState.update { it.copy(seekThumbnail = null) }
     }
 
@@ -496,6 +675,8 @@ class PlayerViewModel @Inject constructor(
         
         pendingSeekMs = currentPos
         hasResumed = false
+        preferredTracksApplied = false
+        clearThumbnail()
         
         initializePlayer()
     }
@@ -522,7 +703,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    // ──── Advanced controls ────
+    // â”€â”€â”€â”€ Advanced controls â”€â”€â”€â”€
 
     fun toggleLock() {
         _uiState.update { it.copy(isLocked = !it.isLocked) }
@@ -543,7 +724,13 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun selectAudioTrack(groupIndex: Int) {
+    fun selectAudioTrack(groupIndex: Int, trackIndex: Int = 0) {
+        preferredTracksApplied = true
+        applyAudioTrackOverride(groupIndex, trackIndex)
+        updateTrackInfo()
+    }
+
+    private fun applyAudioTrackOverride(groupIndex: Int, trackIndex: Int) {
         val player = _player ?: return
         if (groupIndex < 0) return
 
@@ -551,17 +738,22 @@ class PlayerViewModel @Inject constructor(
         val group = tracks.groups.getOrNull(groupIndex) ?: return
 
         if (group.type == C.TRACK_TYPE_AUDIO) {
-            val override = TrackSelectionOverride(group.mediaTrackGroup, 0)
+            val override = TrackSelectionOverride(group.mediaTrackGroup, trackIndex)
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                 .addOverride(override)
                 .build()
         }
+    }
+
+    fun selectSubtitleTrack(groupIndex: Int, trackIndex: Int = 0) {
+        preferredTracksApplied = true
+        applySubtitleTrackOverride(groupIndex, trackIndex)
         updateTrackInfo()
     }
 
-    fun selectSubtitleTrack(groupIndex: Int) {
+    private fun applySubtitleTrackOverride(groupIndex: Int, trackIndex: Int) {
         val player = _player ?: return
 
         if (groupIndex < 0) {
@@ -575,7 +767,7 @@ class PlayerViewModel @Inject constructor(
             val group = tracks.groups.getOrNull(groupIndex) ?: return
 
             if (group.type == C.TRACK_TYPE_TEXT) {
-                val override = TrackSelectionOverride(group.mediaTrackGroup, 0)
+                val override = TrackSelectionOverride(group.mediaTrackGroup, trackIndex)
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -584,7 +776,6 @@ class PlayerViewModel @Inject constructor(
                     .build()
             }
         }
-        updateTrackInfo()
     }
 
     fun setSubtitleDelay(delayMs: Long) {
@@ -620,15 +811,12 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         positionSaveJob?.cancel()
-        frameExtractorJob?.cancel()
         savePlaybackPosition()
         
         // Revert to releasing on the main thread to prevent IllegalStateException.
         // ExoPlayer must be released on the thread it was created on.
         _player?.release()
         _player = null
-        persistentFrameExtractor?.close()
-        persistentFrameExtractor = null
     }
 
     private fun startPeriodicPositionSave() {
@@ -648,6 +836,7 @@ class PlayerViewModel @Inject constructor(
         if (pos <= 0 || dur <= 0) return
         viewModelScope.launch {
             val fileEntity = mediaFileDao.getFileById(currentFileId)
+            val metadata = tmdbMetadataDao.getByDriveFileId(currentFileId)
             playbackHistoryDao.upsert(
                 PlaybackHistoryEntity(
                     fileId = currentFileId,
@@ -656,6 +845,7 @@ class PlayerViewModel @Inject constructor(
                     lastPosition = pos,
                     duration = dur,
                     lastPlayedAt = System.currentTimeMillis(),
+                    posterPath = metadata?.posterPath,
                     thumbnailUrl = fileEntity?.thumbnailLink
                 )
             )

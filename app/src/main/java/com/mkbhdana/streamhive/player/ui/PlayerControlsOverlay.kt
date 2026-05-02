@@ -77,8 +77,15 @@ fun HideBottomSheetSystemUI() {
     )
 }
 
+enum class TrackType {
+    AUDIO,
+    SUBTITLE
+}
+
 data class TrackInfo(
     val index: Int,
+    val trackIndex: Int = 0,
+    val type: TrackType = TrackType.AUDIO,
     val name: String,
     val language: String? = null,
     val codec: String? = null,
@@ -119,8 +126,8 @@ fun PlayerControlsOverlay(
     onLockToggle: () -> Unit,
     onResizeModeChange: (String) -> Unit,
     onDecoderModeChange: (String) -> Unit = {},
-    onAudioTrackSelect: (Int) -> Unit,
-    onSubtitleTrackSelect: (Int) -> Unit,
+    onAudioTrackSelect: (TrackInfo) -> Unit,
+    onSubtitleTrackSelect: (TrackInfo?) -> Unit,
     onSubtitleDelayChange: (Long) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onLoadExternalSubtitle: () -> Unit,
@@ -528,7 +535,10 @@ fun PlayerControlsOverlay(
         TrackSelectionSheet(
             title = "Audio Tracks",
             tracks = audioTracks,
-            onSelect = { onAudioTrackSelect(it); showAudioSheet = false },
+            onSelect = { track ->
+                track?.let(onAudioTrackSelect)
+                showAudioSheet = false
+            },
             onDismiss = { showAudioSheet = false }
         )
     }
@@ -537,7 +547,10 @@ fun PlayerControlsOverlay(
         TrackSelectionSheet(
             title = "Subtitles",
             tracks = subtitleTracks,
-            onSelect = { onSubtitleTrackSelect(it); showSubtitleSheet = false },
+            onSelect = { track ->
+                onSubtitleTrackSelect(track)
+                showSubtitleSheet = false
+            },
             onDismiss = { showSubtitleSheet = false },
             showExternalOption = true,
             onLoadExternal = { onLoadExternalSubtitle(); showSubtitleSheet = false }

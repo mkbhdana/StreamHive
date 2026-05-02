@@ -17,7 +17,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.mkbhdana.streamhive.util.FileUtils
 
 @Composable
 fun GestureIndicatorOverlay(
@@ -68,48 +67,40 @@ fun GestureIndicatorOverlay(
         // Seek indicator — above center play button
         AnimatedVisibility(
             visible = gestureState.showSeekIndicator,
-            enter = fadeIn(tween(100)) + scaleIn(tween(150)),
-            exit = fadeOut(tween(250)) + scaleOut(tween(250)),
+            enter = fadeIn(tween(100)) +
+                scaleIn(tween(150)) +
+                slideInVertically(tween(150), initialOffsetY = { 16 }),
+            exit = fadeOut(tween(220)) + scaleOut(tween(220)),
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = (-100).dp)
+                .offset(y = (-96).dp)
         ) {
             Card(
-                shape = androidx.compose.foundation.shape.CircleShape,
+                shape = RoundedCornerShape(50),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = 0.75f)
+                    containerColor = Color.Black.copy(alpha = 0.78f)
                 )
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (gestureState.seekDeltaSeconds >= 0)
-                                Icons.Default.FastForward else Icons.Default.FastRewind,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Text(
-                            text = buildString {
-                                if (gestureState.seekDeltaSeconds >= 0) append("+")
-                                append("${gestureState.seekDeltaSeconds}s")
-                            },
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Icon(
+                        imageVector = if (gestureState.seekDeltaSeconds >= 0)
+                            Icons.Default.FastForward else Icons.Default.FastRewind,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
                     Text(
-                        text = FileUtils.formatDuration(gestureState.seekToPosition),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.7f)
+                        text = buildString {
+                            if (gestureState.seekDeltaSeconds >= 0) append("+")
+                            append("${gestureState.seekDeltaSeconds}s")
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
             }

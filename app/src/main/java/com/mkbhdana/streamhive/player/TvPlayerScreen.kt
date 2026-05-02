@@ -27,6 +27,7 @@ import com.mkbhdana.streamhive.ui.theme.*
 import com.mkbhdana.streamhive.util.FileUtils
 import com.mkbhdana.streamhive.player.ui.TrackSelectionSheet
 import com.mkbhdana.streamhive.player.ui.ChapterListSheet
+import com.mkbhdana.streamhive.player.ui.TrackType
 import kotlinx.coroutines.delay
 
 @UnstableApi
@@ -290,11 +291,11 @@ fun TvPlayerScreen(
         TrackSelectionSheet(
             title = "Audio & Subtitles",
             tracks = uiState.audioTracks + uiState.subtitleTracks,
-            onSelect = { index ->
-                if (index < uiState.audioTracks.size) {
-                    viewModel.selectAudioTrack(index)
-                } else {
-                    viewModel.selectSubtitleTrack(index - uiState.audioTracks.size)
+            onSelect = { track ->
+                when (track?.type) {
+                    TrackType.AUDIO -> viewModel.selectAudioTrack(track.index, track.trackIndex)
+                    TrackType.SUBTITLE -> viewModel.selectSubtitleTrack(track.index, track.trackIndex)
+                    null -> viewModel.selectSubtitleTrack(-1)
                 }
                 showTrackSheet = false
             },

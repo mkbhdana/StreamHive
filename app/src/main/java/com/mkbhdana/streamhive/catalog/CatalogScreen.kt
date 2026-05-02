@@ -32,6 +32,9 @@ import com.mkbhdana.streamhive.ui.components.*
 import androidx.compose.ui.res.painterResource
 import com.mkbhdana.streamhive.R
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,6 +51,8 @@ fun CatalogScreen(
     val uiState by viewModel.uiState.collectAsState()
     // showSearch has been migrated to SearchTab
     var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0=Home, 1=Folders
+    var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Load home content when Home tab is selected
     LaunchedEffect(selectedTab) {
@@ -62,7 +67,21 @@ fun CatalogScreen(
         viewModel.refreshPreferences()
     }
 
+    DisposableEffect(lifecycleOwner, selectedTab) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && selectedTab == 0) {
+                viewModel.refreshPreferences()
+                viewModel.loadHomeContent()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     var showExitDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
     val activity = (androidx.compose.ui.platform.LocalContext.current as? android.app.Activity)
 
     BackHandler(enabled = true) {
@@ -120,7 +139,7 @@ fun CatalogScreen(
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    IconButton(onClick = { viewModel.logout(); onLogout() }) {
+                    IconButton(onClick = { showLogoutDialog = true }) {
                         Icon(Icons.Default.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
@@ -148,7 +167,10 @@ fun CatalogScreen(
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
+                    onClick = {
+                        selectedTab = 2
+                        searchFocusRequest++
+                    },
                     icon = { Icon(Icons.Default.Search, "Search") },
                     label = { Text("Search") }
                 )
@@ -156,7 +178,6 @@ fun CatalogScreen(
         }
     ) { paddingValues ->
         val scope = rememberCoroutineScope()
-        
         if (showExitDialog) {
             AlertDialog(
                 onDismissRequest = { showExitDialog = false },
@@ -170,6 +191,29 @@ fun CatalogScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showExitDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showLogoutDialog) {
+            AlertDialog(
+                onDismissRequest = { showLogoutDialog = false },
+                icon = { Icon(Icons.Default.Logout, null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Logout") },
+                text = { Text("Are you sure you want to log out of StreamHive? You will need to sign in again.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showLogoutDialog = false
+                        viewModel.logout()
+                        onLogout()
+                    }) {
+                        Text("Logout", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLogoutDialog = false }) {
                         Text("Cancel")
                     }
                 }
@@ -215,6 +259,7 @@ fun CatalogScreen(
                 2 -> SearchTab(
                     state = uiState,
                     viewModel = viewModel,
+                    focusRequestSignal = searchFocusRequest,
                     onPlayFile = onPlayFile,
                     onFolderNavigate = { folder ->
                         viewModel.openSearchFolder(folder.id, folder.name, folder.driveId)

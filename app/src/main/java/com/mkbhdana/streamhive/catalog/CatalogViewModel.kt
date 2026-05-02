@@ -109,6 +109,7 @@ class CatalogViewModel @Inject constructor(
 
     private var loadFilesJob: Job? = null
     private var cacheCollectionJob: Job? = null
+    private val continueMetadataFetchAttempted = mutableSetOf<String>()
 
     // TTL cache: folderKey -> timestamp of last API fetch
     private val lastLoadedTimestamps = mutableMapOf<String, Long>()
@@ -594,7 +595,9 @@ class CatalogViewModel @Inject constructor(
         folderIds.forEach { folderId ->
             var found = false
             val localFolder = driveRepository.getFileById(folderId)
-            val driveIdToUse = localFolder?.driveId ?: drives.firstOrNull()?.id
+            val driveIdToUse = localFolder?.driveId?.takeIf { it.isNotBlank() }
+                ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
+                ?: drives.firstOrNull()?.id
 
             if (!isOffline && driveIdToUse != null) {
                 // Check if we need fresh data (timestamp cache cleared or TTL expired)
@@ -802,12 +805,77 @@ class CatalogViewModel @Inject constructor(
     private fun loadContinuePlaying() {
         viewModelScope.launch {
             playbackHistoryDao.getContinuePlaying(10).collect { items ->
-                _uiState.update { it.copy(continuePlayingItems = items) }
+                val continueMetadata = resolveContinuePlayingMetadata(items)
+                _uiState.update {
+                    it.copy(
+                        continuePlayingItems = items,
+                        tmdbMetadata = it.tmdbMetadata + continueMetadata
+                    )
+                }
             }
         }
     }
 
     // ──── Actions ────
+
+    private suspend fun resolveContinuePlayingMetadata(
+        items: List<PlaybackHistoryEntity>
+    ): Map<String, TmdbMetadataEntity> {
+        if (items.isEmpty()) return emptyMap()
+
+        val metadataByFileId = mutableMapOf<String, TmdbMetadataEntity>()
+        val directMetadata = tmdbRepository.getMetadataForFiles(items.map { it.fileId })
+        directMetadata.forEach { metadata ->
+            metadataByFileId[metadata.driveFileId] = metadata
+        }
+
+        val missingItems = items.filter { it.fileId !in metadataByFileId }
+        if (missingItems.isNotEmpty()) {
+            val filesById = missingItems.mapNotNull { item ->
+                mediaFileDao.getFileById(item.fileId)?.let { file -> item.fileId to file }
+            }.toMap()
+            val parentIds = filesById.values.mapNotNull { it.parentId }.distinct()
+            val parentMetadata = tmdbRepository.getMetadataForFiles(parentIds)
+                .associateBy { it.driveFileId }
+
+            filesById.forEach { (fileId, file) ->
+                parentMetadata[file.parentId]?.let { metadata ->
+                    metadataByFileId[fileId] = metadata
+                }
+            }
+
+            if (tmdbRepository.isConfigured()) {
+                filesById.forEach { (fileId, file) ->
+                    if (fileId !in metadataByFileId && continueMetadataFetchAttempted.add(fileId)) {
+                        val metadata = tmdbRepository.fetchAndCacheMetadata(
+                            driveFileId = fileId,
+                            name = file.name,
+                            mediaType = inferMediaTypeForParent(file.parentId)
+                        )
+                        metadata?.let { metadataByFileId[fileId] = it }
+                    }
+                }
+            }
+        }
+
+        items.forEach { item ->
+            val metadata = metadataByFileId[item.fileId]
+            if (item.posterPath.isNullOrBlank() && metadata?.posterPath != null) {
+                playbackHistoryDao.upsert(item.copy(posterPath = metadata.posterPath))
+            }
+        }
+
+        return metadataByFileId
+    }
+
+    private fun inferMediaTypeForParent(parentId: String?): String {
+        return when {
+            parentId != null && parentId in appPreferences.tmdbMovieFolders -> "movie"
+            parentId != null && parentId in appPreferences.tmdbTvFolders -> "tv"
+            parentId != null && parentId in appPreferences.tmdbAnimeFolders -> "tv"
+            else -> "auto"
+        }
+    }
 
     fun refresh() {
         val currentDrive = _uiState.value.selectedDrive ?: return
