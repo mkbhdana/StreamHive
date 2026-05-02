@@ -13,7 +13,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,11 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import android.graphics.Bitmap
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,8 +72,15 @@ fun HideBottomSheetSystemUI() {
     )
 }
 
+enum class TrackType {
+    AUDIO,
+    SUBTITLE
+}
+
 data class TrackInfo(
     val index: Int,
+    val trackIndex: Int = 0,
+    val type: TrackType = TrackType.AUDIO,
     val name: String,
     val language: String? = null,
     val codec: String? = null,
@@ -107,23 +109,22 @@ fun PlayerControlsOverlay(
     audioTracks: List<TrackInfo>,
     subtitleTracks: List<TrackInfo>,
     chapters: List<ChapterInfo> = emptyList(),
-    seekThumbnail: Bitmap? = null,
     decoderMode: String = "hw+",
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onScrubbing: (Long) -> Unit = {},
-    onScrubbingFinished: () -> Unit = {},
     onLockToggle: () -> Unit,
     onResizeModeChange: (String) -> Unit,
     onDecoderModeChange: (String) -> Unit = {},
-    onAudioTrackSelect: (Int) -> Unit,
-    onSubtitleTrackSelect: (Int) -> Unit,
+    onAudioTrackSelect: (TrackInfo) -> Unit,
+    onSubtitleTrackSelect: (TrackInfo?) -> Unit,
     onSubtitleDelayChange: (Long) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onLoadExternalSubtitle: () -> Unit,
+    switchPlayerLabel: String? = null,
+    onSwitchPlayer: (() -> Unit)? = null,
     onChapterNext: () -> Unit = {},
     onChapterPrevious: () -> Unit = {},
     onChapterSelect: (Int) -> Unit = {},
@@ -341,8 +342,18 @@ fun PlayerControlsOverlay(
                 }
                 
                 // Right Group
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     ControlIconButton(Icons.Default.OpenInNew, "Ext", true) { onOpenExternal() }
+                    if (switchPlayerLabel != null && onSwitchPlayer != null) {
+                        PlayerSwitchButton(
+                            label = switchPlayerLabel,
+                            color = engineColor,
+                            onClick = onSwitchPlayer
+                        )
+                    }
                     
                     val resizeIcon = when (currentResizeMode) {
                         "fill" -> Icons.Default.Fullscreen
@@ -358,29 +369,6 @@ fun PlayerControlsOverlay(
                         resizePillText = if (nextMode == "zoom") "Crop" else nextMode.replaceFirstChar { it.uppercase() }
                         showResizePill = true
                     }
-                }
-            }
-
-            // Thumbnail preview
-            if (isSeeking && seekThumbnail != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                ) {
-                    val previewWidth = 160.dp
-                    val thumbXOffset = (seekFraction * LocalConfiguration.current.screenWidthDp).dp - (previewWidth / 2)
-                    
-                    Image(
-                        bitmap = seekThumbnail.asImageBitmap(),
-                        contentDescription = "Seek Preview",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = previewWidth, height = 90.dp)
-                            .offset(x = thumbXOffset.coerceIn(0.dp, LocalConfiguration.current.screenWidthDp.dp - previewWidth))
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-                    )
                 }
             }
 
@@ -416,12 +404,10 @@ fun PlayerControlsOverlay(
                         onSeek = { fraction ->
                             isSeeking = true
                             seekFraction = fraction
-                            onScrubbing((fraction * duration).toLong())
                         },
                         onSeekFinished = {
                             onSeekTo((seekFraction * duration).toLong())
                             isSeeking = false
-                            onScrubbingFinished()
                         },
                         isPlaying = isPlaying,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -528,7 +514,10 @@ fun PlayerControlsOverlay(
         TrackSelectionSheet(
             title = "Audio Tracks",
             tracks = audioTracks,
-            onSelect = { onAudioTrackSelect(it); showAudioSheet = false },
+            onSelect = { track ->
+                track?.let(onAudioTrackSelect)
+                showAudioSheet = false
+            },
             onDismiss = { showAudioSheet = false }
         )
     }
@@ -537,7 +526,10 @@ fun PlayerControlsOverlay(
         TrackSelectionSheet(
             title = "Subtitles",
             tracks = subtitleTracks,
-            onSelect = { onSubtitleTrackSelect(it); showSubtitleSheet = false },
+            onSelect = { track ->
+                onSubtitleTrackSelect(track)
+                showSubtitleSheet = false
+            },
             onDismiss = { showSubtitleSheet = false },
             showExternalOption = true,
             onLoadExternal = { onLoadExternalSubtitle(); showSubtitleSheet = false }
@@ -721,6 +713,31 @@ private fun ControlIconButton(
             icon, contentDescription,
             tint = Color.White.copy(alpha = 0.9f),
             modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun PlayerSwitchButton(
+    label: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.14f))
+            .border(1.dp, color.copy(alpha = 0.65f), RoundedCornerShape(50)),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+    ) {
+        Text(
+            text = label.uppercase(),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }

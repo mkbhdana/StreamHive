@@ -144,14 +144,20 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // MPV Player (community artifact by abdallahmehiz)
-    // implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
 
     // NanoHTTPD (local proxy server for secured streaming)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 
-    // FFmpeg Decoder Extension (optional - build from source)
-    // Place the built AAR in app/libs/ and uncomment:
-    // implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
-    implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.0-0.12.1") // To add media3 software decoders and extensions
-    implementation("io.github.anilbeesetti:nextlib-mediainfo:1.10.0-0.12.1")
+    // FFmpeg Decoder Extension
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-decoder-*.aar"))))
+    // implementation("io.github.anilbeesetti:nextlib-media3ext:1.10.0-0.12.1")
+    // implementation("io.github.anilbeesetti:nextlib-mediainfo:1.10.0-0.12.1")
+
+    // Testing
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.espresso.core)
+
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:2.14")
 }

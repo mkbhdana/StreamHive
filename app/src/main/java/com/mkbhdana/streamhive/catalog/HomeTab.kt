@@ -1,12 +1,18 @@
 package com.mkbhdana.streamhive.catalog
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,9 +21,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,9 +41,13 @@ import android.widget.Toast
 import com.mkbhdana.streamhive.ui.components.LoadingIndicator
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.style.TextAlign
+import kotlin.math.absoluteValue
 
 @Composable
 fun HomeTab(
@@ -51,6 +63,19 @@ fun HomeTab(
 ) {
     val hasContinuePlaying = state.continuePlayingItems.isNotEmpty()
     val hasAnyContent = state.homeSections.isNotEmpty() || state.homeRecentlyAdded.isNotEmpty()
+    val listState = rememberLazyListState()
+    val heroPosterScale by animateFloatAsState(
+        targetValue = 1f + when {
+            listState.firstVisibleItemIndex == 0 -> (listState.firstVisibleItemScrollOffset / 900f).coerceIn(0f, 0.08f)
+            listState.firstVisibleItemIndex > 0 -> 0.08f
+            else -> 0f
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "hero_scroll_scale"
+    )
 
     if (!state.hasTmdbSetup && !hasContinuePlaying) {
         TmdbSetupPrompt(onNavigateToSettings = onNavigateToSettings, modifier = modifier)
@@ -70,8 +95,9 @@ fun HomeTab(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         // Offline banner when there IS cached content
@@ -81,31 +107,27 @@ fun HomeTab(
             }
         }
 
-        // ──── Continue Playing ────
-        if (hasContinuePlaying) {
+        // Recently added hero
+        if (state.homeRecentlyAdded.isNotEmpty()) {
             item {
-                ContinuePlayingSection(
-                    items = state.continuePlayingItems,
-                    engine = state.selectedEngine,
-                    onPlayFile = onPlayFile,
-                    onRemoveItem = onRemoveFromContinue,
-                    onPlayFromStart = onPlayFromStart
+                RecentlyAddedHeroSection(
+                    files = state.homeRecentlyAdded,
+                    tmdbMetadata = state.tmdbMetadata,
+                    posterScrollScale = heroPosterScale,
+                    onNavigateToInfo = onNavigateToInfo
                 )
             }
         }
 
-        // ──── Recently Added ────
-        if (state.homeRecentlyAdded.isNotEmpty()) {
+        if (hasContinuePlaying) {
             item {
-                TmdbHorizontalSection(
-                    title = "Recently Added",
-                    icon = Icons.Default.NewReleases,
-                    files = state.homeRecentlyAdded,
-                    totalCount = state.homeRecentlyAdded.size,
+                ContinuePlayingSection(
+                    items = state.continuePlayingItems,
                     tmdbMetadata = state.tmdbMetadata,
-                    mediaType = "auto",
-                    onNavigateToInfo = onNavigateToInfo,
-                    onSeeAll = {}
+                    engine = state.selectedEngine,
+                    onPlayFile = onPlayFile,
+                    onRemoveItem = onRemoveFromContinue,
+                    onPlayFromStart = onPlayFromStart
                 )
             }
         }
@@ -164,12 +186,314 @@ fun HomeTab(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecentlyAddedHeroSection(
+    files: List<MediaFileEntity>,
+    tmdbMetadata: Map<String, TmdbMetadataEntity>,
+    posterScrollScale: Float,
+    onNavigateToInfo: (String, String) -> Unit
+) {
+    val heroItems = files.take(8)
+    if (heroItems.isEmpty()) return
+
+    val pagerState = rememberPagerState(pageCount = { heroItems.size })
+    val overlayScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val targetHeight = (configuration.screenHeightDp * 0.62f).dp
+    val heroHeight = when {
+        targetHeight < 360.dp -> 360.dp
+        targetHeight > 500.dp -> 500.dp
+        else -> targetHeight
+    }
+
+    LaunchedEffect(heroItems.size) {
+        if (heroItems.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(5_500)
+            val nextPage = (pagerState.currentPage + 1) % heroItems.size
+            pagerState.animateScrollToPage(
+                page = nextPage,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+    }
+
+    val currentPage = pagerState.currentPage.coerceIn(0, heroItems.lastIndex)
+    val currentFile = heroItems[currentPage]
+    val currentMetadata = tmdbMetadata[currentFile.id]
+    val currentMediaType = currentMetadata?.mediaType ?: "auto"
+    val backgroundColor = MaterialTheme.colorScheme.background
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(heroHeight)
+            .graphicsLayer { clip = true }
+            .clipToBounds()
+            .background(backgroundColor)
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            flingBehavior = PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapAnimationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ),
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+        ) { page ->
+            val file = heroItems[page]
+            val metadata = tmdbMetadata[file.id]
+            val imageModel = heroImageModel(metadata, file)
+            val pageOffset = (
+                (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            ).absoluteValue.coerceIn(0f, 1f)
+            val carouselScale = 0.96f + ((1f - pageOffset) * 0.04f)
+
+            HeroBackdrop(
+                file = file,
+                metadata = metadata,
+                imageModel = imageModel,
+                posterScale = posterScrollScale * carouselScale
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(88.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.03f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.7f),
+                            backgroundColor
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 28.dp)
+                .padding(bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Crossfade(
+                targetState = currentPage,
+                animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+                label = "hero_copy"
+            ) { page ->
+                val file = heroItems[page]
+                val metadata = tmdbMetadata[file.id]
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = metadata?.title ?: cleanDisplayTitle(file.name),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = heroMetadataLine(metadata, file),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White.copy(alpha = 0.82f),
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = { onNavigateToInfo(currentFile.id, currentMediaType) },
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black
+                ),
+                modifier = Modifier
+                    .height(54.dp)
+                    .widthIn(min = 176.dp)
+            ) {
+                Text(
+                    "View Details",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                heroItems.forEachIndexed { index, _ ->
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (index == currentPage) 42.dp else 10.dp,
+                        label = "hero_dot_width"
+                    )
+                    val dotAlpha by animateFloatAsState(
+                        targetValue = if (index == currentPage) 0.95f else 0.58f,
+                        label = "hero_dot_alpha"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(width = dotWidth, height = 10.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = dotAlpha))
+                            .clickable {
+                                overlayScope.launch {
+                                    pagerState.animateScrollToPage(
+                                        page = index,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                                }
+                            }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroBackdrop(
+    file: MediaFileEntity,
+    metadata: TmdbMetadataEntity?,
+    imageModel: String?,
+    posterScale: Float
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { clip = true }
+            .clipToBounds()
+            .background(Color.Black)
+    ) {
+        if (imageModel != null) {
+            AsyncImage(
+                model = imageModel,
+                contentDescription = metadata?.title ?: file.name,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = posterScale
+                        scaleY = posterScale
+                    },
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = posterScale
+                        scaleY = posterScale
+                    }
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                Color(0xFF171717),
+                                Color.Black
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Movie,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.35f),
+                    modifier = Modifier.size(72.dp)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.22f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.22f)
+                        )
+                    )
+                )
+        )
+    }
+}
+private fun heroMetadataLine(metadata: TmdbMetadataEntity?, file: MediaFileEntity): String {
+    val mediaType = when (metadata?.mediaType) {
+        "tv" -> "Series"
+        "movie" -> "Movie"
+        else -> if (file.isFolder) "Series" else "Video"
+    }
+    val year = metadata?.year ?: file.createdTime?.take(4) ?: file.modifiedTime?.take(4)
+    return listOfNotNull(mediaType, year).joinToString(" • ")
+}
+
+private val tmdbImageSizeRegex = Regex("/t/p/(w\\d+|original)/")
+private val driveThumbnailSizeRegex = Regex("=s\\d+(-[a-z]+)?")
+
+private fun heroImageModel(metadata: TmdbMetadataEntity?, file: MediaFileEntity): String? {
+    return highQualityTmdbImage(metadata?.backdropPath, "w1280")
+        ?: highQualityTmdbImage(metadata?.posterPath, "w780")
+        ?: highQualityDriveThumbnail(file.thumbnailLink)
+}
+
+private fun highQualityTmdbImage(url: String?, size: String): String? {
+    if (url.isNullOrBlank()) return null
+    val fullUrl = if (url.startsWith("/")) "https://image.tmdb.org/t/p/$size$url" else url
+    return if (fullUrl.contains("image.tmdb.org/t/p/")) {
+        fullUrl.replace(tmdbImageSizeRegex, "/t/p/$size/")
+    } else {
+        fullUrl
+    }
+}
+
+private fun highQualityDriveThumbnail(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    return url.replace(driveThumbnailSizeRegex, "=s1280")
+}
+
 // ──── Continue Playing Section ────
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinuePlayingSection(
     items: List<PlaybackHistoryEntity>,
+    tmdbMetadata: Map<String, TmdbMetadataEntity>,
     engine: PlayerEngine,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
     onRemoveItem: (String) -> Unit = {},
@@ -180,33 +504,35 @@ private fun ContinuePlayingSection(
     var longPressItem by remember { mutableStateOf<PlaybackHistoryEntity?>(null) }
 
     Column {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp)
         ) {
-            Icon(
-                Icons.Default.PlayCircle, null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(Modifier.width(8.dp))
             Text(
-                "Continue Playing",
-                style = MaterialTheme.typography.titleMedium,
+                "Continue Watching",
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
+            Spacer(Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .width(82.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+            )
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(items, key = { it.fileId }) { item ->
                 ContinuePlayingCard(
                     item = item,
+                    metadata = tmdbMetadata[item.fileId],
                     onClick = { onPlayFile(item.fileId, item.fileName, engine) },
                     onLongClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -282,33 +608,46 @@ private fun ContinuePlayingSection(
 @Composable
 private fun ContinuePlayingCard(
     item: PlaybackHistoryEntity,
+    metadata: TmdbMetadataEntity?,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+    val labels = remember(item.fileName) { continueMediaLabels(item.fileName) }
+    val progress = item.progressPercent.coerceIn(0f, 1f)
+    val progressText = "${(progress * 100).toInt().coerceIn(0, 100)}% watched"
+    val imageModel = remember(metadata?.posterPath, item.posterPath, item.thumbnailUrl) {
+        highQualityTmdbImage(metadata?.posterPath, "w780")
+            ?: highQualityTmdbImage(item.posterPath, "w780")
+            ?: highQualityDriveThumbnail(item.thumbnailUrl)
+    }
+
     Card(
         modifier = Modifier
-            .width(200.dp)
+            .width(330.dp)
+            .height(116.dp)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = 0.48f)),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-        )
+            containerColor = colorScheme.surfaceColorAtElevation(3.dp)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column {
-            // Thumbnail area
+        Row(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .width(98.dp)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .background(colorScheme.surfaceVariant.copy(alpha = 0.46f))
             ) {
-                if (item.thumbnailUrl != null) {
+                if (imageModel != null) {
                     AsyncImage(
-                        model = item.thumbnailUrl,
+                        model = imageModel,
                         contentDescription = item.fileName,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -319,8 +658,8 @@ private fun ContinuePlayingCard(
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                        MaterialTheme.colorScheme.surfaceVariant
+                                        colorScheme.secondaryContainer,
+                                        colorScheme.surfaceVariant
                                     )
                                 )
                             ),
@@ -328,59 +667,120 @@ private fun ContinuePlayingCard(
                     ) {
                         Icon(
                             Icons.Default.VideoFile, null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = colorScheme.onSecondaryContainer.copy(alpha = 0.72f),
                             modifier = Modifier.size(32.dp)
                         )
                     }
                 }
-                // Play overlay
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.PlayCircleFilled, null,
-                        tint = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
             }
-            // Info area
-            Column(modifier = Modifier.padding(10.dp)) {
+
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
                 Text(
-                    item.fileName,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
+                    labels.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { item.progressPercent.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                    color = colorScheme.onSurface
                 )
                 Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                labels.episodeLine?.let {
                     Text(
-                        FileUtils.formatDuration(item.lastPosition),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = colorScheme.onSurfaceVariant
                     )
+                } ?: Text(
+                    "${FileUtils.formatDuration(item.lastPosition)} of ${FileUtils.formatDuration(item.duration)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colorScheme.onSurfaceVariant
+                )
+                labels.detailLine?.let {
                     Text(
-                        FileUtils.formatDuration(item.duration),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = colorScheme.onSurfaceVariant.copy(alpha = 0.76f)
                     )
                 }
+                Spacer(Modifier.weight(1f))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = colorScheme.primary,
+                    trackColor = colorScheme.surfaceVariant.copy(alpha = 0.72f)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    progressText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colorScheme.onSurfaceVariant
+                )
             }
         }
     }
+}
+
+// Continue label helpers
+
+private data class ContinueMediaLabels(
+    val title: String,
+    val episodeLine: String?,
+    val detailLine: String?
+)
+
+private fun continueMediaLabels(fileName: String): ContinueMediaLabels {
+    val base = fileName.substringBeforeLast('.', fileName)
+    val seasonEpisode = Regex("""(?i)\bS0*(\d{1,2})\s*E0*(\d{1,2})\b[ ._-]*(.*)$""").find(base)
+    if (seasonEpisode != null) {
+        val title = cleanDisplayTitle(base.substring(0, seasonEpisode.range.first))
+        val episode = "S${seasonEpisode.groupValues[1].toInt()}E${seasonEpisode.groupValues[2].toInt()}"
+        val episodeTitle = cleanDisplayTitle(seasonEpisode.groupValues[3]).takeIf { it.isNotBlank() }
+        return ContinueMediaLabels(
+            title = title.ifBlank { cleanDisplayTitle(base) },
+            episodeLine = listOfNotNull(episode, episodeTitle).joinToString(" • "),
+            detailLine = episodeTitle
+        )
+    }
+
+    val numericEpisode = Regex("""(?i)\b0*(\d{1,2})x0*(\d{1,2})\b[ ._-]*(.*)$""").find(base)
+    if (numericEpisode != null) {
+        val title = cleanDisplayTitle(base.substring(0, numericEpisode.range.first))
+        val episode = "S${numericEpisode.groupValues[1].toInt()}E${numericEpisode.groupValues[2].toInt()}"
+        val episodeTitle = cleanDisplayTitle(numericEpisode.groupValues[3]).takeIf { it.isNotBlank() }
+        return ContinueMediaLabels(
+            title = title.ifBlank { cleanDisplayTitle(base) },
+            episodeLine = listOfNotNull(episode, episodeTitle).joinToString(" • "),
+            detailLine = episodeTitle
+        )
+    }
+
+    return ContinueMediaLabels(
+        title = cleanDisplayTitle(base),
+        episodeLine = null,
+        detailLine = null
+    )
+}
+
+private fun cleanDisplayTitle(value: String): String {
+    return value
+        .replace(Regex("""[\[\(].*?[\]\)]"""), " ")
+        .replace(Regex("""[._-]+"""), " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
 }
 
 // ──── Last Played Section ────

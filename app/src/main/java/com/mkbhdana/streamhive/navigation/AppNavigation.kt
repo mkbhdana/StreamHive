@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavType
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -30,8 +31,8 @@ import android.widget.Toast
 object Routes {
     const val AUTH = "auth"
     const val CATALOG = "catalog"
-    const val PLAYER = "player/{fileId}/{fileName}"
-    const val MPV_PLAYER = "mpv_player/{fileId}/{fileName}"
+    const val PLAYER = "player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}"
+    const val MPV_PLAYER = "mpv_player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}"
     const val SETTINGS = "settings"
     const val MEDIA_INFO = "media_info/{driveFileId}?mediaType={mediaType}"
     const val TMDB_SEE_ALL = "tmdb_see_all/{category}"
@@ -69,13 +70,12 @@ fun AppNavigation(isTv: Boolean = false) {
             val ctx = LocalContext.current
             CatalogScreen(
                 onPlayFile = { fileId, fileName, engine ->
-                    val encodedName = java.net.URLEncoder.encode(fileName, "UTF-8")
                     when (engine) {
                         PlayerEngine.EXO_PLAYER -> {
-                            navController.navigate("player/$fileId/$encodedName")
+                            navController.navigateToPlayback(playerRoute(fileId, fileName))
                         }
                         PlayerEngine.MPV -> {
-                            navController.navigate("mpv_player/$fileId/$encodedName")
+                            navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName))
                         }
                         PlayerEngine.EXTERNAL -> {
                             // Start foreground service to keep proxy alive while external player runs
@@ -116,11 +116,43 @@ fun AppNavigation(isTv: Boolean = false) {
             route = Routes.PLAYER,
             arguments = listOf(
                 navArgument("fileId") { type = NavType.StringType },
-                navArgument("fileName") { type = NavType.StringType }
-            )
-        ) {
+                navArgument("fileName") { type = NavType.StringType },
+                navArgument("allowFallback") {
+                    type = NavType.BoolType
+                    defaultValue = true
+                },
+                navArgument("handoff") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            ),
+            enterTransition = { fadeIn(animationSpec = tween(140)) },
+            exitTransition = { fadeOut(animationSpec = tween(140)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(140)) },
+            popExitTransition = { fadeOut(animationSpec = tween(140)) }
+        ) { backStackEntry ->
+            val ctx = LocalContext.current
+            val fileId = backStackEntry.arguments?.getString("fileId").orEmpty()
+            val fileName = decodeRouteValue(backStackEntry.arguments?.getString("fileName").orEmpty())
+            val allowFallback = backStackEntry.arguments?.getBoolean("allowFallback") ?: true
+            val handoff = backStackEntry.arguments?.getBoolean("handoff") ?: false
+
             PlayerScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                allowEngineFallback = allowFallback,
+                switchingMessage = if (handoff) "Switching to Exo" else null,
+                onFallbackToMpv = {
+                    navController.navigateToPlayback(
+                        mpvPlayerRoute(fileId, fileName, allowFallback = false, handoff = true),
+                        replaceCurrent = true
+                    )
+                },
+                onSwitchToMpv = {
+                    navController.navigateToPlayback(
+                        mpvPlayerRoute(fileId, fileName, allowFallback = true, handoff = true),
+                        replaceCurrent = true
+                    )
+                }
             )
         }
 
@@ -128,11 +160,43 @@ fun AppNavigation(isTv: Boolean = false) {
             route = Routes.MPV_PLAYER,
             arguments = listOf(
                 navArgument("fileId") { type = NavType.StringType },
-                navArgument("fileName") { type = NavType.StringType }
-            )
-        ) {
+                navArgument("fileName") { type = NavType.StringType },
+                navArgument("allowFallback") {
+                    type = NavType.BoolType
+                    defaultValue = true
+                },
+                navArgument("handoff") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            ),
+            enterTransition = { fadeIn(animationSpec = tween(140)) },
+            exitTransition = { fadeOut(animationSpec = tween(140)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(140)) },
+            popExitTransition = { fadeOut(animationSpec = tween(140)) }
+        ) { backStackEntry ->
+            val ctx = LocalContext.current
+            val fileId = backStackEntry.arguments?.getString("fileId").orEmpty()
+            val fileName = decodeRouteValue(backStackEntry.arguments?.getString("fileName").orEmpty())
+            val allowFallback = backStackEntry.arguments?.getBoolean("allowFallback") ?: true
+            val handoff = backStackEntry.arguments?.getBoolean("handoff") ?: false
+
             MpvPlayerScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                allowEngineFallback = allowFallback,
+                switchingMessage = if (handoff) "Switching to MPV" else null,
+                onFallbackToExo = {
+                    navController.navigateToPlayback(
+                        playerRoute(fileId, fileName, allowFallback = false, handoff = true),
+                        replaceCurrent = true
+                    )
+                },
+                onSwitchToExo = {
+                    navController.navigateToPlayback(
+                        playerRoute(fileId, fileName, allowFallback = true, handoff = true),
+                        replaceCurrent = true
+                    )
+                }
             )
         }
 
@@ -151,10 +215,9 @@ fun AppNavigation(isTv: Boolean = false) {
             MediaInfoScreen(
                 onBack = { navController.popBackStack() },
                 onPlayFile = { fileId, fileName, engine ->
-                    val encodedName = java.net.URLEncoder.encode(fileName, "UTF-8")
                     when (engine) {
-                        PlayerEngine.EXO_PLAYER -> navController.navigate("player/$fileId/$encodedName")
-                        PlayerEngine.MPV -> navController.navigate("mpv_player/$fileId/$encodedName")
+                        PlayerEngine.EXO_PLAYER -> navController.navigateToPlayback(playerRoute(fileId, fileName))
+                        PlayerEngine.MPV -> navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName))
                         PlayerEngine.EXTERNAL -> {
                             // Start foreground service to keep proxy alive while external player runs
                             StreamProxyService.start(ctx)
@@ -171,9 +234,8 @@ fun AppNavigation(isTv: Boolean = false) {
             val ctx = LocalContext.current
             TvCatalogScreen(
                 onPlayFile = { fileId, fileName ->
-                    val encodedName = java.net.URLEncoder.encode(fileName, "UTF-8")
                     // TV always uses ExoPlayer with the TV player UI
-                    navController.navigate("player/$fileId/$encodedName")
+                    navController.navigateToPlayback(playerRoute(fileId, fileName))
                 },
                 onLogout = {
                     navController.navigate(Routes.AUTH) {
@@ -225,5 +287,43 @@ fun AppNavigation(isTv: Boolean = false) {
                 }
             )
         }
+    }
+}
+
+private fun playerRoute(
+    fileId: String,
+    fileName: String,
+    allowFallback: Boolean = true,
+    handoff: Boolean = false
+): String {
+    return "player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff"
+}
+
+private fun mpvPlayerRoute(
+    fileId: String,
+    fileName: String,
+    allowFallback: Boolean = true,
+    handoff: Boolean = false
+): String {
+    return "mpv_player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff"
+}
+
+private fun encodeRouteValue(value: String): String {
+    return java.net.URLEncoder.encode(value, "UTF-8")
+}
+
+private fun decodeRouteValue(value: String): String {
+    return runCatching {
+        java.net.URLDecoder.decode(value, "UTF-8")
+    }.getOrDefault(value)
+}
+
+private fun NavHostController.navigateToPlayback(route: String, replaceCurrent: Boolean = false) {
+    val currentDestinationId = currentDestination?.id
+    navigate(route) {
+        if (replaceCurrent && currentDestinationId != null) {
+            popUpTo(currentDestinationId) { inclusive = true }
+        }
+        launchSingleTop = true
     }
 }

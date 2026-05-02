@@ -9,7 +9,7 @@ Stream your video files directly from Google Drive with this specialized client.
 </p>
 
 <p align="center">
-  This app is powered by <a href="https://developers.google.com/drive/api">Drive API</a> and <a href="https://github.com/google/ExoPlayer">ExoPlayer</a>.
+  This app is powered by <a href="https://developers.google.com/drive/api">Drive API</a>, <a href="https://github.com/google/ExoPlayer">ExoPlayer</a> and <a href="https://github.com/abdallahmehiz/mpv-android">mpv-android</a>.
 </p>
 
 <div align="center">
@@ -25,6 +25,7 @@ Stream your video files directly from Google Drive with this specialized client.
 </div>
 
 **Key Feature**
+
 - Simpler and Easier to Use UI
 - Material3 Expressive Design
 - Enhanced Playback Features
@@ -54,6 +55,7 @@ the [Issues](https://github.com/mkbhdana/StreamHive/issues) section.**
 <br>
 
 ## Showcase
+
 <div class="image-row" align="center">
   <img src="https://github.com/user-attachments/assets/1bfe0e34-bdde-4210-9452-aa1f98698969" width="98%" />
 </div>
@@ -92,12 +94,12 @@ You can organize your media catalog using a simple folder structure. Follow the 
 
 Adding a TMDB or IMDb ID helps improve metadata accuracy.
 
-
 ---
 
 ### 📁 1. Folder Structure
 
 #### 🎬 Movies
+
 ```
 /SelectedMovieFolder
 └── MovieName/
@@ -109,6 +111,7 @@ Adding a TMDB or IMDb ID helps improve metadata accuracy.
 You can use either of the following formats:
 
 **Option A: Direct files inside series folder**
+
 ```
 /SelectedSeriesFolder
 └── SeriesName/
@@ -117,6 +120,7 @@ You can use either of the following formats:
 ```
 
 **Option B: Season-wise folders (Recommended)**
+
 ```
 /Series
 └── SeriesName/
@@ -142,22 +146,24 @@ You can manage how catalog folders behave directly from settings.
 
 ### 🔀 Reorder Folders
 
-- Change the **sequence/order** of catalog folders  
-- This affects how content is displayed in the app  
+- Change the **sequence/order** of catalog folders
+- This affects how content is displayed in the app
 
 ---
 
 ### ⭐ Mark for "Recently Added"
 
-- Mark folders using the ⭐ icon  
-- Marked folders will contribute to the **Recently Added** section on the Home screen  
+- Mark folders using the ⭐ icon
+- Marked folders will contribute to the **Recently Added** hero section on the Home screen
 
 **How it works:**
+
 - The app fetches the **latest 10 items**
 - Items are collected **across all marked folders**
-- Helps highlight newly added content in one place  
+- Helps highlight newly added content in one place
 
 ---
+
 ### ❗ Metadata Not Showing?
 
 If metadata is missing, you have **two ways to fix it:**
@@ -165,10 +171,12 @@ If metadata is missing, you have **two ways to fix it:**
 #### 🔹 Option 1: Fix at Drive Level
 
 Rename your folder to include ID:
+
 ```
 MovieName [tmdb-id or imdb-id]
 SeriesName [tmdb-id or imdb-id]
 ```
+
 ✔ Best for permanent and automatic fixes  
 ✔ Works across all devices
 
@@ -194,10 +202,10 @@ You can easily back up or transfer your app data using the import/export feature
 
 Export your current app configuration, which includes:
 
-- User settings  
-- TMDB catalogs *(optional)*  
-- TMDB API key *(optional)*  
-- Continue watching list  
+- User settings
+- TMDB catalogs _(optional)_
+- TMDB API key _(optional)_
+- Continue watching list
 - Edited metadata (app-level changes)
 
 ---
@@ -206,20 +214,19 @@ Export your current app configuration, which includes:
 
 Import a previously exported file to restore your setup:
 
-- Restores all supported data automatically  
-- Useful when switching devices or reinstalling the app  
+- Restores all supported data automatically
+- Useful when switching devices or reinstalling the app
 
 ## ScreenShots
+
 <div class="image-row" align="center">
   <img src="https://github.com/user-attachments/assets/49421d12-c877-4f2c-824f-78ba0f0b3788" width="48.5%" />
   <img src="https://github.com/user-attachments/assets/4ade2e13-1d20-42b0-89f9-cfe9ccdaeac9" width="48.5%" />
 </div>
 
-
 ## Download
 
 Go to the [Releases](https://github.com/mkbhdana/StreamHive/releases) to download the latest APK.
-
 
 ## What scopes are used?
 
@@ -229,8 +236,8 @@ This app uses `https://www.googleapis.com/auth/drive.readonly` scope that for th
 
 ## 🙏 Credits
 
-* [TheMovieDB](https://www.themoviedb.org/) – for metadata & search API
-* [NextLib](https://github.com/anilbeesetti/nextlib) – for ffmpeg codecs
+- [TheMovieDB](https://www.themoviedb.org/) – for metadata & search API
+- [NextLib](https://github.com/anilbeesetti/nextlib) – for ffmpeg codecs
 
 ## Acknowledgments
 

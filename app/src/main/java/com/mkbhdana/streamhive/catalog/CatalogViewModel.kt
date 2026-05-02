@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -24,6 +23,7 @@ import com.mkbhdana.streamhive.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -109,6 +109,9 @@ class CatalogViewModel @Inject constructor(
 
     private var loadFilesJob: Job? = null
     private var cacheCollectionJob: Job? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val continueMetadataFetchAttempted = mutableSetOf<String>()
 
     // TTL cache: folderKey -> timestamp of last API fetch
     private val lastLoadedTimestamps = mutableMapOf<String, Long>()
@@ -134,34 +137,58 @@ class CatalogViewModel @Inject constructor(
      */
     private fun observeNetworkConnectivity() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
+        connectivityManager = cm
 
-        // Set initial state
-        val activeNetwork = cm.activeNetwork
-        val capabilities = activeNetwork?.let { cm.getNetworkCapabilities(it) }
-        val initiallyOnline = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        _uiState.update { it.copy(isOffline = !initiallyOnline) }
+        syncConnectivityState(cm)
 
-        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                val wasOffline = _uiState.value.isOffline
-                _uiState.update { it.copy(isOffline = false) }
-                // Auto-refresh when coming back online
-                if (wasOffline) {
-                    viewModelScope.launch {
-                        if (_uiState.value.sharedDrives.isEmpty()) {
-                            loadSharedDrives()
-                        }
-                    }
-                }
+                syncConnectivityState(cm)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                syncConnectivityState(cm)
             }
 
             override fun onLost(network: Network) {
-                _uiState.update { it.copy(isOffline = true) }
+                viewModelScope.launch {
+                    delay(300)
+                    syncConnectivityState(cm)
+                }
             }
-        })
+
+            override fun onUnavailable() {
+                syncConnectivityState(cm)
+            }
+        }
+        networkCallback = callback
+        cm.registerDefaultNetworkCallback(callback)
+    }
+
+    private fun syncConnectivityState(cm: ConnectivityManager) {
+        val wasOffline = _uiState.value.isOffline
+        val isOnline = cm.activeNetwork
+            ?.let { cm.getNetworkCapabilities(it) }
+            ?.let { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            } == true
+        val isOffline = !isOnline
+
+        _uiState.update { it.copy(isOffline = isOffline) }
+
+        if (wasOffline && isOnline) {
+            viewModelScope.launch {
+                if (_uiState.value.sharedDrives.isEmpty()) {
+                    loadSharedDrives()
+                } else {
+                    loadHomeContent(isRefresh = true)
+                    _uiState.value.selectedDrive?.let { drive ->
+                        loadFiles(drive.id, _uiState.value.folderStack.lastOrNull()?.id)
+                    }
+                }
+            }
+        }
     }
 
     fun toggleEngine() {
@@ -594,7 +621,9 @@ class CatalogViewModel @Inject constructor(
         folderIds.forEach { folderId ->
             var found = false
             val localFolder = driveRepository.getFileById(folderId)
-            val driveIdToUse = localFolder?.driveId ?: drives.firstOrNull()?.id
+            val driveIdToUse = localFolder?.driveId?.takeIf { it.isNotBlank() }
+                ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
+                ?: drives.firstOrNull()?.id
 
             if (!isOffline && driveIdToUse != null) {
                 // Check if we need fresh data (timestamp cache cleared or TTL expired)
@@ -802,12 +831,77 @@ class CatalogViewModel @Inject constructor(
     private fun loadContinuePlaying() {
         viewModelScope.launch {
             playbackHistoryDao.getContinuePlaying(10).collect { items ->
-                _uiState.update { it.copy(continuePlayingItems = items) }
+                val continueMetadata = resolveContinuePlayingMetadata(items)
+                _uiState.update {
+                    it.copy(
+                        continuePlayingItems = items,
+                        tmdbMetadata = it.tmdbMetadata + continueMetadata
+                    )
+                }
             }
         }
     }
 
     // ──── Actions ────
+
+    private suspend fun resolveContinuePlayingMetadata(
+        items: List<PlaybackHistoryEntity>
+    ): Map<String, TmdbMetadataEntity> {
+        if (items.isEmpty()) return emptyMap()
+
+        val metadataByFileId = mutableMapOf<String, TmdbMetadataEntity>()
+        val directMetadata = tmdbRepository.getMetadataForFiles(items.map { it.fileId })
+        directMetadata.forEach { metadata ->
+            metadataByFileId[metadata.driveFileId] = metadata
+        }
+
+        val missingItems = items.filter { it.fileId !in metadataByFileId }
+        if (missingItems.isNotEmpty()) {
+            val filesById = missingItems.mapNotNull { item ->
+                mediaFileDao.getFileById(item.fileId)?.let { file -> item.fileId to file }
+            }.toMap()
+            val parentIds = filesById.values.mapNotNull { it.parentId }.distinct()
+            val parentMetadata = tmdbRepository.getMetadataForFiles(parentIds)
+                .associateBy { it.driveFileId }
+
+            filesById.forEach { (fileId, file) ->
+                parentMetadata[file.parentId]?.let { metadata ->
+                    metadataByFileId[fileId] = metadata
+                }
+            }
+
+            if (tmdbRepository.isConfigured()) {
+                filesById.forEach { (fileId, file) ->
+                    if (fileId !in metadataByFileId && continueMetadataFetchAttempted.add(fileId)) {
+                        val metadata = tmdbRepository.fetchAndCacheMetadata(
+                            driveFileId = fileId,
+                            name = file.name,
+                            mediaType = inferMediaTypeForParent(file.parentId)
+                        )
+                        metadata?.let { metadataByFileId[fileId] = it }
+                    }
+                }
+            }
+        }
+
+        items.forEach { item ->
+            val metadata = metadataByFileId[item.fileId]
+            if (item.posterPath.isNullOrBlank() && metadata?.posterPath != null) {
+                playbackHistoryDao.upsert(item.copy(posterPath = metadata.posterPath))
+            }
+        }
+
+        return metadataByFileId
+    }
+
+    private fun inferMediaTypeForParent(parentId: String?): String {
+        return when {
+            parentId != null && parentId in appPreferences.tmdbMovieFolders -> "movie"
+            parentId != null && parentId in appPreferences.tmdbTvFolders -> "tv"
+            parentId != null && parentId in appPreferences.tmdbAnimeFolders -> "tv"
+            else -> "auto"
+        }
+    }
 
     fun refresh() {
         val currentDrive = _uiState.value.selectedDrive ?: return
@@ -820,6 +914,14 @@ class CatalogViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        val callback = networkCallback ?: return
+        runCatching { connectivityManager?.unregisterNetworkCallback(callback) }
+        networkCallback = null
+        connectivityManager = null
     }
 
     fun clearPlaybackHistory() {

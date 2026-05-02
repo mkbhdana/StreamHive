@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -20,28 +21,53 @@ import androidx.compose.ui.unit.dp
 fun TrackSelectionSheet(
     title: String,
     tracks: List<TrackInfo>,
-    onSelect: (Int) -> Unit,
+    onSelect: (TrackInfo?) -> Unit,
     onDismiss: () -> Unit,
     showExternalOption: Boolean = false,
     onLoadExternal: (() -> Unit)? = null
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        sheetState = sheetState
     ) {
         HideBottomSheetSystemUI()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (showExternalOption) {
+                    FilledTonalButton(
+                        onClick = { onLoadExternal?.invoke() },
+                        shape = RoundedCornerShape(18.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            "Add +",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
 
             // "None / Disable" option for subtitles
             if (title.contains("Subtitle", ignoreCase = true)) {
@@ -49,7 +75,7 @@ fun TrackSelectionSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onSelect(-1) }
+                        .clickable { onSelect(null) }
                         .padding(vertical = 12.dp, horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -69,19 +95,24 @@ fun TrackSelectionSheet(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             }
 
-            LazyColumn {
-                items(tracks) { track ->
+            LazyColumn(
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                items(
+                    items = tracks,
+                    key = { "${it.type}-${it.index}-${it.trackIndex}" }
+                ) { track ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelect(track.index) }
+                            .clickable { onSelect(track) }
                             .padding(vertical = 12.dp, horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = track.isSelected,
-                            onClick = { onSelect(track.index) }
+                            onClick = { onSelect(track) }
                         )
                         Spacer(Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -116,33 +147,6 @@ fun TrackSelectionSheet(
                             )
                         }
                     }
-                }
-            }
-
-            // External subtitle option
-            if (showExternalOption) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onLoadExternal?.invoke() }
-                        .padding(vertical = 12.dp, horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.FileOpen,
-                        null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Load External Subtitle...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
                 }
             }
         }

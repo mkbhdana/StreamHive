@@ -57,30 +57,34 @@ class OAuth2Client @Inject constructor(
                 .post(formBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val body = response.body?.string()
+                    return@withContext Result.failure(
+                        Exception("Token exchange failed: ${response.code} - $body")
+                    )
+                }
 
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(
-                    Exception("Token exchange failed: ${response.code} - $body")
+                val body = response.body ?: return@withContext Result.failure(
+                    Exception("Token exchange failed: empty body")
                 )
+
+                val tokenResponse = gson.fromJson(body.charStream(), TokenResponse::class.java)
+                val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
+
+                val credentials = AuthCredentials.OAuth2Credentials(
+                    clientId = clientId,
+                    clientSecret = clientSecret,
+                    redirectUri = redirectUri,
+                    scope = scope,
+                    accessToken = tokenResponse.accessToken,
+                    refreshToken = tokenResponse.refreshToken,
+                    expiresAt = expiresAt
+                )
+
+                tokenManager.saveOAuth2Credentials(credentials)
+                Result.success(credentials)
             }
-
-            val tokenResponse = gson.fromJson(body, TokenResponse::class.java)
-            val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
-
-            val credentials = AuthCredentials.OAuth2Credentials(
-                clientId = clientId,
-                clientSecret = clientSecret,
-                redirectUri = redirectUri,
-                scope = scope,
-                accessToken = tokenResponse.accessToken,
-                refreshToken = tokenResponse.refreshToken,
-                expiresAt = expiresAt
-            )
-
-            tokenManager.saveOAuth2Credentials(credentials)
-            Result.success(credentials)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -108,20 +112,24 @@ class OAuth2Client @Inject constructor(
                 .post(formBody)
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val body = response.body?.string()
+                    return@withContext Result.failure(
+                        Exception("Token refresh failed: ${response.code} - $body")
+                    )
+                }
 
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(
-                    Exception("Token refresh failed: ${response.code} - $body")
+                val body = response.body ?: return@withContext Result.failure(
+                    Exception("Token refresh failed: empty body")
                 )
+
+                val tokenResponse = gson.fromJson(body.charStream(), TokenResponse::class.java)
+                val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
+
+                tokenManager.updateAccessToken(tokenResponse.accessToken, expiresAt)
+                Result.success(tokenResponse.accessToken)
             }
-
-            val tokenResponse = gson.fromJson(body, TokenResponse::class.java)
-            val expiresAt = System.currentTimeMillis() + (tokenResponse.expiresIn * 1000L)
-
-            tokenManager.updateAccessToken(tokenResponse.accessToken, expiresAt)
-            Result.success(tokenResponse.accessToken)
         } catch (e: Exception) {
             Result.failure(e)
         }

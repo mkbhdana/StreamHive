@@ -20,6 +20,9 @@ interface PlaybackHistoryDao {
     @Query("SELECT * FROM playback_history ORDER BY lastPlayedAt DESC LIMIT :limit")
     suspend fun getLastPlayed(limit: Int = 20): List<PlaybackHistoryEntity>
 
+    @Query("SELECT * FROM playback_history")
+    suspend fun getAll(): List<PlaybackHistoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PlaybackHistoryEntity)
 

@@ -14,8 +14,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -25,12 +29,14 @@ import com.mkbhdana.streamhive.ui.components.LoadingIndicator
 import com.mkbhdana.streamhive.ui.components.MediaCard
 import com.mkbhdana.streamhive.ui.components.FolderBreadcrumb
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SearchTab(
     state: CatalogUiState,
     viewModel: CatalogViewModel,
+    focusRequestSignal: Int = 0,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
     onFolderNavigate: (MediaFileEntity) -> Unit,
     onNavigateToInfo: (String, String) -> Unit
@@ -38,6 +44,16 @@ fun SearchTab(
     val isGridView = state.isGridView
     var tooltipName by remember { mutableStateOf<String?>(null) }
     var selectedSection by remember { mutableStateOf<String?>(null) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(focusRequestSignal, selectedSection, state.searchFolderStack.isEmpty()) {
+        if (selectedSection == null && state.searchFolderStack.isEmpty()) {
+            delay(120)
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     BackHandler(enabled = selectedSection != null || state.searchFolderStack.isNotEmpty()) {
         if (state.searchFolderStack.isNotEmpty()) {
@@ -130,6 +146,7 @@ fun SearchTab(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusRequester(searchFocusRequester)
                         .padding(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,

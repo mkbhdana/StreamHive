@@ -50,18 +50,22 @@ class DriveRepository @Inject constructor(
                     .get()
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string()
+                        return@withContext Result.failure(
+                            Exception("Failed to list drives: ${response.code} - $errorBody")
+                        )
+                    }
 
-                if (!response.isSuccessful || body == null) {
-                    return@withContext Result.failure(
-                        Exception("Failed to list drives: ${response.code} - $body")
+                    val body = response.body ?: return@withContext Result.failure(
+                        Exception("Failed to list drives: empty body")
                     )
-                }
 
-                val driveListResponse = gson.fromJson(body, SharedDriveListResponse::class.java)
-                allDrives.addAll(driveListResponse.drives)
-                pageToken = driveListResponse.nextPageToken
+                    val driveListResponse = gson.fromJson(body.charStream(), SharedDriveListResponse::class.java)
+                    allDrives.addAll(driveListResponse.drives)
+                    pageToken = driveListResponse.nextPageToken
+                }
             } while (pageToken != null)
 
             Result.success(allDrives)
@@ -152,18 +156,22 @@ class DriveRepository @Inject constructor(
                     .get()
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string()
+                        return@withContext Result.failure(
+                            Exception("Failed to list files: ${response.code} - $errorBody")
+                        )
+                    }
 
-                if (!response.isSuccessful || body == null) {
-                    return@withContext Result.failure(
-                        Exception("Failed to list files: ${response.code} - $body")
+                    val body = response.body ?: return@withContext Result.failure(
+                        Exception("Failed to list files: empty body")
                     )
-                }
 
-                val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-                allFiles.addAll(fileListResponse.files)
-                pageToken = fileListResponse.nextPageToken
+                    val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                    allFiles.addAll(fileListResponse.files)
+                    pageToken = fileListResponse.nextPageToken
+                }
             } while (pageToken != null)
 
             // Cache to database
@@ -227,13 +235,13 @@ class DriveRepository @Inject constructor(
                 .get()
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body ?: return@withContext emptyList()
 
-            if (!response.isSuccessful || body == null) return@withContext emptyList()
-
-            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-            fileListResponse.files
+                val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                fileListResponse.files
+            }
         } catch (e: Exception) {
             emptyList()
         }
@@ -256,17 +264,17 @@ class DriveRepository @Inject constructor(
                 .get()
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body ?: return@withContext null
 
-            if (!response.isSuccessful || body == null) return@withContext null
-
-            // Use Gson to parse the modifiedTime
-            val jsonObject = com.google.gson.JsonParser.parseString(body).asJsonObject
-            if (jsonObject.has("modifiedTime")) {
-                jsonObject.get("modifiedTime").asString
-            } else {
-                null
+                // Use Gson to parse the modifiedTime as a stream
+                val jsonObject = com.google.gson.JsonParser.parseReader(body.charStream()).asJsonObject
+                if (jsonObject.has("modifiedTime")) {
+                    jsonObject.get("modifiedTime").asString
+                } else {
+                    null
+                }
             }
         } catch (e: Exception) {
             null
@@ -293,15 +301,15 @@ class DriveRepository @Inject constructor(
                 .get()
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Failed to fetch file: ${response.code}"))
+                }
 
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(Exception("Failed to fetch file: ${response.code}"))
+                val body = response.body ?: return@withContext Result.failure(Exception("Empty response body"))
+                val file = gson.fromJson(body.charStream(), DriveFile::class.java)
+                Result.success(file)
             }
-
-            val file = gson.fromJson(body, DriveFile::class.java)
-            Result.success(file)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -363,18 +371,22 @@ class DriveRepository @Inject constructor(
                     .get()
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string()
+                        return@withContext Result.failure(
+                            Exception("Search failed: ${response.code} - $errorBody")
+                        )
+                    }
 
-                if (!response.isSuccessful || body == null) {
-                    return@withContext Result.failure(
-                        Exception("Search failed: ${response.code} - $body")
+                    val body = response.body ?: return@withContext Result.failure(
+                        Exception("Search failed: empty body")
                     )
-                }
 
-                val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-                allFiles.addAll(fileListResponse.files)
-                pageToken = fileListResponse.nextPageToken
+                    val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                    allFiles.addAll(fileListResponse.files)
+                    pageToken = fileListResponse.nextPageToken
+                }
             } while (pageToken != null)
 
             Result.success(allFiles)
@@ -422,15 +434,16 @@ class DriveRepository @Inject constructor(
                     .header("Authorization", "Bearer $token")
                     .get().build()
 
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body?.string()
-                if (!response.isSuccessful || body == null) {
-                    return@withContext Result.failure(Exception("Failed: ${response.code}"))
-                }
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(Exception("Failed: ${response.code}"))
+                    }
 
-                val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-                allFiles.addAll(fileListResponse.files)
-                pageToken = fileListResponse.nextPageToken
+                    val body = response.body ?: return@withContext Result.failure(Exception("Empty body"))
+                    val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                    allFiles.addAll(fileListResponse.files)
+                    pageToken = fileListResponse.nextPageToken
+                }
             } while (pageToken != null)
 
             Result.success(allFiles)
@@ -464,14 +477,15 @@ class DriveRepository @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .get().build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
-            if (!response.isSuccessful || body == null) {
-                return@withContext Result.failure(Exception("Failed: ${response.code}"))
-            }
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Failed: ${response.code}"))
+                }
 
-            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-            Result.success(fileListResponse.files)
+                val body = response.body ?: return@withContext Result.failure(Exception("Empty body"))
+                val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                Result.success(fileListResponse.files)
+            }
         } catch (e: Exception) { Result.failure(e) }
     }
 
@@ -502,15 +516,16 @@ class DriveRepository @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .get().build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string()
-            if (!response.isSuccessful || body == null) {
-                return Result.failure(Exception("Failed: ${response.code}"))
-            }
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return Result.failure(Exception("Failed: ${response.code}"))
+                }
 
-            val fileListResponse = gson.fromJson(body, DriveFileListResponse::class.java)
-            allFiles.addAll(fileListResponse.files)
-            pageToken = fileListResponse.nextPageToken
+                val body = response.body ?: return Result.failure(Exception("Empty body"))
+                val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
+                allFiles.addAll(fileListResponse.files)
+                pageToken = fileListResponse.nextPageToken
+            }
         } while (pageToken != null)
 
         return Result.success(allFiles)

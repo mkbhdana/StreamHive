@@ -67,7 +67,7 @@ fun PlayerGestureHandler(
     val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val dragThreshold = with(density) { 15.dp.toPx() }
+    val dragThreshold = with(density) { 20.dp.toPx() }
 
     // Use rememberUpdatedState so currentPosition is read inside the gesture
     // without being part of the pointerInput key (which would restart the coroutine)
