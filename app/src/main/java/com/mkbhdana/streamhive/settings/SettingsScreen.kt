@@ -155,21 +155,6 @@ fun SettingsScreen(
                 }
             }
 
-            // ──── Server Settings ────
-            item { SettingsSectionHeader(Icons.Default.Dns, "Server") }
-
-            item {
-                SettingsCard {
-                    SettingsSwitchItem(
-                        "Keep Server Running",
-                        "Keep proxy server active for external players",
-                        Icons.Default.CloudQueue,
-                        state.keepServerRunning,
-                        viewModel::setKeepServerRunning
-                    )
-                }
-            }
-
             // ──── Gesture Settings ────
             item { SettingsSectionHeader(Icons.Default.TouchApp, "Gestures") }
 

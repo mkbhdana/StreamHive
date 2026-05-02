@@ -29,7 +29,6 @@ data class SettingsUiState(
     val tunneledPlaybackEnabled: Boolean = false,
     val defaultResizeMode: String = "fit",
     val isMpvAvailable: Boolean = false,
-    val keepServerRunning: Boolean = true,
 
     // Gestures
     val gestureVolumeEnabled: Boolean = true,
@@ -87,7 +86,6 @@ class SettingsViewModel @Inject constructor(
         tunneledPlaybackEnabled = prefs.tunneledPlaybackEnabled,
         defaultResizeMode = prefs.defaultResizeMode,
         isMpvAvailable = prefs.isMpvAvailable(),
-        keepServerRunning = prefs.keepServerRunning,
         gestureVolumeEnabled = prefs.gestureVolumeEnabled,
         gestureBrightnessEnabled = prefs.gestureBrightnessEnabled,
         gestureSeekEnabled = prefs.gestureSeekEnabled,
@@ -138,16 +136,6 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultResizeMode(mode: String) {
         prefs.defaultResizeMode = mode
         uiState = uiState.copy(defaultResizeMode = mode)
-    }
-
-    fun setKeepServerRunning(enabled: Boolean) {
-        prefs.keepServerRunning = enabled
-        uiState = uiState.copy(keepServerRunning = enabled)
-        if (enabled) {
-            com.mkbhdana.streamhive.player.proxy.StreamProxyService.start(context)
-        } else {
-            com.mkbhdana.streamhive.player.proxy.StreamProxyService.stop(context)
-        }
     }
 
     // ──── Gestures ────

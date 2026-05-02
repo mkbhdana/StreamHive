@@ -30,6 +30,14 @@
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
+# MPV Android lib is loaded through reflection/JNI.
+-keep class is.xyz.mpv.** { *; }
+-keep class com.mkbhdana.streamhive.player.mpv.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-dontwarn is.xyz.mpv.**
+
 # Room
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
