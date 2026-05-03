@@ -23,6 +23,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mkbhdana.streamhive.player.PlaybackErrorOverlay
 import com.mkbhdana.streamhive.player.PlayerWindowMode
 import com.mkbhdana.streamhive.player.PlayerSwitchingOverlay
@@ -46,8 +49,10 @@ fun MpvPlayerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
+    var seekPillSignal by remember { mutableIntStateOf(0) }
     var engineFallbackRequested by remember { mutableStateOf(false) }
     var keepWindowModeForHandoff by remember { mutableStateOf(false) }
     var isSwitchingPlayer by remember(switchingMessage) { mutableStateOf(switchingMessage != null) }
@@ -66,7 +71,34 @@ fun MpvPlayerScreen(
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
+        viewModel.recoverVideoOutput()
         uri?.let { viewModel.loadExternalSubtitle(it) }
+    }
+
+    fun showQuickSeekPill(deltaMs: Long) {
+        val targetPosition = (uiState.currentPosition + deltaMs).coerceIn(0L, uiState.duration.coerceAtLeast(0L))
+        gestureState.value = gestureState.value.copy(
+            showSeekIndicator = true,
+            showVolumeIndicator = false,
+            showBrightnessIndicator = false,
+            showZoomIndicator = false,
+            seekDeltaSeconds = (deltaMs / 1000L).toInt(),
+            seekToPosition = targetPosition,
+            showSeekTimestamp = false
+        )
+        seekPillSignal++
+    }
+
+    fun quickSeekForward() {
+        val seekMs = uiState.tapSeekDuration * 1000L
+        showQuickSeekPill(seekMs)
+        viewModel.seekForward(seekMs)
+    }
+
+    fun quickSeekBackward() {
+        val seekMs = uiState.tapSeekDuration * 1000L
+        showQuickSeekPill(-seekMs)
+        viewModel.seekBackward(seekMs)
     }
 
     PlayerWindowMode(restoreOnDispose = !keepWindowModeForHandoff)
@@ -76,6 +108,13 @@ fun MpvPlayerScreen(
         if (uiState.showControls && uiState.isPlaying && !uiState.isLocked && !controlsInteractionActive) {
             delay(8000)
             viewModel.hideControls()
+        }
+    }
+
+    LaunchedEffect(seekPillSignal) {
+        if (seekPillSignal > 0) {
+            delay(800)
+            gestureState.value = gestureState.value.copy(showSeekIndicator = false)
         }
     }
 
@@ -106,7 +145,22 @@ fun MpvPlayerScreen(
     }
 
     LaunchedEffect(gestureState.value.zoomLevel) {
-        viewModel.mpvPlayer.setSubScale((1.0 / gestureState.value.zoomLevel).toDouble())
+        viewModel.applySubtitleZoomCompensation(gestureState.value.zoomLevel)
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> viewModel.suspendVideoOutputForTransientView()
+                Lifecycle.Event.ON_RESUME -> viewModel.recoverVideoOutput()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     BackHandler { handleBack() }
@@ -116,12 +170,10 @@ fun MpvPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // MPV SurfaceView
+        // MPV SurfaceView surface
         AndroidView(
             factory = { ctx ->
-                SurfaceView(ctx).also { surface ->
-                    viewModel.attachSurface(surface)
-                }
+                SurfaceView(ctx).also { viewModel.attachSurface(it) }
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -136,13 +188,19 @@ fun MpvPlayerScreen(
             currentPosition = uiState.currentPosition,
             duration = uiState.duration,
             onToggleControls = { viewModel.toggleControls() },
-            onSeekForward = { viewModel.seekForward() },
-            onSeekBackward = { viewModel.seekBackward() },
+            onCenterTap = { viewModel.togglePlayPause() },
+            onSeekForward = { quickSeekForward() },
+            onSeekBackward = { quickSeekBackward() },
             onSeekTo = { viewModel.seekTo(it) },
             onVolumeChange = { },
             onBrightnessChange = { },
             gestureState = gestureState,
-            isLocked = uiState.isLocked
+            isLocked = uiState.isLocked,
+            seekEnabled = uiState.gestureSeekEnabled,
+            volumeEnabled = uiState.gestureVolumeEnabled,
+            brightnessEnabled = uiState.gestureBrightnessEnabled,
+            doubleTapEnabled = uiState.gestureDoubleTapEnabled,
+            zoomEnabled = uiState.gestureZoomEnabled
         ) {
             GestureIndicatorOverlay(gestureState = gestureState.value)
         }
@@ -191,22 +249,46 @@ fun MpvPlayerScreen(
                 duration = uiState.duration,
                 isLocked = uiState.isLocked,
                 currentResizeMode = uiState.resizeMode,
+                decoderMode = uiState.decoderMode,
+                decoderOptions = listOf("hw", "hw+", "auto", "sw"),
                 playbackSpeed = uiState.playbackSpeed,
                 subtitleDelay = uiState.subtitleDelay,
+                subtitleSpeed = uiState.subtitleSpeed,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
                 onBack = handleBack,
                 onPlayPause = viewModel::togglePlayPause,
-                onSeekForward = viewModel::seekForward,
-                onSeekBackward = viewModel::seekBackward,
+                onSeekForward = { quickSeekForward() },
+                onSeekBackward = { quickSeekBackward() },
                 onSeekTo = viewModel::seekTo,
                 onLockToggle = viewModel::toggleLock,
                 onResizeModeChange = viewModel::setResizeMode,
+                onDecoderModeChange = viewModel::setDecoderMode,
                 onAudioTrackSelect = { viewModel.selectAudioTrack(it.index) },
                 onSubtitleTrackSelect = { viewModel.selectSubtitleTrack(it?.index ?: -1) },
+                onSubtitleTrackRemove = viewModel::removeExternalSubtitle,
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
-                onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
+                onLoadExternalSubtitle = {
+                    viewModel.suspendVideoOutputForTransientView()
+                    subtitlePicker.launch("*/*")
+                },
+                subtitleFontSize = uiState.subtitleFontSize,
+                subtitleColor = uiState.subtitleColor,
+                subtitlePosition = uiState.subtitlePosition,
+                subtitleOutlineColor = uiState.subtitleOutlineColor,
+                subtitleBgOpacity = uiState.subtitleBgOpacity,
+                subtitleEdgeSize = uiState.subtitleEdgeSize,
+                overrideAssSubtitleStyles = uiState.overrideAssSubtitleStyles,
+                onSubtitleFontSizeChange = viewModel::setSubtitleFontSize,
+                onSubtitleColorChange = viewModel::setSubtitleColor,
+                onSubtitlePositionChange = viewModel::setSubtitlePosition,
+                onSubtitleOutlineColorChange = viewModel::setSubtitleOutlineColor,
+                onSubtitleBgOpacityChange = viewModel::setSubtitleBgOpacity,
+                onSubtitleEdgeSizeChange = viewModel::setSubtitleEdgeSize,
+                onOverrideAssSubtitleStylesChange = viewModel::setOverrideAssSubtitleStyles,
+                onSubtitleSpeedChange = viewModel::setSubtitleSpeed,
+                onSubtitleStyleReset = viewModel::resetSubtitleStyle,
                 switchPlayerLabel = if (onSwitchToExo != null) "EXO" else null,
                 onSwitchPlayer = if (onSwitchToExo != null) {
                     {
@@ -223,6 +305,9 @@ fun MpvPlayerScreen(
                 },
                 onOpenExternal = {
                     viewModel.getProxyUrl()?.let { url ->
+                        viewModel.pauseForExternalLaunch()
+                        viewModel.suspendVideoOutputForTransientView()
+                        com.mkbhdana.streamhive.player.proxy.StreamProxyService.start(context)
                         com.mkbhdana.streamhive.player.ExternalPlayerLauncher.launch(context, url, uiState.fileName)
                     }
                 },

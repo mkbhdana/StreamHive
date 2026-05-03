@@ -2,13 +2,18 @@ package com.mkbhdana.streamhive.player.mpv
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
+import android.view.Surface
 import android.view.SurfaceView
+import android.widget.Toast
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mkbhdana.streamhive.catalog.DriveRepository
+import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
+import com.mkbhdana.streamhive.data.model.DriveFile
 import com.mkbhdana.streamhive.player.PlayerUiState
 import com.mkbhdana.streamhive.player.ui.TrackInfo
 import com.mkbhdana.streamhive.settings.AppPreferences
@@ -19,6 +24,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -40,12 +48,29 @@ class MpvPlayerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         PlayerUiState(
             fileName = currentFileName,
-            resizeMode = appPreferences.defaultResizeMode
+            resizeMode = appPreferences.defaultResizeMode,
+            gestureSeekEnabled = appPreferences.gestureSeekEnabled,
+            gestureVolumeEnabled = appPreferences.gestureVolumeEnabled,
+            gestureBrightnessEnabled = appPreferences.gestureBrightnessEnabled,
+            gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
+            gestureZoomEnabled = appPreferences.gestureZoomEnabled,
+            subtitleFontSize = appPreferences.subtitleFontSize,
+            subtitleColor = appPreferences.subtitleColor,
+            subtitleBgOpacity = appPreferences.subtitleBgOpacity,
+            subtitlePosition = appPreferences.subtitlePosition,
+            subtitleEdgeType = appPreferences.subtitleEdgeType,
+            subtitleEdgeSize = appPreferences.subtitleEdgeSize,
+            subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+            libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
+            overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
+            tapSeekDuration = appPreferences.tapSeekDuration,
+            decoderMode = appPreferences.defaultDecoder
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     val mpvPlayer = MpvPlayer(context)
+    private var sessionDecoderMode: String = appPreferences.defaultDecoder
 
     // Resume playback support
     private var pendingSeekMs: Long = 0L
@@ -55,6 +80,9 @@ class MpvPlayerViewModel @Inject constructor(
     // Error retry mechanism
     private var retryCount = 0
     private val MAX_RETRIES = 3
+    private var pendingExternalSubtitleTrackRefresh = false
+    private val baseSubtitleScale: Double
+        get() = (_uiState.value.subtitleFontSize.coerceIn(10, 48) / 18.0).coerceIn(0.55, 2.7)
 
     init {
         setupPlayer()
@@ -70,8 +98,8 @@ class MpvPlayerViewModel @Inject constructor(
     private fun fetchEpisodeList() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val currentFile = mediaFileDao.getFileById(currentFileId) ?: return@launch
-                val allFiles = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+                val currentFile = resolveCurrentFileForEpisodes() ?: return@launch
+                val allFiles = loadEpisodeSiblings(currentFile)
                 val seriesName = extractSeriesName(currentFileName)
                 val episodes = allFiles.filter { 
                     !it.isFolder && 
@@ -82,6 +110,55 @@ class MpvPlayerViewModel @Inject constructor(
                 // Log or handle error
             }
         }
+    }
+
+    private suspend fun resolveCurrentFileForEpisodes(): MediaFileEntity? {
+        mediaFileDao.getFileById(currentFileId)?.let { return it }
+
+        val history = playbackHistoryDao.getByFileId(currentFileId)
+        val apiFile = driveRepository.getFileByIdViaApi(currentFileId).getOrNull() ?: return null
+        val parentId = apiFile.parents?.firstOrNull()
+        val driveId = apiFile.driveId?.takeIf { it.isNotBlank() }
+            ?: history?.driveId?.takeIf { it.isNotBlank() }
+            ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
+            ?: "system_root"
+
+        val entity = apiFile.toMediaFileEntity(
+            driveId = driveId,
+            parentId = parentId ?: driveId
+        )
+        mediaFileDao.insertFile(entity)
+        return entity
+    }
+
+    private suspend fun loadEpisodeSiblings(currentFile: MediaFileEntity): List<MediaFileEntity> {
+        val cached = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+        if (cached.count { !it.isFolder } > 1 || currentFile.parentId.isNullOrBlank()) {
+            return cached
+        }
+
+        driveRepository.listFilesInDrive(currentFile.driveId, currentFile.parentId)
+        val refreshed = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+        return refreshed.ifEmpty { cached.ifEmpty { listOf(currentFile) } }
+    }
+
+    private fun DriveFile.toMediaFileEntity(driveId: String, parentId: String): MediaFileEntity {
+        return MediaFileEntity(
+            id = id,
+            name = name,
+            mimeType = mimeType,
+            size = size,
+            thumbnailLink = thumbnailLink,
+            modifiedTime = modifiedTime,
+            createdTime = createdTime,
+            parentId = parentId,
+            driveId = driveId,
+            fileExtension = fileExtension,
+            isFolder = isFolder,
+            videoWidth = videoMediaMetadata?.width,
+            videoHeight = videoMediaMetadata?.height,
+            videoDurationMs = videoMediaMetadata?.durationMillis
+        )
     }
 
     fun playEpisode(fileId: String, fileName: String) {
@@ -105,6 +182,8 @@ class MpvPlayerViewModel @Inject constructor(
         
         hasResumed = false
         pendingSeekMs = 0L
+        pendingExternalSubtitleTrackRefresh = false
+        fetchEpisodeList()
         
         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
         mpvPlayer.loadFile(streamUrl)
@@ -224,7 +303,12 @@ class MpvPlayerViewModel @Inject constructor(
                     }
                 })
 
-                mpvPlayer.initialize()
+                mpvPlayer.initialize(
+                    useLibassSubtitles = appPreferences.libassSubtitlesEnabled,
+                    overrideAssStyles = appPreferences.overrideAssSubtitleStyles,
+                    decoderMode = sessionDecoderMode
+                )
+                applySubtitleStyle()
 
                 val history = playbackHistoryDao.getByFileId(currentFileId)
                 val startPosMs = if (history != null && !history.isCompleted && history.lastPosition > 0) history.lastPosition else 0L
@@ -291,17 +375,40 @@ class MpvPlayerViewModel @Inject constructor(
                     )
                 }
                 "sub" -> {
+                    val isExternal = mpvPlayer.isTrackExternal(i)
+                    val externalFileName = mpvPlayer.getTrackExternalFileName(i)
+                        .substringAfterLast('/')
+                        .takeIf { it.isNotBlank() }
+                    val name = title.ifBlank {
+                        externalFileName ?: "Subtitle ${subtitleTracks.size + 1}"
+                    }
                     subtitleTracks.add(
                         TrackInfo(
                             index = id,
-                            name = title.ifBlank { "Subtitle ${subtitleTracks.size + 1}" },
+                            name = name,
                             language = lang.ifBlank { null },
                             codec = codec.ifBlank { null },
-                            isSelected = selected
+                            isSelected = selected,
+                            isExternal = isExternal,
+                            canRemove = isExternal,
+                            sourceId = id.toString()
                         )
                     )
                 }
             }
+        }
+
+        if (pendingExternalSubtitleTrackRefresh && subtitleTracks.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    audioTracks = audioTracks.ifEmpty { it.audioTracks },
+                    subtitleTracks = it.subtitleTracks
+                )
+            }
+            return
+        }
+        if (pendingExternalSubtitleTrackRefresh && subtitleTracks.isNotEmpty()) {
+            pendingExternalSubtitleTrackRefresh = false
         }
 
         _uiState.update {
@@ -311,6 +418,34 @@ class MpvPlayerViewModel @Inject constructor(
 
     fun attachSurface(surfaceView: SurfaceView) {
         mpvPlayer.attachSurface(surfaceView)
+    }
+
+    fun attachSurface(surface: Surface, width: Int, height: Int) {
+        mpvPlayer.attachSurface(surface, width, height)
+    }
+
+    fun updateSurfaceSize(width: Int, height: Int) {
+        mpvPlayer.updateSurfaceSize(width, height)
+    }
+
+    fun detachSurface() {
+        mpvPlayer.detachSurface()
+    }
+
+    fun refreshSurface() {
+        mpvPlayer.refreshSurface()
+    }
+
+    fun suspendVideoOutputForTransientView() {
+        mpvPlayer.suspendVideoOutputForTransientView()
+    }
+
+    fun recoverVideoOutput() {
+        mpvPlayer.recoverVideoOutput()
+    }
+
+    fun detachSurfaceForPause() {
+        mpvPlayer.detachSurfaceForPause()
     }
 
     fun togglePlayPause() = mpvPlayer.togglePlayPause()
@@ -348,6 +483,12 @@ class MpvPlayerViewModel @Inject constructor(
         }
     }
 
+    fun pauseForExternalLaunch() {
+        mpvPlayer.pause()
+        savePlaybackPosition()
+        _uiState.update { it.copy(isPlaying = false) }
+    }
+
     fun toggleLock() {
         _uiState.update { it.copy(isLocked = !it.isLocked) }
     }
@@ -370,9 +511,96 @@ class MpvPlayerViewModel @Inject constructor(
         updateTrackInfo()
     }
 
+    fun removeExternalSubtitle(track: TrackInfo) {
+        if (!track.isExternal) return
+        mpvPlayer.removeSubtitleTrack(track.index)
+        pendingExternalSubtitleTrackRefresh = true
+        updateTrackInfo()
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(250)
+            updateTrackInfo()
+        }
+    }
+
     fun setSubtitleDelay(delayMs: Long) {
         _uiState.update { it.copy(subtitleDelay = delayMs) }
         mpvPlayer.setSubtitleDelay(delayMs / 1000.0)
+    }
+
+    fun setSubtitleFontSize(fontSize: Int) {
+        _uiState.update { it.copy(subtitleFontSize = fontSize.coerceIn(10, 48)) }
+        applySubtitleStyle()
+    }
+
+    fun setSubtitleColor(color: Long) {
+        _uiState.update { it.copy(subtitleColor = color) }
+        applySubtitleStyle()
+    }
+
+    fun setSubtitlePosition(position: Int) {
+        _uiState.update { it.copy(subtitlePosition = position.coerceIn(0, 100)) }
+        applySubtitleStyle()
+    }
+
+    fun setSubtitleOutlineColor(color: Long) {
+        _uiState.update { it.copy(subtitleOutlineColor = color) }
+        applySubtitleStyle()
+    }
+
+    fun setSubtitleBgOpacity(opacity: Float) {
+        _uiState.update { it.copy(subtitleBgOpacity = opacity.coerceIn(0f, 1f)) }
+        applySubtitleStyle()
+    }
+
+    fun setSubtitleEdgeSize(edgeSize: Int) {
+        _uiState.update { it.copy(subtitleEdgeSize = edgeSize.coerceIn(0, 20)) }
+        applySubtitleStyle()
+    }
+
+    fun setOverrideAssSubtitleStyles(enabled: Boolean) {
+        _uiState.update { it.copy(overrideAssSubtitleStyles = enabled) }
+        mpvPlayer.setAssStyleOverride(enabled)
+        applySubtitleStyle()
+    }
+
+    fun setSubtitleSpeed(speed: Float) {
+        val normalizedSpeed = speed.coerceIn(0.25f, 4.0f)
+        _uiState.update { it.copy(subtitleSpeed = normalizedSpeed) }
+        mpvPlayer.setSubtitleSpeed(normalizedSpeed)
+    }
+
+    fun resetSubtitleStyle() {
+        _uiState.update {
+            it.copy(
+                subtitleFontSize = appPreferences.subtitleFontSize,
+                subtitleColor = appPreferences.subtitleColor,
+                subtitleBgOpacity = appPreferences.subtitleBgOpacity,
+                subtitlePosition = appPreferences.subtitlePosition,
+                subtitleEdgeType = appPreferences.subtitleEdgeType,
+                subtitleEdgeSize = appPreferences.subtitleEdgeSize,
+                subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+                overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles
+            )
+        }
+        mpvPlayer.setAssStyleOverride(appPreferences.overrideAssSubtitleStyles)
+        applySubtitleStyle()
+    }
+
+    fun applySubtitleZoomCompensation(zoomLevel: Float) {
+        mpvPlayer.setSubScale(baseSubtitleScale / zoomLevel.coerceAtLeast(0.1f))
+    }
+
+    private fun applySubtitleStyle() {
+        val state = _uiState.value
+        mpvPlayer.setSubtitleStyle(
+            fontSize = state.subtitleFontSize,
+            color = state.subtitleColor,
+            backgroundOpacity = state.subtitleBgOpacity,
+            position = state.subtitlePosition,
+            edgeType = state.subtitleEdgeType,
+            edgeSize = state.subtitleEdgeSize,
+            outlineColor = state.subtitleOutlineColor
+        )
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -380,9 +608,110 @@ class MpvPlayerViewModel @Inject constructor(
         _uiState.update { it.copy(playbackSpeed = speed) }
     }
 
+    fun setDecoderMode(mode: String) {
+        val normalized = normalizeDecoderMode(mode)
+        if (_uiState.value.decoderMode == normalized) return
+        sessionDecoderMode = normalized
+        _uiState.update {
+            it.copy(
+                decoderMode = normalized,
+                error = null
+            )
+        }
+        mpvPlayer.setDecoderMode(normalized)
+    }
+
     fun loadExternalSubtitle(uri: Uri) {
-        val path = uri.toString()
-        mpvPlayer.addExternalSubtitle(path)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val pathResult = runCatching { copySubtitleToCache(uri) }
+            if (pathResult.isFailure) {
+                val error = pathResult.exceptionOrNull()
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        "Could not load subtitle: ${error?.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                return@launch
+            }
+            val path = pathResult.getOrThrow()
+
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                pendingExternalSubtitleTrackRefresh = true
+                mpvPlayer.addExternalSubtitle(path)
+                applySubtitleStyle()
+                updateTrackInfo()
+            }
+            kotlinx.coroutines.delay(250)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                updateTrackInfo()
+            }
+            kotlinx.coroutines.delay(500)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                updateTrackInfo()
+            }
+        }
+    }
+
+    private fun copySubtitleToCache(uri: Uri): String {
+        if (uri.scheme == "file") {
+            return uri.path ?: uri.toString()
+        }
+
+        val displayName = queryDisplayName(uri)
+        val extension = displayName
+            ?.substringAfterLast('.', "")
+            ?.takeIf { it.isNotBlank() }
+            ?: inferSubtitleExtension(uri)
+        val baseName = displayName
+            ?.substringBeforeLast('.', displayName)
+            ?.takeIf { it.isNotBlank() }
+            ?: "external_subtitle"
+        val safeName = baseName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val subtitleDir = File(context.cacheDir, "mpv_subtitles").apply { mkdirs() }
+        val output = File(subtitleDir, "${System.currentTimeMillis()}_$safeName.$extension")
+
+        val input = context.contentResolver.openInputStream(uri)
+            ?: error("Unable to open subtitle file")
+        input.use { source ->
+            output.outputStream().use { sink ->
+                source.copyTo(sink)
+            }
+        }
+        return output.absolutePath
+    }
+
+    private fun inferSubtitleExtension(uri: Uri): String {
+        val mime = context.contentResolver.getType(uri)?.lowercase(Locale.US)
+        return when {
+            mime == null -> "srt"
+            "vtt" in mime || "webvtt" in mime -> "vtt"
+            "ssa" in mime -> "ssa"
+            "ass" in mime -> "ass"
+            "ttml" in mime || "dfxp" in mime || mime.endsWith("/xml") -> "ttml"
+            else -> "srt"
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                    } else {
+                        null
+                    }
+                }
+        }.getOrNull()
+    }
+
+    private fun normalizeDecoderMode(mode: String): String {
+        return when (mode.lowercase()) {
+            "hw", "sw", "hw+", "auto" -> mode.lowercase()
+            else -> "hw+"
+        }
     }
 
     override fun onCleared() {

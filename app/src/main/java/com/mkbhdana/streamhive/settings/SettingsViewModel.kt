@@ -13,6 +13,8 @@ import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
+import com.mkbhdana.streamhive.update.AppUpdateInfo
+import com.mkbhdana.streamhive.update.AppUpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +51,8 @@ data class SettingsUiState(
     val subtitleEdgeType: String = "outline",
     val subtitleEdgeSize: Int = 0,
     val subtitleOutlineColor: Long = 0xFF000000,
+    val libassSubtitlesEnabled: Boolean = false,
+    val overrideAssSubtitleStyles: Boolean = false,
     
     val tapSeekDuration: Int = 10,
 
@@ -58,13 +62,19 @@ data class SettingsUiState(
     val tmdbTvFolders: Set<String> = emptySet(),
     val tmdbAnimeFolders: Set<String> = emptySet(),
     val tmdbRecentFolders: Set<String> = emptySet(),
-    val tmdbFolderOrder: List<String> = emptyList()
+    val tmdbFolderOrder: List<String> = emptyList(),
+
+    // Updates
+    val lastUpdateCheckAt: Long = 0L,
+    val isCheckingForUpdate: Boolean = false,
+    val availableUpdate: AppUpdateInfo? = null
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferences,
     private val driveRepository: DriveRepository,
+    private val appUpdateRepository: AppUpdateRepository,
     private val tmdbMetadataDao: TmdbMetadataDao,
     private val mediaFileDao: MediaFileDao,
     private val playbackHistoryDao: PlaybackHistoryDao,
@@ -103,12 +113,15 @@ class SettingsViewModel @Inject constructor(
         subtitleEdgeType = prefs.subtitleEdgeType,
         subtitleEdgeSize = prefs.subtitleEdgeSize,
         subtitleOutlineColor = prefs.subtitleOutlineColor,
+        libassSubtitlesEnabled = prefs.libassSubtitlesEnabled,
+        overrideAssSubtitleStyles = prefs.overrideAssSubtitleStyles,
         tmdbApiKey = prefs.tmdbApiKey,
         tmdbMovieFolders = prefs.tmdbMovieFolders,
         tmdbTvFolders = prefs.tmdbTvFolders,
         tmdbAnimeFolders = prefs.tmdbAnimeFolders,
         tmdbRecentFolders = prefs.tmdbRecentFolders,
-        tmdbFolderOrder = prefs.tmdbFolderOrder
+        tmdbFolderOrder = prefs.tmdbFolderOrder,
+        lastUpdateCheckAt = prefs.lastUpdateCheckAt
     )
 
     // ──── Player ────
@@ -226,6 +239,47 @@ class SettingsViewModel @Inject constructor(
     fun setSubtitleExcludeLanguages(langs: Set<String>) {
         prefs.subtitleExcludeLanguages = langs
         uiState = uiState.copy(subtitleExcludeLanguages = langs)
+    }
+
+    fun setLibassSubtitlesEnabled(enabled: Boolean) {
+        prefs.libassSubtitlesEnabled = enabled
+        uiState = uiState.copy(libassSubtitlesEnabled = enabled)
+    }
+
+    fun setOverrideAssSubtitleStyles(enabled: Boolean) {
+        prefs.overrideAssSubtitleStyles = enabled
+        uiState = uiState.copy(overrideAssSubtitleStyles = enabled)
+    }
+
+    fun checkForUpdates(onComplete: (String) -> Unit = {}) {
+        if (uiState.isCheckingForUpdate) return
+
+        uiState = uiState.copy(isCheckingForUpdate = true)
+        viewModelScope.launch {
+            val checkedAt = System.currentTimeMillis()
+            appUpdateRepository.checkForUpdate().fold(
+                onSuccess = { update ->
+                    prefs.lastUpdateCheckAt = checkedAt
+                    uiState = uiState.copy(
+                        isCheckingForUpdate = false,
+                        lastUpdateCheckAt = checkedAt,
+                        availableUpdate = update
+                    )
+                    onComplete(
+                        if (update != null) "Update v${update.versionName} is available"
+                        else "You are already on the latest version"
+                    )
+                },
+                onFailure = { error ->
+                    uiState = uiState.copy(isCheckingForUpdate = false)
+                    onComplete("Update check failed: ${error.message ?: "Unknown error"}")
+                }
+            )
+        }
+    }
+
+    fun dismissUpdatePrompt() {
+        uiState = uiState.copy(availableUpdate = null)
     }
 
     // ──── TMDB ────

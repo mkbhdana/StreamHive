@@ -35,6 +35,7 @@ import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
 import com.mkbhdana.streamhive.player.ui.PlayerControlsOverlay
 import com.mkbhdana.streamhive.ui.theme.AccentGreen
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @UnstableApi
 @Composable
@@ -194,23 +195,31 @@ fun PlayerScreen(
             val independentSubtitleView = remember { 
                 androidx.media3.ui.SubtitleView(context)
             }
+            val subtitleCueScope = rememberCoroutineScope()
+            var subtitleCueJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            val updatedSubtitleDelay by rememberUpdatedState(uiState.subtitleDelay)
             
             // Apply Subtitle Styles
             LaunchedEffect(
                 uiState.subtitleColor, uiState.subtitleBgOpacity, uiState.subtitleFontSize, 
-                uiState.subtitlePosition, uiState.subtitleEdgeType, uiState.subtitleOutlineColor
+                uiState.subtitlePosition, uiState.subtitleEdgeType, uiState.subtitleEdgeSize, uiState.subtitleOutlineColor,
+                uiState.libassSubtitlesEnabled, uiState.overrideAssSubtitleStyles
             ) {
                 val backgroundColor = android.graphics.Color.argb(
                     (uiState.subtitleBgOpacity * 255).toInt(), 0, 0, 0
                 )
                 val foregroundColor = uiState.subtitleColor.toInt()
                 
-                val edgeTypeInt = when (uiState.subtitleEdgeType.lowercase()) {
-                    "outline" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE
-                    "depressed" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DEPRESSED
-                    "shadow" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
-                    "raised" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_RAISED
-                    else -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE
+                val edgeTypeInt = if (uiState.subtitleEdgeSize <= 0) {
+                    androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE
+                } else {
+                    when (uiState.subtitleEdgeType.lowercase()) {
+                        "outline" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE
+                        "depressed" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DEPRESSED
+                        "shadow" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+                        "raised" -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_RAISED
+                        else -> androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_NONE
+                    }
                 }
                 
                 val style = androidx.media3.ui.CaptionStyleCompat(
@@ -222,24 +231,41 @@ fun PlayerScreen(
                     null
                 )
                 independentSubtitleView.setStyle(style)
+                val applyEmbeddedAssStyles = uiState.libassSubtitlesEnabled && !uiState.overrideAssSubtitleStyles
+                independentSubtitleView.setApplyEmbeddedStyles(applyEmbeddedAssStyles)
+                independentSubtitleView.setApplyEmbeddedFontSizes(applyEmbeddedAssStyles)
                 independentSubtitleView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, uiState.subtitleFontSize.toFloat())
                 
                 // Bottom Padding/Margin logic (Position 0 = bottom, 100 = top)
                 val marginPercentage = (100 - uiState.subtitlePosition) / 100f
-                val marginPx = (context.resources.displayMetrics.heightPixels * marginPercentage).toInt()
                 independentSubtitleView.setBottomPaddingFraction(marginPercentage)
+                independentSubtitleView.setCues(player.currentCues.cues)
             }
             
             // Listen to ExoPlayer cues manually for the independent subtitle view
             DisposableEffect(player) {
+                fun renderCues(cues: List<androidx.media3.common.text.Cue>) {
+                    subtitleCueJob?.cancel()
+                    val delayMs = updatedSubtitleDelay
+                    if (delayMs > 0) {
+                        subtitleCueJob = subtitleCueScope.launch {
+                            delay(delayMs)
+                            independentSubtitleView.setCues(cues)
+                        }
+                    } else {
+                        independentSubtitleView.setCues(cues)
+                    }
+                }
+
                 val listener = object : androidx.media3.common.Player.Listener {
                     override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
-                        independentSubtitleView.setCues(cueGroup.cues)
+                        renderCues(cueGroup.cues)
                     }
                 }
                 player.addListener(listener)
-                independentSubtitleView.setCues(player.currentCues.cues)
+                renderCues(player.currentCues.cues)
                 onDispose {
+                    subtitleCueJob?.cancel()
                     player.removeListener(listener)
                 }
             }
@@ -286,6 +312,7 @@ fun PlayerScreen(
             currentPosition = uiState.currentPosition,
             duration = uiState.duration,
             onToggleControls = { viewModel.toggleControls() },
+            onCenterTap = { viewModel.togglePlayPause() },
             onSeekForward = { quickSeekForward() },
             onSeekBackward = { quickSeekBackward() },
             onSeekTo = { viewModel.seekTo(it) },
@@ -362,6 +389,7 @@ fun PlayerScreen(
                 decoderMode = uiState.decoderMode,
                 playbackSpeed = uiState.playbackSpeed,
                 subtitleDelay = uiState.subtitleDelay,
+                subtitleSpeed = uiState.subtitleSpeed,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
                 chapters = uiState.chapters,
@@ -379,9 +407,26 @@ fun PlayerScreen(
                 onSubtitleTrackSelect = { track ->
                     viewModel.selectSubtitleTrack(track?.index ?: -1, track?.trackIndex ?: 0)
                 },
+                onSubtitleTrackRemove = viewModel::removeExternalSubtitle,
                 onSubtitleDelayChange = viewModel::setSubtitleDelay,
                 onSpeedChange = viewModel::setPlaybackSpeed,
                 onLoadExternalSubtitle = { subtitlePicker.launch("*/*") },
+                subtitleFontSize = uiState.subtitleFontSize,
+                subtitleColor = uiState.subtitleColor,
+                subtitlePosition = uiState.subtitlePosition,
+                subtitleOutlineColor = uiState.subtitleOutlineColor,
+                subtitleBgOpacity = uiState.subtitleBgOpacity,
+                subtitleEdgeSize = uiState.subtitleEdgeSize,
+                overrideAssSubtitleStyles = uiState.overrideAssSubtitleStyles,
+                onSubtitleFontSizeChange = viewModel::setSubtitleFontSize,
+                onSubtitleColorChange = viewModel::setSubtitleColor,
+                onSubtitlePositionChange = viewModel::setSubtitlePosition,
+                onSubtitleOutlineColorChange = viewModel::setSubtitleOutlineColor,
+                onSubtitleBgOpacityChange = viewModel::setSubtitleBgOpacity,
+                onSubtitleEdgeSizeChange = viewModel::setSubtitleEdgeSize,
+                onOverrideAssSubtitleStylesChange = viewModel::setOverrideAssSubtitleStyles,
+                onSubtitleSpeedChange = viewModel::setSubtitleSpeed,
+                onSubtitleStyleReset = viewModel::resetSubtitleStyle,
                 switchPlayerLabel = if (canSwitchToMpv) "MPV" else null,
                 onSwitchPlayer = if (canSwitchToMpv) {
                     {
@@ -403,6 +448,7 @@ fun PlayerScreen(
                     viewModel.getProxyUrl()?.let { url ->
                         // Pause in-app player before launching external
                         viewModel.player?.pause()
+                        com.mkbhdana.streamhive.player.proxy.StreamProxyService.start(context)
                         ExternalPlayerLauncher.launch(context, url, uiState.fileName)
                     }
                 },

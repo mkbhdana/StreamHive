@@ -97,6 +97,13 @@ class StreamProxyServer(
         if (fileId.isBlank()) {
             return newErrorResponse("Missing file ID")
         }
+        if (looksLikeExternalSubtitleProbe(fileId)) {
+            return newFixedLengthResponse(
+                Response.Status.NOT_FOUND,
+                MIME_PLAINTEXT,
+                "Subtitle probe not available"
+            )
+        }
 
         return try {
             streamDriveFile(fileId, session)
@@ -171,6 +178,18 @@ class StreamProxyServer(
         response.addHeader("Accept-Ranges", "bytes")
 
         return response
+    }
+
+    private fun looksLikeExternalSubtitleProbe(fileId: String): Boolean {
+        val lower = fileId.lowercase()
+        return lower.endsWith(".sub") ||
+            lower.endsWith(".srt") ||
+            lower.endsWith(".ass") ||
+            lower.endsWith(".ssa") ||
+            lower.endsWith(".vtt") ||
+            lower.endsWith(".idx") ||
+            lower.endsWith(".ttml") ||
+            lower.endsWith(".dfxp")
     }
 
     private fun newErrorResponse(message: String): Response {

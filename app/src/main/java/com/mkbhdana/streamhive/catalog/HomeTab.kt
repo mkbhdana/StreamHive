@@ -88,8 +88,12 @@ fun HomeTab(
         return
     }
 
-    // Show skeleton while drives or home content is loading
-    if ((state.isLoading || state.isHomeLoading) && !hasAnyContent && !hasContinuePlaying) {
+    val showSkeleton =
+        state.isHomeRefreshing ||
+            ((state.isLoading || state.isHomeLoading) && !hasAnyContent && !hasContinuePlaying)
+
+    // Show skeleton while drives/home content load, and for explicit home refreshes.
+    if (showSkeleton) {
         HomeSkeletonLoading(modifier = modifier)
         return
     }

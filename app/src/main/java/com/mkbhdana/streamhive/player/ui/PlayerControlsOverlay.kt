@@ -11,11 +11,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,24 +22,25 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mkbhdana.streamhive.util.FileUtils
+import java.util.Locale
 
 @Composable
 fun HideBottomSheetSystemUI() {
@@ -84,7 +84,10 @@ data class TrackInfo(
     val name: String,
     val language: String? = null,
     val codec: String? = null,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    val isExternal: Boolean = false,
+    val canRemove: Boolean = false,
+    val sourceId: String? = null
 )
 
 data class ChapterInfo(
@@ -106,10 +109,12 @@ fun PlayerControlsOverlay(
     currentResizeMode: String,
     playbackSpeed: Float,
     subtitleDelay: Long,
+    subtitleSpeed: Float = 1.0f,
     audioTracks: List<TrackInfo>,
     subtitleTracks: List<TrackInfo>,
     chapters: List<ChapterInfo> = emptyList(),
     decoderMode: String = "hw+",
+    decoderOptions: List<String> = listOf("hw", "hw+", "sw"),
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekForward: () -> Unit,
@@ -120,9 +125,26 @@ fun PlayerControlsOverlay(
     onDecoderModeChange: (String) -> Unit = {},
     onAudioTrackSelect: (TrackInfo) -> Unit,
     onSubtitleTrackSelect: (TrackInfo?) -> Unit,
+    onSubtitleTrackRemove: (TrackInfo) -> Unit = {},
     onSubtitleDelayChange: (Long) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onLoadExternalSubtitle: () -> Unit,
+    subtitleFontSize: Int = 18,
+    subtitleColor: Long = 0xFFFFFFFF,
+    subtitlePosition: Int = 90,
+    subtitleOutlineColor: Long = 0xFF000000,
+    subtitleBgOpacity: Float = 0f,
+    subtitleEdgeSize: Int = 0,
+    overrideAssSubtitleStyles: Boolean = false,
+    onSubtitleFontSizeChange: (Int) -> Unit = {},
+    onSubtitleColorChange: (Long) -> Unit = {},
+    onSubtitlePositionChange: (Int) -> Unit = {},
+    onSubtitleOutlineColorChange: (Long) -> Unit = {},
+    onSubtitleBgOpacityChange: (Float) -> Unit = {},
+    onSubtitleEdgeSizeChange: (Int) -> Unit = {},
+    onOverrideAssSubtitleStylesChange: (Boolean) -> Unit = {},
+    onSubtitleSpeedChange: (Float) -> Unit = {},
+    onSubtitleStyleReset: () -> Unit = {},
     switchPlayerLabel: String? = null,
     onSwitchPlayer: (() -> Unit)? = null,
     onChapterNext: () -> Unit = {},
@@ -140,8 +162,9 @@ fun PlayerControlsOverlay(
     var seekFraction by remember { mutableFloatStateOf(0f) }
     var showAudioSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
+    var showSubtitleStyleSidebar by remember { mutableStateOf(false) }
+    var showSubtitleDelaySidebar by remember { mutableStateOf(false) }
     var showSpeedSelector by remember { mutableStateOf(false) }
-    var showSubtitleDelay by remember { mutableStateOf(false) }
     var showChapterList by remember { mutableStateOf(false) }
     var showDecoderSelector by remember { mutableStateOf(false) }
     var showEpisodeList by remember { mutableStateOf(false) }
@@ -156,7 +179,8 @@ fun PlayerControlsOverlay(
     }
 
     // Track when any panel is open and notify parent
-    val isPanelOpen = showAudioSheet || showSubtitleSheet || showSpeedSelector || showSubtitleDelay || showChapterList || showDecoderSelector || showEpisodeList
+    val isPanelOpen = showAudioSheet || showSubtitleSheet || showSubtitleStyleSidebar ||
+        showSubtitleDelaySidebar || showSpeedSelector || showChapterList || showDecoderSelector || showEpisodeList
     LaunchedEffect(isPanelOpen) {
         if (isPanelOpen) onPanelOpened() else onPanelClosed()
     }
@@ -255,7 +279,6 @@ fun PlayerControlsOverlay(
                         if (chapters.isNotEmpty()) showChapterList = true
                         else Toast.makeText(context, "No chapters found", Toast.LENGTH_SHORT).show()
                     }
-                    ControlIconButton(Icons.Default.MoreVert, "More") { showSubtitleDelay = true }
                 }
             }
         }
@@ -447,6 +470,46 @@ fun PlayerControlsOverlay(
             }
         }
 
+        AnimatedVisibility(
+            visible = showSubtitleStyleSidebar,
+            enter = slideInHorizontally(initialOffsetX = { it }),
+            exit = slideOutHorizontally(targetOffsetX = { it }),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            SubtitleStyleSidebar(
+                subtitleFontSize = subtitleFontSize,
+                subtitleColor = subtitleColor,
+                subtitlePosition = subtitlePosition,
+                subtitleOutlineColor = subtitleOutlineColor,
+                subtitleBgOpacity = subtitleBgOpacity,
+                overrideAssSubtitleStyles = overrideAssSubtitleStyles,
+                onSubtitleFontSizeChange = onSubtitleFontSizeChange,
+                onSubtitleColorChange = onSubtitleColorChange,
+                onSubtitlePositionChange = onSubtitlePositionChange,
+                onSubtitleOutlineColorChange = onSubtitleOutlineColorChange,
+                onSubtitleBgOpacityChange = onSubtitleBgOpacityChange,
+                onOverrideAssSubtitleStylesChange = onOverrideAssSubtitleStylesChange,
+                onReset = onSubtitleStyleReset,
+                onDismiss = { showSubtitleStyleSidebar = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showSubtitleDelaySidebar,
+            enter = slideInHorizontally(initialOffsetX = { it }),
+            exit = slideOutHorizontally(targetOffsetX = { it }),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            SubtitleDelaySidebar(
+                currentPosition = currentPosition,
+                currentDelay = subtitleDelay,
+                subtitleSpeed = subtitleSpeed,
+                onDelayChange = onSubtitleDelayChange,
+                onSubtitleSpeedChange = onSubtitleSpeedChange,
+                onDismiss = { showSubtitleDelaySidebar = false }
+            )
+        }
+
         // Episode List Sidebar
         AnimatedVisibility(
             visible = showEpisodeList,
@@ -523,16 +586,28 @@ fun PlayerControlsOverlay(
     }
 
     if (showSubtitleSheet) {
-        TrackSelectionSheet(
-            title = "Subtitles",
+        SubtitleSelectionSheet(
             tracks = subtitleTracks,
             onSelect = { track ->
                 onSubtitleTrackSelect(track)
                 showSubtitleSheet = false
             },
-            onDismiss = { showSubtitleSheet = false },
-            showExternalOption = true,
-            onLoadExternal = { onLoadExternalSubtitle(); showSubtitleSheet = false }
+            onRemoveExternal = onSubtitleTrackRemove,
+            onAddExternal = {
+                onLoadExternalSubtitle()
+                showSubtitleSheet = false
+            },
+            onOpenStyle = {
+                showSubtitleSheet = false
+                showSubtitleStyleSidebar = true
+                showSubtitleDelaySidebar = false
+            },
+            onOpenDelay = {
+                showSubtitleSheet = false
+                showSubtitleDelaySidebar = true
+                showSubtitleStyleSidebar = false
+            },
+            onDismiss = { showSubtitleSheet = false }
         )
     }
 
@@ -544,17 +619,10 @@ fun PlayerControlsOverlay(
         )
     }
 
-    if (showSubtitleDelay) {
-        SubtitleDelaySheet(
-            currentDelay = subtitleDelay,
-            onDelayChange = onSubtitleDelayChange,
-            onDismiss = { showSubtitleDelay = false }
-        )
-    }
-
     if (showDecoderSelector) {
         DecoderSelector(
             currentMode = decoderMode,
+            modes = decoderOptions,
             onSelect = { onDecoderModeChange(it); showDecoderSelector = false },
             onDismiss = { showDecoderSelector = false }
         )
@@ -742,6 +810,648 @@ private fun PlayerSwitchButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SubtitleSelectionSheet(
+    tracks: List<TrackInfo>,
+    onSelect: (TrackInfo?) -> Unit,
+    onRemoveExternal: (TrackInfo) -> Unit,
+    onAddExternal: () -> Unit,
+    onOpenStyle: () -> Unit,
+    onOpenDelay: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+    val embeddedTracks = tracks.filterNot { it.isExternal }
+    val externalTracks = tracks.filter { it.isExternal }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        HideBottomSheetSystemUI()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
+                .padding(horizontal = 14.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Subtitles",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                FilledTonalButton(
+                    onClick = onAddExternal,
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("+ Add")
+                }
+                IconButton(onClick = onOpenStyle) {
+                    Icon(Icons.Default.Palette, "Subtitle style")
+                }
+                IconButton(onClick = onOpenDelay) {
+                    Icon(Icons.Default.MoreTime, "Subtitle delay")
+                }
+            }
+
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                item {
+                    SubtitleSheetSectionTitle("Embedded")
+                    SubtitleSheetTrackRow(
+                        selected = tracks.none { it.isSelected },
+                        title = "None",
+                        subtitle = "Disabled",
+                        onClick = { onSelect(null) }
+                    )
+                }
+
+                if (embeddedTracks.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No embedded subtitles",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
+                } else {
+                    items(embeddedTracks.size) { index ->
+                        val track = embeddedTracks[index]
+                        SubtitleSheetTrackRow(
+                            selected = track.isSelected,
+                            title = track.name,
+                            subtitle = trackSubtitle(track),
+                            onClick = { onSelect(track) }
+                        )
+                    }
+                }
+
+                if (externalTracks.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        SubtitleSheetSectionTitle("External")
+                    }
+                    items(externalTracks.size) { index ->
+                        val track = externalTracks[index]
+                        SubtitleSheetTrackRow(
+                            selected = track.isSelected,
+                            title = track.name,
+                            subtitle = trackSubtitle(track),
+                            onClick = { onSelect(track) },
+                            trailing = {
+                                IconButton(onClick = { onRemoveExternal(track) }) {
+                                    Icon(Icons.Default.Delete, "Remove external subtitle")
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtitleSheetSectionTitle(text: String) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.primary,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 2.dp)
+    )
+}
+
+@Composable
+private fun SubtitleSheetTrackRow(
+    selected: Boolean,
+    title: String,
+    subtitle: String?,
+    onClick: () -> Unit,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        trailing?.invoke()
+        if (selected && trailing == null) {
+            Icon(
+                Icons.Default.CheckCircle,
+                null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SubtitleStyleSidebar(
+    subtitleFontSize: Int,
+    subtitleColor: Long,
+    subtitlePosition: Int,
+    subtitleOutlineColor: Long,
+    subtitleBgOpacity: Float,
+    overrideAssSubtitleStyles: Boolean,
+    onSubtitleFontSizeChange: (Int) -> Unit,
+    onSubtitleColorChange: (Long) -> Unit,
+    onSubtitlePositionChange: (Int) -> Unit,
+    onSubtitleOutlineColorChange: (Long) -> Unit,
+    onSubtitleBgOpacityChange: (Float) -> Unit,
+    onOverrideAssSubtitleStylesChange: (Boolean) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .padding(end = 16.dp)
+            .fillMaxHeight(0.86f)
+            .widthIn(min = 300.dp, max = 430.dp)
+            .clip(RoundedCornerShape(30.dp)),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 10.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            SidebarHeader(title = "Subtitle Style", onDismiss = onDismiss)
+            SidebarSlider(
+                title = "Font Size",
+                valueText = "$subtitleFontSize sp",
+                value = subtitleFontSize.toFloat(),
+                valueRange = 10f..48f,
+                onValueChange = { onSubtitleFontSizeChange(it.toInt()) }
+            )
+            ColorChoiceRow(
+                title = "Subtitle Color",
+                selectedColor = subtitleColor,
+                onSelect = onSubtitleColorChange
+            )
+            SidebarSlider(
+                title = "Position",
+                valueText = "$subtitlePosition",
+                value = subtitlePosition.toFloat(),
+                valueRange = 0f..100f,
+                onValueChange = { onSubtitlePositionChange(it.toInt()) }
+            )
+            ColorChoiceRow(
+                title = "Edge Color",
+                selectedColor = subtitleOutlineColor,
+                onSelect = onSubtitleOutlineColorChange
+            )
+            SidebarSlider(
+                title = "Background",
+                valueText = "${(subtitleBgOpacity * 100).toInt()}%",
+                value = subtitleBgOpacity,
+                valueRange = 0f..1f,
+                onValueChange = onSubtitleBgOpacityChange
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Override ASS/SSA",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Switch(
+                    checked = overrideAssSubtitleStyles,
+                    onCheckedChange = onOverrideAssSubtitleStylesChange
+                )
+            }
+            Button(
+                onClick = onReset,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Reset")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun SubtitleDelaySidebar(
+    currentPosition: Long,
+    currentDelay: Long,
+    subtitleSpeed: Float,
+    onDelayChange: (Long) -> Unit,
+    onSubtitleSpeedChange: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var manualDelay by remember(currentDelay) { mutableStateOf(formatSeconds(currentDelay / 1000f)) }
+    var manualSpeed by remember(subtitleSpeed) { mutableStateOf(formatSpeed(subtitleSpeed)) }
+    var voiceHeardAt by remember { mutableStateOf<Long?>(null) }
+    var textSeenAt by remember { mutableStateOf<Long?>(null) }
+
+    fun updateDelayFromManual() {
+        manualDelay.toFloatOrNull()?.let { seconds ->
+            onDelayChange((seconds * 1000).toLong())
+        }
+    }
+
+    fun updateSpeedFromManual() {
+        manualSpeed.toFloatOrNull()?.let { speed ->
+            onSubtitleSpeedChange(speed)
+        }
+    }
+
+    fun markVoiceHeard() {
+        voiceHeardAt = currentPosition
+        val textAt = textSeenAt
+        if (textAt != null) {
+            onDelayChange(currentDelay + (currentPosition - textAt))
+            voiceHeardAt = null
+            textSeenAt = null
+        }
+    }
+
+    fun markTextSeen() {
+        textSeenAt = currentPosition
+        val voiceAt = voiceHeardAt
+        if (voiceAt != null) {
+            onDelayChange(currentDelay + (voiceAt - currentPosition))
+            voiceHeardAt = null
+            textSeenAt = null
+        }
+    }
+
+    fun resetDelay() {
+        voiceHeardAt = null
+        textSeenAt = null
+        onDelayChange(0L)
+        onSubtitleSpeedChange(1.0f)
+    }
+
+    Surface(
+        modifier = Modifier
+            .padding(end = 16.dp)
+            .fillMaxHeight(0.86f)
+            .widthIn(min = 320.dp, max = 500.dp)
+            .clip(RoundedCornerShape(30.dp)),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 10.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SidebarHeader(title = "Subtitle delay", onDismiss = onDismiss)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(50L, -50L, 100L, -100L, 500L, -500L).forEach { delta ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onDelayChange(currentDelay + delta) },
+                        label = { Text(formatDelta(delta)) }
+                    )
+                }
+            }
+            StepperInputRow(
+                label = "Delay",
+                value = manualDelay,
+                suffix = "s",
+                onValueChange = { value ->
+                    manualDelay = sanitizeDecimalInput(value)
+                },
+                onDecrease = {
+                    onDelayChange(currentDelay - 100L)
+                },
+                onIncrease = {
+                    onDelayChange(currentDelay + 100L)
+                },
+                onApply = ::updateDelayFromManual
+            )
+            StepperInputRow(
+                label = "Speed",
+                value = manualSpeed,
+                suffix = null,
+                onValueChange = { value ->
+                    manualSpeed = sanitizeDecimalInput(value, allowNegative = false)
+                },
+                onDecrease = {
+                    onSubtitleSpeedChange((subtitleSpeed - 0.05f).coerceIn(0.25f, 4.0f))
+                },
+                onIncrease = {
+                    onSubtitleSpeedChange((subtitleSpeed + 0.05f).coerceIn(0.25f, 4.0f))
+                },
+                onApply = ::updateSpeedFromManual
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .heightIn(min = 50.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = ::markVoiceHeard,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("Voice heard")
+                }
+                Button(
+                    onClick = ::markTextSeen,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("Text seen")
+                }
+            }
+            Button(
+                onClick = ::resetDelay,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Reset")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarHeader(
+    title: String,
+    onDismiss: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            title,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        IconButton(onClick = onDismiss) {
+            Icon(Icons.Default.Close, "Close", tint = MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColorChoiceRow(
+    title: String,
+    selectedColor: Long,
+    onSelect: (Long) -> Unit
+) {
+    val colors = listOf(
+        0xFFFFFFFF,
+        0xFFFFEB3B,
+        0xFFFFB5C5,
+        0xFF80DEEA,
+        0xFFA5D6A7,
+        0xFFFFAB91,
+        0xFF000000
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            title,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            colors.forEach { colorValue ->
+                val selected = selectedColor == colorValue
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(colorValue))
+                        .border(
+                            width = if (selected) 3.dp else 1.dp,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                            shape = CircleShape
+                        )
+                        .clickable { onSelect(colorValue) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Icon(
+                            Icons.Default.Check,
+                            null,
+                            tint = if (colorValue == 0xFF000000) Color.White else Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StepperInputRow(
+    label: String,
+    value: String,
+    suffix: String?,
+    onValueChange: (String) -> Unit,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    onApply: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        RoundStepperButton(Icons.Default.Remove, "Decrease $label", onDecrease)
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) onApply()
+                }
+        )
+        if (suffix != null) {
+            Text(suffix, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+        }
+        RoundStepperButton(Icons.Default.Add, "Increase $label", onIncrease)
+    }
+}
+
+@Composable
+private fun RoundStepperButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Icon(icon, description, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(30.dp))
+    }
+}
+
+@Composable
+private fun SidebarSlider(
+    title: String,
+    valueText: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(valueText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+private fun trackSubtitle(track: TrackInfo): String? {
+    return listOfNotNull(
+        track.language?.takeIf { it.isNotBlank() },
+        track.codec?.takeIf { it.isNotBlank() }
+    ).joinToString(" / ").takeIf { it.isNotBlank() }
+}
+
+private fun formatDelta(deltaMs: Long): String {
+    return "${if (deltaMs > 0) "+" else ""}${deltaMs}ms"
+}
+
+private fun formatSeconds(seconds: Float): String {
+    return String.format(Locale.US, "%.1f", seconds)
+}
+
+private fun formatSpeed(speed: Float): String {
+    return String.format(Locale.US, "%.2f", speed)
+}
+
+private fun sanitizeDecimalInput(value: String, allowNegative: Boolean = true): String {
+    val builder = StringBuilder()
+    var hasDecimal = false
+    value.forEachIndexed { index, char ->
+        when {
+            char.isDigit() -> builder.append(char)
+            char == '.' && !hasDecimal -> {
+                builder.append(char)
+                hasDecimal = true
+            }
+            char == '-' && allowNegative && index == 0 -> builder.append(char)
+        }
+    }
+    return builder.toString()
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun SpeedSelector(
@@ -791,10 +1501,10 @@ private fun SpeedSelector(
 @Composable
 private fun DecoderSelector(
     currentMode: String,
+    modes: List<String>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val modes = listOf("hw", "hw+", "sw")
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(

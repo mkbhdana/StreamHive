@@ -135,6 +135,14 @@ class AppPreferences @Inject constructor(
         get() = prefs.getInt(KEY_SUBTITLE_POSITION, 90)
         set(value) = prefs.edit().putInt(KEY_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
 
+    var libassSubtitlesEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LIBASS_SUBTITLES_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_LIBASS_SUBTITLES_ENABLED, value).apply()
+
+    var overrideAssSubtitleStyles: Boolean
+        get() = prefs.getBoolean(KEY_OVERRIDE_ASS_SUBTITLE_STYLES, false)
+        set(value) = prefs.edit().putBoolean(KEY_OVERRIDE_ASS_SUBTITLE_STYLES, value).apply()
+
     // ──── TMDB Settings ────
 
     var tmdbApiKey: String
@@ -165,6 +173,14 @@ class AppPreferences @Inject constructor(
             return if (csv.isBlank()) emptyList() else csv.split(",")
         }
         set(value) = prefs.edit().putString(KEY_TMDB_FOLDER_ORDER, value.joinToString(",")).apply()
+
+    var lastUpdateCheckAt: Long
+        get() = prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_AT, value).apply()
+
+    var dismissedUpdateTag: String
+        get() = prefs.getString(KEY_DISMISSED_UPDATE_TAG, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_DISMISSED_UPDATE_TAG, value).apply()
 
     // ──── Helpers ────
 
@@ -264,6 +280,8 @@ class AppPreferences @Inject constructor(
         private const val KEY_PREF_AUDIO_LANG = "pref_audio_lang"
         private const val KEY_PREF_SUBTITLE_LANG = "pref_subtitle_lang"
         private const val KEY_SUBTITLE_EXCLUDE_LANGS = "subtitle_exclude_langs"
+        private const val KEY_LIBASS_SUBTITLES_ENABLED = "libass_subtitles_enabled"
+        private const val KEY_OVERRIDE_ASS_SUBTITLE_STYLES = "override_ass_subtitle_styles"
 
         // TMDB
         private const val KEY_TMDB_API_KEY = "tmdb_api_key"
@@ -273,5 +291,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_TMDB_RECENT_FOLDERS = "tmdb_recent_folders"
         private const val KEY_TMDB_FOLDER_ORDER = "tmdb_folder_order"
         private const val KEY_IS_GRID_VIEW = "is_grid_view"
+        private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at"
+        private const val KEY_DISMISSED_UPDATE_TAG = "dismissed_update_tag"
     }
 }

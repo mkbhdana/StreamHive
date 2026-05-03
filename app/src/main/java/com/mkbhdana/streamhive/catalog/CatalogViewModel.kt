@@ -20,6 +20,8 @@ import com.mkbhdana.streamhive.data.tmdb.TmdbRepository
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
 import com.mkbhdana.streamhive.settings.AppPreferences
+import com.mkbhdana.streamhive.update.AppUpdateInfo
+import com.mkbhdana.streamhive.update.AppUpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -79,7 +81,10 @@ data class CatalogUiState(
     val isSearchFolderLoading: Boolean = false,
 
     // Connectivity
-    val isOffline: Boolean = false
+    val isOffline: Boolean = false,
+
+    // App updates
+    val availableUpdate: AppUpdateInfo? = null
 )
 
 data class SearchFolderInfo(
@@ -100,6 +105,7 @@ class CatalogViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val appPreferences: AppPreferences,
     private val tmdbRepository: TmdbRepository,
+    private val appUpdateRepository: AppUpdateRepository,
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val mediaFileDao: MediaFileDao,
     @Suppress("unused") private val streamProxyServer: StreamProxyServer // ensures proxy starts early
@@ -130,6 +136,7 @@ class CatalogViewModel @Inject constructor(
         observeNetworkConnectivity()
         loadSharedDrives()
         loadContinuePlaying()
+        checkForAppUpdate()
     }
 
     /**
@@ -396,7 +403,11 @@ class CatalogViewModel @Inject constructor(
         loadFiles(currentDrive.id, null)
     }
 
-    private fun loadFiles(driveId: String, folderId: String?) {
+    private fun loadFiles(
+        driveId: String,
+        folderId: String?,
+        showRefreshIndicator: Boolean = false
+    ) {
         loadFilesJob?.cancel()
         cacheCollectionJob?.cancel()
 
@@ -444,7 +455,7 @@ class CatalogViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isLoading = !hasCachedData,
-                    isRefreshing = hasCachedData,
+                    isRefreshing = showRefreshIndicator && hasCachedData,
                     error = null
                 )
             }
@@ -489,11 +500,11 @@ class CatalogViewModel @Inject constructor(
         _uiState.update { it.copy(hasTmdbSetup = hasTmdb) }
 
         if (!hasTmdb) {
-            _uiState.update { it.copy(isHomeRefreshing = false) }
+            _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             return
         }
         if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty() && recentFolders.isEmpty()) {
-            _uiState.update { it.copy(isHomeRefreshing = false) }
+            _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             return
         }
 
@@ -815,8 +826,8 @@ class CatalogViewModel @Inject constructor(
 
     /** Force-refresh home content, clearing folder cache timestamps and TMDB metadata */
     fun refreshHomeContent() {
-        // Set refreshing flag for pull-to-refresh indicator
-        _uiState.update { it.copy(isHomeRefreshing = true, tmdbMetadata = emptyMap()) }
+        // Show the full home skeleton for explicit user refreshes.
+        _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = true, tmdbMetadata = emptyMap()) }
         // Clear folder timestamp cache to force API refresh
         lastLoadedTimestamps.clear()
         // Re-load home content from Drive API
@@ -906,11 +917,39 @@ class CatalogViewModel @Inject constructor(
         // Force refresh by clearing the TTL cache for this key
         val cacheKey = "${currentDrive.id}/${currentFolderId ?: "root"}"
         lastLoadedTimestamps.remove(cacheKey)
-        loadFiles(currentDrive.id, currentFolderId)
+        loadFiles(currentDrive.id, currentFolderId, showRefreshIndicator = true)
     }
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun checkForAppUpdate(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val checkedRecently = now - appPreferences.lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS
+        if (!force && checkedRecently) return
+
+        viewModelScope.launch {
+            appUpdateRepository.checkForUpdate().fold(
+                onSuccess = { update ->
+                    appPreferences.lastUpdateCheckAt = now
+                    if (update != null && appPreferences.dismissedUpdateTag != update.tagName) {
+                        _uiState.update { it.copy(availableUpdate = update) }
+                    }
+                },
+                onFailure = {
+                    // Ignore update check failures; playback/catalog should not be blocked by GitHub.
+                }
+            )
+        }
+    }
+
+    fun dismissUpdatePrompt(suppressThisVersion: Boolean = false) {
+        val update = _uiState.value.availableUpdate
+        if (suppressThisVersion && update != null) {
+            appPreferences.dismissedUpdateTag = update.tagName
+        }
+        _uiState.update { it.copy(availableUpdate = null) }
     }
 
     override fun onCleared() {
@@ -966,5 +1005,9 @@ class CatalogViewModel @Inject constructor(
             return idMatch.groupValues[1]
         }
         return null
+    }
+
+    private companion object {
+        private const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
     }
 }
