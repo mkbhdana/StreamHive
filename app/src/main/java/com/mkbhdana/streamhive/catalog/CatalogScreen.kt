@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +54,7 @@ fun CatalogScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0=Home, 1=Folders
     var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val uriHandler = LocalUriHandler.current
 
     // Load home content when Home tab is selected
     LaunchedEffect(selectedTab) {
@@ -117,7 +119,7 @@ fun CatalogScreen(
                 actions = {
                     if (selectedTab == 0) {
                         // Animated refresh button for Home tab
-                        val isRefreshing = uiState.isHomeLoading
+                        val isRefreshing = uiState.isHomeLoading || uiState.isHomeRefreshing
                         val infiniteTransition = rememberInfiniteTransition(label = "refresh_transition")
                         val rotation by infiniteTransition.animateFloat(
                             initialValue = 0f,
@@ -215,6 +217,34 @@ fun CatalogScreen(
                 dismissButton = {
                     TextButton(onClick = { showLogoutDialog = false }) {
                         Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        uiState.availableUpdate?.let { update ->
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissUpdatePrompt() },
+                shape = RoundedCornerShape(16.dp),
+                title = { Text("Update Available") },
+                text = {
+                    Text(
+                        "StreamHive v${update.versionName} is available. Download the latest APK to update the app."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            uriHandler.openUri(update.downloadUrl)
+                            viewModel.dismissUpdatePrompt(suppressThisVersion = true)
+                        }
+                    ) {
+                        Text("Download")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                        Text("Later")
                     }
                 }
             )
@@ -355,7 +385,7 @@ private fun FoldersTab(
 
         // Files grid - wrapped in PullToRefreshBox (same logic as Refresh chip)
         PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing || (uiState.isLoading && uiState.files.isNotEmpty()),
+            isRefreshing = uiState.isRefreshing,
             onRefresh = { viewModel.refresh() },
             modifier = Modifier.fillMaxSize()
         ) {

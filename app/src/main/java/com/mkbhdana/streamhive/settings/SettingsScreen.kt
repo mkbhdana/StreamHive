@@ -29,6 +29,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +39,34 @@ fun SettingsScreen(
 ) {
     val state = viewModel.uiState
     val availableFolders by viewModel.availableFolders.collectAsState()
+    val screenContext = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+
+    state.availableUpdate?.let { update ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUpdatePrompt() },
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Update Available") },
+            text = {
+                Text("StreamHive v${update.versionName} is available. Download the latest APK to update.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        uriHandler.openUri(update.downloadUrl)
+                        viewModel.dismissUpdatePrompt()
+                    }
+                ) {
+                    Text("Download")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                    Text("Later")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -285,6 +314,26 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    SettingsSwitchItem(
+                        "ASS/SSA libass Rendering",
+                        "Use libass styling for ASS/SSA in MPV; Exo keeps embedded ASS styles",
+                        Icons.Default.Subtitles,
+                        state.libassSubtitlesEnabled,
+                        viewModel::setLibassSubtitlesEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    SettingsSwitchItem(
+                        "Override ASS/SSA Styles",
+                        "Apply subtitle edits over ASS/SSA embedded styling",
+                        Icons.Default.Palette,
+                        state.overrideAssSubtitleStyles,
+                        viewModel::setOverrideAssSubtitleStyles
+                    )
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
@@ -760,6 +809,38 @@ fun SettingsScreen(
                         Spacer(Modifier.height(4.dp))
                         Text("v$versionName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(enabled = !state.isCheckingForUpdate) {
+                                    viewModel.checkForUpdates { message ->
+                                        Toast.makeText(screenContext, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (state.isCheckingForUpdate) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Check for Updates", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                Text(
+                                    if (state.isCheckingForUpdate) "Checking latest release..."
+                                    else "Last checked: ${formatUpdateCheckTimestamp(state.lastUpdateCheckAt)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
                         Text("Stream videos from Google Drive with advanced playback features.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(20.dp))
                         HorizontalDivider()
@@ -1199,4 +1280,12 @@ private fun AboutInfoRow(label: String, value: String) {
         Text("$label: ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+private fun formatUpdateCheckTimestamp(timestamp: Long): String {
+    if (timestamp <= 0L) return "Never"
+    return java.text.SimpleDateFormat(
+        "dd MMM yyyy, hh:mm a",
+        java.util.Locale.getDefault()
+    ).format(java.util.Date(timestamp))
 }

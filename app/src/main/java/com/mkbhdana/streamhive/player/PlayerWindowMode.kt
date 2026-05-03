@@ -47,6 +47,16 @@ fun Activity.enterPlayerWindowMode() {
 
 fun Activity.exitPlayerWindowMode() {
     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-    WindowCompat.setDecorFitsSystemWindows(window, true)
-    WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    val controller = WindowInsetsControllerCompat(window, window.decorView)
+    controller.show(WindowInsetsCompat.Type.systemBars())
+    window.decorView.requestApplyInsets()
+    window.decorView.post {
+        controller.show(WindowInsetsCompat.Type.systemBars())
+        window.decorView.requestApplyInsets()
+    }
+    window.decorView.postDelayed({
+        controller.show(WindowInsetsCompat.Type.systemBars())
+        window.decorView.requestApplyInsets()
+    }, 250)
 }

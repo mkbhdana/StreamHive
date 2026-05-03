@@ -32,6 +32,7 @@ data class GestureState(
     val brightnessPercent: Float = 0f,
     val seekDeltaSeconds: Int = 0,
     val seekToPosition: Long = 0L,
+    val showSeekTimestamp: Boolean = false,
     val zoomLevel: Float = 1f
 )
 
@@ -40,6 +41,7 @@ fun PlayerGestureHandler(
     currentPosition: Long,
     duration: Long,
     onToggleControls: () -> Unit,
+    onCenterTap: () -> Unit = onToggleControls,
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -87,6 +89,22 @@ fun PlayerGestureHandler(
                 showSeekIndicator = false,
                 showZoomIndicator = false
             )
+        }
+    }
+
+    fun isCenterTap(position: androidx.compose.ui.geometry.Offset): Boolean {
+        val centerStartX = screenWidthPx * 0.35f
+        val centerEndX = screenWidthPx * 0.65f
+        val centerStartY = screenHeightPx * 0.25f
+        val centerEndY = screenHeightPx * 0.75f
+        return position.x in centerStartX..centerEndX && position.y in centerStartY..centerEndY
+    }
+
+    fun handleSingleTap(position: androidx.compose.ui.geometry.Offset) {
+        if (isCenterTap(position)) {
+            onCenterTap()
+        } else {
+            onToggleControls()
         }
     }
 
@@ -185,10 +203,10 @@ fun PlayerGestureHandler(
                                             }
                                         } else {
                                             // Single tap
-                                            onToggleControls()
+                                            handleSingleTap(downPos)
                                         }
                                     } else {
-                                        onToggleControls()
+                                        handleSingleTap(downPos)
                                     }
                                 }
                                 break
@@ -258,7 +276,8 @@ fun PlayerGestureHandler(
                                                     showBrightnessIndicator = false,
                                                     showZoomIndicator = false,
                                                     seekDeltaSeconds = (seekDelta / 1000).toInt(),
-                                                    seekToPosition = newPos
+                                                    seekToPosition = newPos,
+                                                    showSeekTimestamp = true
                                                 )
                                             }
                                         }

@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mkbhdana.streamhive.util.FileUtils
 
 @Composable
 fun GestureIndicatorOverlay(
@@ -93,15 +94,24 @@ fun GestureIndicatorOverlay(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
-                    Text(
-                        text = buildString {
-                            if (gestureState.seekDeltaSeconds >= 0) append("+")
-                            append("${gestureState.seekDeltaSeconds}s")
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    Column {
+                        Text(
+                            text = buildString {
+                                if (gestureState.seekDeltaSeconds >= 0) append("+")
+                                append("${gestureState.seekDeltaSeconds}s")
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        if (gestureState.showSeekTimestamp) {
+                            Text(
+                                text = FileUtils.formatDuration(gestureState.seekToPosition),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
                 }
             }
         }

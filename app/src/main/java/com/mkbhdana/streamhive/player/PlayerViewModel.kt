@@ -2,6 +2,7 @@
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -25,9 +26,11 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.mkbhdana.streamhive.catalog.DriveRepository
+import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
+import com.mkbhdana.streamhive.data.model.DriveFile
 import com.mkbhdana.streamhive.player.ui.TrackInfo
 import com.mkbhdana.streamhive.player.ui.TrackType
 import com.mkbhdana.streamhive.settings.AppPreferences
@@ -57,6 +60,7 @@ data class PlayerUiState(
     val resizeMode: String = "fit",
     val playbackSpeed: Float = 1.0f,
     val subtitleDelay: Long = 0L,
+    val subtitleSpeed: Float = 1.0f,
 
     // Track info
     val audioTracks: List<TrackInfo> = emptyList(),
@@ -80,6 +84,8 @@ data class PlayerUiState(
     val subtitleEdgeType: String = "outline",
     val subtitleEdgeSize: Int = 0,
     val subtitleOutlineColor: Long = 0xFF000000,
+    val libassSubtitlesEnabled: Boolean = false,
+    val overrideAssSubtitleStyles: Boolean = false,
 
     // Tap seek
     val tapSeekDuration: Int = 10,
@@ -88,7 +94,7 @@ data class PlayerUiState(
     val decoderMode: String = "auto",
 
     // Series episodes
-    val episodeList: List<com.mkbhdana.streamhive.data.db.MediaFileEntity> = emptyList()
+    val episodeList: List<MediaFileEntity> = emptyList()
 )
 
 @UnstableApi
@@ -125,6 +131,8 @@ class PlayerViewModel @Inject constructor(
             subtitleEdgeType = appPreferences.subtitleEdgeType,
             subtitleEdgeSize = appPreferences.subtitleEdgeSize,
             subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+            libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
+            overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
             tapSeekDuration = appPreferences.tapSeekDuration,
             decoderMode = appPreferences.defaultDecoder
         )
@@ -149,6 +157,10 @@ class PlayerViewModel @Inject constructor(
     // Preferred track selection should run once per media item, after tracks are known.
     private var preferredTracksApplied = false
     private var tunnelingTemporarilyDisabled = false
+    private val externalSubtitleConfigurations = mutableListOf<SubtitleConfiguration>()
+    private val externalSubtitleNames = mutableListOf<String>()
+    private var pendingExternalSubtitleTrackSelection = false
+    private var externalSubtitleCount = 0
 
     init {
         initializePlayer()
@@ -164,8 +176,8 @@ class PlayerViewModel @Inject constructor(
     private fun fetchEpisodeList() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val currentFile = mediaFileDao.getFileById(currentFileId) ?: return@launch
-                val allFiles = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+                val currentFile = resolveCurrentFileForEpisodes() ?: return@launch
+                val allFiles = loadEpisodeSiblings(currentFile)
                 val seriesName = extractSeriesName(currentFileName)
                 val episodes = allFiles.filter { 
                     !it.isFolder && 
@@ -176,6 +188,55 @@ class PlayerViewModel @Inject constructor(
                 Log.e("PlayerVM", "Failed to fetch episodes", e)
             }
         }
+    }
+
+    private suspend fun resolveCurrentFileForEpisodes(): MediaFileEntity? {
+        mediaFileDao.getFileById(currentFileId)?.let { return it }
+
+        val history = playbackHistoryDao.getByFileId(currentFileId)
+        val apiFile = driveRepository.getFileByIdViaApi(currentFileId).getOrNull() ?: return null
+        val parentId = apiFile.parents?.firstOrNull()
+        val driveId = apiFile.driveId?.takeIf { it.isNotBlank() }
+            ?: history?.driveId?.takeIf { it.isNotBlank() }
+            ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
+            ?: "system_root"
+
+        val entity = apiFile.toMediaFileEntity(
+            driveId = driveId,
+            parentId = parentId ?: driveId
+        )
+        mediaFileDao.insertFile(entity)
+        return entity
+    }
+
+    private suspend fun loadEpisodeSiblings(currentFile: MediaFileEntity): List<MediaFileEntity> {
+        val cached = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+        if (cached.count { !it.isFolder } > 1 || currentFile.parentId.isNullOrBlank()) {
+            return cached
+        }
+
+        driveRepository.listFilesInDrive(currentFile.driveId, currentFile.parentId)
+        val refreshed = mediaFileDao.getFilesByFolderSync(currentFile.driveId, currentFile.parentId)
+        return refreshed.ifEmpty { cached.ifEmpty { listOf(currentFile) } }
+    }
+
+    private fun DriveFile.toMediaFileEntity(driveId: String, parentId: String): MediaFileEntity {
+        return MediaFileEntity(
+            id = id,
+            name = name,
+            mimeType = mimeType,
+            size = size,
+            thumbnailLink = thumbnailLink,
+            modifiedTime = modifiedTime,
+            createdTime = createdTime,
+            parentId = parentId,
+            driveId = driveId,
+            fileExtension = fileExtension,
+            isFolder = isFolder,
+            videoWidth = videoMediaMetadata?.width,
+            videoHeight = videoMediaMetadata?.height,
+            videoDurationMs = videoMediaMetadata?.durationMillis
+        )
     }
 
     private fun createMediaCodecSelector(mapDv7ToHevc: Boolean): MediaCodecSelector {
@@ -243,6 +304,11 @@ class PlayerViewModel @Inject constructor(
         hasResumed = false
         pendingSeekMs = 0L
         preferredTracksApplied = false
+        externalSubtitleConfigurations.clear()
+        externalSubtitleNames.clear()
+        pendingExternalSubtitleTrackSelection = false
+        externalSubtitleCount = 0
+        fetchEpisodeList()
         
         // Re-initialize player
         _player?.release()
@@ -319,7 +385,7 @@ class PlayerViewModel @Inject constructor(
                     .apply {
                         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                         Log.d("ExoPlayer", "Stream URL: $streamUrl")
-                        val mediaItem = MediaItem.fromUri(streamUrl)
+                        val mediaItem = buildMediaItem(streamUrl)
 
                         setMediaItem(mediaItem)
                         
@@ -464,11 +530,26 @@ class PlayerViewModel @Inject constructor(
             ?: error.errorCodeName
             ?: error.toString()
 
+        if (isUnsupportedHardwareVideoFormat(detail)) {
+            return "This video profile is not supported by the device hardware decoder. Try MPV, External player, or a different release encoded as 8-bit H.264/HEVC."
+        }
+
         return if (retryCount >= MAX_RETRIES) {
             "$detail (failed after $MAX_RETRIES retries)"
         } else {
             detail
         }
+    }
+
+    private fun isUnsupportedHardwareVideoFormat(detail: String): Boolean {
+        val lower = detail.lowercase(Locale.US)
+        return "mediacodecvideorenderer" in lower &&
+            (
+                "no_exceeds_capabilities" in lower ||
+                    "exceeds_capabilities" in lower ||
+                    "decoder init failed" in lower ||
+                    "format_supported=no" in lower
+            )
     }
 
     private fun updateTrackInfo() {
@@ -503,15 +584,21 @@ class PlayerViewModel @Inject constructor(
                         )
                     }
                     C.TRACK_TYPE_TEXT -> {
+                        val name = format.label ?: "Subtitle ${subtitleTracks.size + 1}"
+                        val externalName = externalSubtitleNames.firstOrNull { it == name }
+                        val isExternal = externalName != null
                         subtitleTracks.add(
                             TrackInfo(
                                 index = groupIndex,
                                 trackIndex = trackIndex,
                                 type = TrackType.SUBTITLE,
-                                name = format.label ?: "Subtitle ${subtitleTracks.size + 1}",
+                                name = name,
                                 language = format.language,
                                 codec = format.codecs,
-                                isSelected = isSelected
+                                isSelected = isSelected,
+                                isExternal = isExternal,
+                                canRemove = isExternal,
+                                sourceId = externalName
                             )
                         )
                     }
@@ -519,10 +606,43 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
+        if (pendingExternalSubtitleTrackSelection && subtitleTracks.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    audioTracks = audioTracks.ifEmpty { it.audioTracks },
+                    subtitleTracks = it.subtitleTracks
+                )
+            }
+            return
+        }
+
         maybeApplyPreferredTracks(player, audioTracks, subtitleTracks, selectedAudioLang)
 
+        val newlyAddedSubtitle = if (pendingExternalSubtitleTrackSelection && subtitleTracks.isNotEmpty()) {
+            subtitleTracks.lastOrNull { it.isExternal } ?: subtitleTracks.last()
+        } else {
+            null
+        }
+        if (newlyAddedSubtitle != null) {
+            pendingExternalSubtitleTrackSelection = false
+            preferredTracksApplied = true
+            applySubtitleTrackOverride(newlyAddedSubtitle.index, newlyAddedSubtitle.trackIndex)
+        }
+
         _uiState.update {
-            it.copy(audioTracks = audioTracks, subtitleTracks = subtitleTracks)
+            it.copy(
+                audioTracks = audioTracks,
+                subtitleTracks = if (newlyAddedSubtitle == null) {
+                    subtitleTracks
+                } else {
+                    subtitleTracks.map { track ->
+                        track.copy(
+                            isSelected = track.index == newlyAddedSubtitle.index &&
+                                track.trackIndex == newlyAddedSubtitle.trackIndex
+                        )
+                    }
+                }
+            )
         }
     }
 
@@ -847,6 +967,53 @@ class PlayerViewModel @Inject constructor(
         // For MPV, the command is: sub-delay <seconds>
     }
 
+    fun setSubtitleFontSize(fontSize: Int) {
+        _uiState.update { it.copy(subtitleFontSize = fontSize.coerceIn(10, 48)) }
+    }
+
+    fun setSubtitleColor(color: Long) {
+        _uiState.update { it.copy(subtitleColor = color) }
+    }
+
+    fun setSubtitlePosition(position: Int) {
+        _uiState.update { it.copy(subtitlePosition = position.coerceIn(0, 100)) }
+    }
+
+    fun setSubtitleOutlineColor(color: Long) {
+        _uiState.update { it.copy(subtitleOutlineColor = color) }
+    }
+
+    fun setSubtitleBgOpacity(opacity: Float) {
+        _uiState.update { it.copy(subtitleBgOpacity = opacity.coerceIn(0f, 1f)) }
+    }
+
+    fun setSubtitleEdgeSize(edgeSize: Int) {
+        _uiState.update { it.copy(subtitleEdgeSize = edgeSize.coerceIn(0, 20)) }
+    }
+
+    fun setOverrideAssSubtitleStyles(enabled: Boolean) {
+        _uiState.update { it.copy(overrideAssSubtitleStyles = enabled) }
+    }
+
+    fun setSubtitleSpeed(speed: Float) {
+        _uiState.update { it.copy(subtitleSpeed = speed.coerceIn(0.25f, 4.0f)) }
+    }
+
+    fun resetSubtitleStyle() {
+        _uiState.update {
+            it.copy(
+                subtitleFontSize = appPreferences.subtitleFontSize,
+                subtitleColor = appPreferences.subtitleColor,
+                subtitleBgOpacity = appPreferences.subtitleBgOpacity,
+                subtitlePosition = appPreferences.subtitlePosition,
+                subtitleEdgeType = appPreferences.subtitleEdgeType,
+                subtitleEdgeSize = appPreferences.subtitleEdgeSize,
+                subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+                overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles
+            )
+        }
+    }
+
     fun setPlaybackSpeed(speed: Float) {
         _player?.setPlaybackSpeed(speed)
         _uiState.update { it.copy(playbackSpeed = speed) }
@@ -854,21 +1021,97 @@ class PlayerViewModel @Inject constructor(
 
     fun loadExternalSubtitle(uri: Uri) {
         val player = _player ?: return
-        val currentItem = player.currentMediaItem ?: return
 
+        val displayName = queryDisplayName(uri)
+            ?: uri.lastPathSegment?.substringAfterLast('/')
+            ?: "External Subtitle ${externalSubtitleCount + 1}"
+        externalSubtitleCount += 1
         val subtitleConfig = SubtitleConfiguration.Builder(uri)
-            .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+            .setMimeType(inferSubtitleMimeType(uri))
+            .setLabel(displayName)
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
             .build()
 
-        val newItem = currentItem.buildUpon()
-            .setSubtitleConfigurations(listOf(subtitleConfig))
-            .build()
+        externalSubtitleConfigurations.add(subtitleConfig)
+        externalSubtitleNames.add(displayName)
 
         val currentPosition = player.currentPosition
-        player.setMediaItem(newItem)
+        val wasPlaying = player.playWhenReady
+        pendingExternalSubtitleTrackSelection = true
+        preferredTracksApplied = true
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .build()
+        player.setMediaItem(buildMediaItem(streamProxyServer.getStreamUrl(currentFileId)))
         player.seekTo(currentPosition)
+        player.playWhenReady = wasPlaying
         player.prepare()
+    }
+
+    fun removeExternalSubtitle(track: TrackInfo) {
+        val subtitleName = track.sourceId ?: track.name
+        val removeIndex = externalSubtitleNames.indexOf(subtitleName)
+        if (removeIndex !in externalSubtitleConfigurations.indices) return
+
+        externalSubtitleNames.removeAt(removeIndex)
+        externalSubtitleConfigurations.removeAt(removeIndex)
+        pendingExternalSubtitleTrackSelection = false
+        preferredTracksApplied = true
+
+        val player = _player ?: return
+        val currentPosition = player.currentPosition
+        val wasPlaying = player.playWhenReady
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, externalSubtitleConfigurations.isEmpty() && _uiState.value.subtitleTracks.none { !it.isExternal })
+            .build()
+        player.setMediaItem(buildMediaItem(streamProxyServer.getStreamUrl(currentFileId)))
+        player.seekTo(currentPosition)
+        player.playWhenReady = wasPlaying
+        player.prepare()
+    }
+
+    private fun buildMediaItem(uri: String): MediaItem {
+        return MediaItem.Builder()
+            .setUri(uri)
+            .setSubtitleConfigurations(externalSubtitleConfigurations.toList())
+            .build()
+    }
+
+    private fun inferSubtitleMimeType(uri: Uri): String {
+        val resolverMime = context.contentResolver.getType(uri)?.lowercase(Locale.US)
+        if (resolverMime != null) {
+            when {
+                "vtt" in resolverMime || "webvtt" in resolverMime -> return MimeTypes.TEXT_VTT
+                "ssa" in resolverMime || "ass" in resolverMime -> return MimeTypes.TEXT_SSA
+                "ttml" in resolverMime || "dfxp" in resolverMime || resolverMime.endsWith("/xml") -> return MimeTypes.APPLICATION_TTML
+                "subrip" in resolverMime || "srt" in resolverMime -> return MimeTypes.APPLICATION_SUBRIP
+            }
+        }
+
+        val fileName = queryDisplayName(uri) ?: uri.lastPathSegment.orEmpty()
+        return when (fileName.substringAfterLast('.', "").lowercase(Locale.US)) {
+            "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+            "ass", "ssa" -> MimeTypes.TEXT_SSA
+            "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
+            else -> MimeTypes.APPLICATION_SUBRIP
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                    } else {
+                        null
+                    }
+                }
+        }.getOrNull()
     }
 
     override fun onCleared() {
