@@ -149,6 +149,7 @@ class PlayerViewModel @Inject constructor(
     private var pendingSeekMs: Long = 0L
     private var hasResumed: Boolean = false
     private var positionSaveJob: kotlinx.coroutines.Job? = null
+    private var externalPlayerCleanupJob: kotlinx.coroutines.Job? = null
     
     // Error retry mechanism
     private var retryCount = 0
@@ -861,6 +862,29 @@ class PlayerViewModel @Inject constructor(
 
     fun isMpvAvailable(): Boolean = appPreferences.isMpvAvailable()
 
+    fun scheduleExternalPlayerCleanup() {
+        externalPlayerCleanupJob?.cancel()
+        externalPlayerCleanupJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(EXTERNAL_PLAYER_CLEANUP_DELAY_MS)
+            savePlaybackPosition()
+            positionSaveJob?.cancel()
+            _player?.release()
+            _player = null
+            _uiState.update {
+                it.copy(
+                    isPlaying = false,
+                    isLoading = false,
+                    showControls = false
+                )
+            }
+        }
+    }
+
+    fun cancelExternalPlayerCleanup() {
+        externalPlayerCleanupJob?.cancel()
+        externalPlayerCleanupJob = null
+    }
+
     fun prepareForEngineFallback() {
         _player?.pause()
         savePlaybackPosition()
@@ -1116,6 +1140,7 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        externalPlayerCleanupJob?.cancel()
         positionSaveJob?.cancel()
         savePlaybackPosition()
         
@@ -1123,6 +1148,10 @@ class PlayerViewModel @Inject constructor(
         // ExoPlayer must be released on the thread it was created on.
         _player?.release()
         _player = null
+    }
+
+    private companion object {
+        private const val EXTERNAL_PLAYER_CLEANUP_DELAY_MS = 2 * 60 * 1000L
     }
 
     private fun startPeriodicPositionSave() {

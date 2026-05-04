@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,6 +30,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -208,7 +210,7 @@ fun SettingsScreen(
                                 Text("${state.tapSeekDuration} seconds", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Slider(
+                        HapticSlider(
                             value = state.tapSeekDuration.toFloat(),
                             onValueChange = { viewModel.setTapSeekDuration(it.toInt()) },
                             valueRange = 10f..60f, steps = 4, // 10, 20, 30, 40, 50, 60
@@ -231,7 +233,7 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        Slider(value = state.gestureSensitivity, onValueChange = viewModel::setGestureSensitivity, valueRange = 0.5f..2.0f, steps = 5, modifier = Modifier.padding(start = 40.dp))
+                        HapticSlider(value = state.gestureSensitivity, onValueChange = viewModel::setGestureSensitivity, valueRange = 0.5f..2.0f, steps = 5, modifier = Modifier.padding(start = 40.dp))
                     }
                 }
             }
@@ -408,7 +410,7 @@ fun SettingsScreen(
                                 Text("${state.subtitleFontSize}sp", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Slider(
+                        HapticSlider(
                             value = state.subtitleFontSize.toFloat(),
                             onValueChange = { viewModel.setSubtitleFontSize(it.toInt()) },
                             valueRange = 10f..48f, steps = 18,
@@ -465,7 +467,7 @@ fun SettingsScreen(
                                 Text("${(state.subtitleBgOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Slider(value = state.subtitleBgOpacity, onValueChange = viewModel::setSubtitleBgOpacity, valueRange = 0f..1f, modifier = Modifier.padding(start = 40.dp))
+                        HapticSlider(value = state.subtitleBgOpacity, onValueChange = viewModel::setSubtitleBgOpacity, valueRange = 0f..1f, modifier = Modifier.padding(start = 40.dp))
                     }
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -480,7 +482,7 @@ fun SettingsScreen(
                                 Text("${state.subtitlePosition}% from top", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Slider(
+                        HapticSlider(
                             value = state.subtitlePosition.toFloat(),
                             onValueChange = { viewModel.setSubtitlePosition(it.toInt()) },
                             valueRange = 50f..100f, steps = 9,
@@ -526,7 +528,7 @@ fun SettingsScreen(
                                 Text(if (state.subtitleEdgeSize == 0) "Normal" else "${state.subtitleEdgeSize}px", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Slider(
+                        HapticSlider(
                             value = state.subtitleEdgeSize.toFloat(),
                             onValueChange = { viewModel.setSubtitleEdgeSize(it.toInt()) },
                             valueRange = 0f..20f, steps = 19,
@@ -1212,6 +1214,47 @@ private fun CatalogFolderBrowserDialog(
 }
 
 // ──── Reusable Components ────
+
+@Composable
+private fun HapticSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0
+) {
+    val haptic = LocalHapticFeedback.current
+    var lastStep by remember(valueRange.start, valueRange.endInclusive, steps) {
+        mutableIntStateOf(sliderHapticStep(value, valueRange, steps))
+    }
+
+    Slider(
+        value = value,
+        onValueChange = { newValue ->
+            val nextStep = sliderHapticStep(newValue, valueRange, steps)
+            if (nextStep != lastStep) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                lastStep = nextStep
+            }
+            onValueChange(newValue)
+        },
+        valueRange = valueRange,
+        steps = steps,
+        modifier = modifier
+    )
+}
+
+private fun sliderHapticStep(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int
+): Int {
+    val rangeSize = valueRange.endInclusive - valueRange.start
+    if (rangeSize <= 0f) return 0
+    val intervals = if (steps > 0) steps + 1 else 20
+    val fraction = ((value - valueRange.start) / rangeSize).coerceIn(0f, 1f)
+    return (fraction * intervals).toInt()
+}
 
 @Composable
 private fun SettingsSectionHeader(icon: ImageVector, title: String) {

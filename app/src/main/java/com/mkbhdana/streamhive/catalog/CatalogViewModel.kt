@@ -22,6 +22,7 @@ import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
 import com.mkbhdana.streamhive.settings.AppPreferences
 import com.mkbhdana.streamhive.update.AppUpdateInfo
 import com.mkbhdana.streamhive.update.AppUpdateRepository
+import com.mkbhdana.streamhive.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -136,7 +137,6 @@ class CatalogViewModel @Inject constructor(
         observeNetworkConnectivity()
         loadSharedDrives()
         loadContinuePlaying()
-        checkForAppUpdate()
     }
 
     /**
@@ -928,19 +928,27 @@ class CatalogViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         val checkedRecently = now - appPreferences.lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS
         if (!force && checkedRecently) return
+        if (!authRepository.isAuthenticated()) return
+        if (!NetworkUtils.isNetworkAvailable(context)) return
 
         viewModelScope.launch {
-            appUpdateRepository.checkForUpdate().fold(
-                onSuccess = { update ->
-                    appPreferences.lastUpdateCheckAt = now
-                    if (update != null && appPreferences.dismissedUpdateTag != update.tagName) {
-                        _uiState.update { it.copy(availableUpdate = update) }
+            delay(2_500)
+            if (!authRepository.isAuthenticated()) return@launch
+            if (!NetworkUtils.isNetworkAvailable(context)) return@launch
+
+            runCatching { appUpdateRepository.checkForUpdate() }
+                .getOrElse { error -> Result.failure<AppUpdateInfo?>(error) }
+                .fold(
+                    onSuccess = { update ->
+                        appPreferences.lastUpdateCheckAt = now
+                        if (update != null && appPreferences.dismissedUpdateTag != update.tagName) {
+                            _uiState.update { it.copy(availableUpdate = update) }
+                        }
+                    },
+                    onFailure = {
+                        // Ignore update check failures; playback/catalog should not be blocked by GitHub.
                     }
-                },
-                onFailure = {
-                    // Ignore update check failures; playback/catalog should not be blocked by GitHub.
-                }
-            )
+                )
         }
     }
 
