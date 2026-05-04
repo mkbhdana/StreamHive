@@ -13,6 +13,7 @@ import com.mkbhdana.streamhive.catalog.DriveRepository
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
+import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
 import com.mkbhdana.streamhive.data.model.DriveFile
 import com.mkbhdana.streamhive.player.PlayerUiState
 import com.mkbhdana.streamhive.player.ui.TrackInfo
@@ -36,6 +37,7 @@ class MpvPlayerViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val mediaFileDao: com.mkbhdana.streamhive.data.db.MediaFileDao,
+    private val tmdbMetadataDao: TmdbMetadataDao,
     private val streamProxyServer: com.mkbhdana.streamhive.player.proxy.StreamProxyServer,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -43,6 +45,10 @@ class MpvPlayerViewModel @Inject constructor(
     private var currentFileId: String = savedStateHandle.get<String>("fileId") ?: ""
     private var currentFileName: String = java.net.URLDecoder.decode(
         savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
+    )
+    private val initialDecoderMode: String = normalizeDecoderMode(
+        decodeDecoderRouteValue(savedStateHandle.get<String>("decoder"))
+            ?: appPreferences.defaultDecoder
     )
 
     private val _uiState = MutableStateFlow(
@@ -54,6 +60,7 @@ class MpvPlayerViewModel @Inject constructor(
             gestureBrightnessEnabled = appPreferences.gestureBrightnessEnabled,
             gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
             gestureZoomEnabled = appPreferences.gestureZoomEnabled,
+            hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
             subtitleFontSize = appPreferences.subtitleFontSize,
             subtitleColor = appPreferences.subtitleColor,
             subtitleBgOpacity = appPreferences.subtitleBgOpacity,
@@ -64,13 +71,14 @@ class MpvPlayerViewModel @Inject constructor(
             libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
             overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
             tapSeekDuration = appPreferences.tapSeekDuration,
-            decoderMode = appPreferences.defaultDecoder
+            decoderMode = initialDecoderMode
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     val mpvPlayer = MpvPlayer(context)
-    private var sessionDecoderMode: String = appPreferences.defaultDecoder
+    private var sessionDecoderMode: String = initialDecoderMode
+    private var handoffPlayerEngine: PlayerEngine? = null
 
     // Resume playback support
     private var pendingSeekMs: Long = 0L
@@ -81,11 +89,14 @@ class MpvPlayerViewModel @Inject constructor(
     // Error retry mechanism
     private var retryCount = 0
     private val MAX_RETRIES = 3
+    private var preferredTracksApplied = false
     private var pendingExternalSubtitleTrackRefresh = false
+    private var tmdbOriginalAudioLanguage: String? = null
     private val baseSubtitleScale: Double
         get() = (_uiState.value.subtitleFontSize.coerceIn(10, 48) / 18.0).coerceIn(0.55, 2.7)
 
     init {
+        rememberPlaybackSelection()
         setupPlayer()
         fetchEpisodeList()
     }
@@ -184,18 +195,23 @@ class MpvPlayerViewModel @Inject constructor(
         hasResumed = false
         pendingSeekMs = 0L
         pendingExternalSubtitleTrackRefresh = false
+        preferredTracksApplied = false
+        rememberPlaybackSelection()
         fetchEpisodeList()
-        
-        val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
-        mpvPlayer.loadFile(streamUrl)
-        mpvPlayer.play()
-        _uiState.update {
-            it.copy(
-                isLoading = true,
-                isPlaying = true,
-                error = null,
-                showControls = false
-            )
+
+        viewModelScope.launch {
+            tmdbOriginalAudioLanguage = resolveTmdbOriginalLanguage()
+            val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
+            mpvPlayer.loadFile(streamUrl)
+            mpvPlayer.play()
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    isPlaying = true,
+                    error = null,
+                    showControls = false
+                )
+            }
         }
     }
 
@@ -210,6 +226,8 @@ class MpvPlayerViewModel @Inject constructor(
                         showControls = false
                     )
                 }
+
+                tmdbOriginalAudioLanguage = resolveTmdbOriginalLanguage()
 
                 mpvPlayer.setEventListener(object : MpvPlayer.EventListener {
                     override fun onPropertyChange(property: String, value: Any?) {}
@@ -312,7 +330,7 @@ class MpvPlayerViewModel @Inject constructor(
                 applySubtitleStyle()
 
                 val history = playbackHistoryDao.getByFileId(currentFileId)
-                val startPosMs = if (history != null && !history.isCompleted && history.lastPosition > 0) history.lastPosition else 0L
+                val startPosMs = if (history != null && history.isResumeEligible && history.lastPosition > 0) history.lastPosition else 0L
                 if (startPosMs > 0) {
                     pendingSeekMs = startPosMs
                 }
@@ -412,9 +430,90 @@ class MpvPlayerViewModel @Inject constructor(
             pendingExternalSubtitleTrackRefresh = false
         }
 
-        _uiState.update {
-            it.copy(audioTracks = audioTracks, subtitleTracks = subtitleTracks)
+        val preferredAudioTrack = maybeApplyPreferredAudioTrack(audioTracks)
+        val displayedAudioTracks = if (preferredAudioTrack != null) {
+            audioTracks.map { track ->
+                track.copy(isSelected = track.index == preferredAudioTrack.index)
+            }
+        } else {
+            audioTracks
         }
+
+        _uiState.update {
+            it.copy(audioTracks = displayedAudioTracks, subtitleTracks = subtitleTracks)
+        }
+    }
+
+    private fun maybeApplyPreferredAudioTrack(audioTracks: List<TrackInfo>): TrackInfo? {
+        if (preferredTracksApplied || audioTracks.isEmpty()) return null
+
+        val preferredAudioLanguage = appPreferences.preferredAudioLanguage
+        val targetAudioLanguage = if (preferredAudioLanguage == "original") {
+            tmdbOriginalAudioLanguage
+        } else {
+            preferredAudioLanguage
+        }
+
+        if (targetAudioLanguage.isNullOrBlank()) {
+            preferredTracksApplied = true
+            return null
+        }
+
+        val preferredTrack = audioTracks.firstOrNull {
+            languageMatches(it.language, targetAudioLanguage)
+        }
+        preferredTracksApplied = true
+        if (preferredTrack != null && !preferredTrack.isSelected) {
+            mpvPlayer.setAudioTrack(preferredTrack.index)
+            return preferredTrack
+        }
+        return null
+    }
+
+    private fun languageMatches(trackLanguage: String?, preferredLanguage: String): Boolean {
+        if (trackLanguage.isNullOrBlank() || preferredLanguage.isBlank()) return false
+        return languageAliases(trackLanguage).any { it in languageAliases(preferredLanguage) }
+    }
+
+    private fun languageAliases(language: String): Set<String> {
+        val normalized = language
+            .lowercase(Locale.US)
+            .substringBefore("-")
+            .substringBefore("_")
+        return when (normalized) {
+            "eng", "en" -> setOf("eng", "en")
+            "kor", "ko", "kr" -> setOf("kor", "ko", "kr")
+            "jpn", "ja", "jp" -> setOf("jpn", "ja", "jp")
+            "mal", "ml" -> setOf("mal", "ml")
+            "tam", "ta" -> setOf("tam", "ta")
+            "hin", "hi" -> setOf("hin", "hi")
+            "spa", "es" -> setOf("spa", "es")
+            "fra", "fre", "fr" -> setOf("fra", "fre", "fr")
+            "deu", "ger", "de" -> setOf("deu", "ger", "de")
+            "por", "pt" -> setOf("por", "pt")
+            "ita", "it" -> setOf("ita", "it")
+            "rus", "ru" -> setOf("rus", "ru")
+            "ara", "ar" -> setOf("ara", "ar")
+            "zho", "chi", "zh", "cmn" -> setOf("zho", "chi", "zh", "cmn")
+            "tha", "th" -> setOf("tha", "th")
+            else -> setOf(normalized)
+        }
+    }
+
+    private suspend fun resolveTmdbOriginalLanguage(): String? {
+        tmdbMetadataDao.getByDriveFileId(currentFileId)
+            ?.originalLanguage
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val parentId = mediaFileDao.getFileById(currentFileId)
+            ?.parentId
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+
+        return tmdbMetadataDao.getByDriveFileId(parentId)
+            ?.originalLanguage
+            ?.takeIf { it.isNotBlank() }
     }
 
     fun attachSurface(surfaceView: SurfaceView) {
@@ -471,7 +570,8 @@ class MpvPlayerViewModel @Inject constructor(
 
     fun getProxyUrl(): String? = streamProxyServer.getStreamUrl(currentFileId)
 
-    fun prepareForEngineFallback() {
+    fun prepareForEngineFallback(targetEngine: PlayerEngine? = null) {
+        handoffPlayerEngine = targetEngine
         mpvPlayer.pause()
         savePlaybackPosition()
         _uiState.update {
@@ -521,11 +621,13 @@ class MpvPlayerViewModel @Inject constructor(
     }
 
     fun selectAudioTrack(trackId: Int) {
+        preferredTracksApplied = true
         mpvPlayer.setAudioTrack(trackId)
         updateTrackInfo()
     }
 
     fun selectSubtitleTrack(trackId: Int) {
+        preferredTracksApplied = true
         if (trackId < 0) {
             mpvPlayer.disableSubtitles()
         } else {
@@ -641,6 +743,7 @@ class MpvPlayerViewModel @Inject constructor(
                 error = null
             )
         }
+        rememberPlaybackSelection()
         mpvPlayer.setDecoderMode(normalized)
     }
 
@@ -737,6 +840,15 @@ class MpvPlayerViewModel @Inject constructor(
         }
     }
 
+    private fun decodeDecoderRouteValue(value: String?): String? {
+        val raw = value?.takeIf { it.isNotBlank() } ?: return null
+        return if ('%' in raw) {
+            runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+        } else {
+            raw
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         externalPlayerCleanupJob?.cancel()
@@ -773,9 +885,25 @@ class MpvPlayerViewModel @Inject constructor(
                     lastPosition = pos,
                     duration = dur,
                     lastPlayedAt = System.currentTimeMillis(),
-                    thumbnailUrl = fileEntity?.thumbnailLink
+                    thumbnailUrl = fileEntity?.thumbnailLink,
+                    lastPlayerEngine = historyPlayerEngineName(),
+                    lastDecoderMode = sessionDecoderMode
                 )
             )
         }
+    }
+
+    private fun rememberPlaybackSelection() {
+        viewModelScope.launch {
+            playbackHistoryDao.updatePlaybackSelection(
+                fileId = currentFileId,
+                playerEngine = historyPlayerEngineName(),
+                decoderMode = sessionDecoderMode
+            )
+        }
+    }
+
+    private fun historyPlayerEngineName(): String {
+        return (handoffPlayerEngine ?: PlayerEngine.MPV).name
     }
 }

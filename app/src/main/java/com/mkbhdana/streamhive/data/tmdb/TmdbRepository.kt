@@ -45,7 +45,7 @@ class TmdbRepository @Inject constructor(
 
         // Check cache first
         val cached = tmdbMetadataDao.getByDriveFileId(driveFileId)
-        if (cached != null && !cached.isStale()) return@withContext cached
+        if (cached != null && !cached.isStale() && !cached.originalLanguage.isNullOrBlank()) return@withContext cached
 
         val query = cleanNameForSearch(name)
         if (query.isBlank()) return@withContext null
@@ -78,6 +78,7 @@ class TmdbRepository @Inject constructor(
             backdropPath = movie.fullBackdropUrl,
             rating = movie.voteAverage,
             year = movie.year,
+            originalLanguage = movie.originalLanguage,
             mediaType = "movie"
         )
     }
@@ -94,6 +95,7 @@ class TmdbRepository @Inject constructor(
             backdropPath = show.fullBackdropUrl,
             rating = show.voteAverage,
             year = show.year,
+            originalLanguage = show.originalLanguage,
             mediaType = "tv"
         )
     }
@@ -112,6 +114,7 @@ class TmdbRepository @Inject constructor(
             backdropPath = result.fullBackdropUrl,
             rating = result.voteAverage,
             year = result.year,
+            originalLanguage = result.originalLanguage,
             mediaType = result.mediaType ?: "movie"
         )
     }
@@ -205,6 +208,7 @@ class TmdbRepository @Inject constructor(
                     backdropPath = movie.fullBackdropUrl,
                     rating = movie.voteAverage,
                     year = movie.year,
+                    originalLanguage = movie.originalLanguage,
                     mediaType = "movie"
                 )
             } catch (_: Exception) {}
@@ -222,6 +226,7 @@ class TmdbRepository @Inject constructor(
                 backdropPath = show.fullBackdropUrl,
                 rating = show.voteAverage,
                 year = show.year,
+                originalLanguage = show.originalLanguage,
                 mediaType = "tv"
             )
         } catch (_: Exception) {}
@@ -247,6 +252,7 @@ class TmdbRepository @Inject constructor(
                 backdropPath = movie.fullBackdropUrl,
                 rating = movie.voteAverage,
                 year = movie.year,
+                originalLanguage = movie.originalLanguage,
                 mediaType = "movie"
             )
         }
@@ -262,6 +268,7 @@ class TmdbRepository @Inject constructor(
                 backdropPath = show.fullBackdropUrl,
                 rating = show.voteAverage,
                 year = show.year,
+                originalLanguage = show.originalLanguage,
                 mediaType = "tv"
             )
         }

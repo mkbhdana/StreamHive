@@ -31,6 +31,7 @@ import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.data.db.TmdbMetadataDao
 import com.mkbhdana.streamhive.data.model.DriveFile
+import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.player.ui.TrackInfo
 import com.mkbhdana.streamhive.player.ui.TrackType
 import com.mkbhdana.streamhive.settings.AppPreferences
@@ -75,6 +76,7 @@ data class PlayerUiState(
     val gestureBrightnessEnabled: Boolean = true,
     val gestureDoubleTapEnabled: Boolean = true,
     val gestureZoomEnabled: Boolean = true,
+    val hapticFeedbackEnabled: Boolean = true,
 
     // Subtitle Style Settings
     val subtitleFontSize: Int = 18,
@@ -114,6 +116,10 @@ class PlayerViewModel @Inject constructor(
     private var currentFileName: String = java.net.URLDecoder.decode(
         savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
     )
+    private val initialDecoderMode: String = normalizeDecoderMode(
+        decodeDecoderRouteValue(savedStateHandle.get<String>("decoder"))
+            ?: appPreferences.defaultDecoder
+    )
 
     private val _uiState = MutableStateFlow(
         PlayerUiState(
@@ -124,6 +130,7 @@ class PlayerViewModel @Inject constructor(
             gestureBrightnessEnabled = appPreferences.gestureBrightnessEnabled,
             gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
             gestureZoomEnabled = appPreferences.gestureZoomEnabled,
+            hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
             subtitleFontSize = appPreferences.subtitleFontSize,
             subtitleColor = appPreferences.subtitleColor,
             subtitleBgOpacity = appPreferences.subtitleBgOpacity,
@@ -134,7 +141,7 @@ class PlayerViewModel @Inject constructor(
             libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
             overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
             tapSeekDuration = appPreferences.tapSeekDuration,
-            decoderMode = appPreferences.defaultDecoder
+            decoderMode = initialDecoderMode
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -143,7 +150,9 @@ class PlayerViewModel @Inject constructor(
     val player: ExoPlayer? get() = _player
 
     private val driveDataSourceFactory = DriveDataSource.Factory { driveRepository.getValidToken() }
-    private var sessionDecoderMode: String = appPreferences.defaultDecoder
+    private var sessionDecoderMode: String = initialDecoderMode
+    private var handoffPlayerEngine: PlayerEngine? = null
+    private var tmdbOriginalAudioLanguage: String? = null
 
     // Resume playback support
     private var pendingSeekMs: Long = 0L
@@ -164,6 +173,7 @@ class PlayerViewModel @Inject constructor(
     private var externalSubtitleCount = 0
 
     init {
+        rememberPlaybackSelection()
         initializePlayer()
         fetchEpisodeList()
     }
@@ -309,6 +319,7 @@ class PlayerViewModel @Inject constructor(
         externalSubtitleNames.clear()
         pendingExternalSubtitleTrackSelection = false
         externalSubtitleCount = 0
+        rememberPlaybackSelection()
         fetchEpisodeList()
         
         // Re-initialize player
@@ -333,6 +344,7 @@ class PlayerViewModel @Inject constructor(
                     ?: throw Exception("Not authenticated")
 
                 driveDataSourceFactory.updateToken(token)
+                tmdbOriginalAudioLanguage = resolveTmdbOriginalLanguage()
 
                 val decoderMode = when (sessionDecoderMode) {
                     "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
@@ -402,7 +414,7 @@ class PlayerViewModel @Inject constructor(
 
                 // Load resume position (deferred until STATE_READY)
                 val history = playbackHistoryDao.getByFileId(currentFileId)
-                if (history != null && !history.isCompleted && history.lastPosition > 0) {
+                if (history != null && history.isResumeEligible && history.lastPosition > 0) {
                     pendingSeekMs = history.lastPosition
                 }
 
@@ -657,9 +669,14 @@ class PlayerViewModel @Inject constructor(
 
         val preferredAudioLanguage = appPreferences.preferredAudioLanguage
         val preferredSubtitleLanguage = appPreferences.preferredSubtitleLanguage
+        val targetAudioLanguage = if (preferredAudioLanguage == "original") {
+            tmdbOriginalAudioLanguage
+        } else {
+            preferredAudioLanguage
+        }
 
-        val preferredAudioTrack = if (preferredAudioLanguage != "original") {
-            audioTracks.firstOrNull { languageMatches(it.language, preferredAudioLanguage) }
+        val preferredAudioTrack = if (!targetAudioLanguage.isNullOrBlank()) {
+            audioTracks.firstOrNull { languageMatches(it.language, targetAudioLanguage) }
         } else {
             null
         }
@@ -687,7 +704,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         val hasTextGroups = player.currentTracks.groups.any { it.type == C.TRACK_TYPE_TEXT }
-        val audioResolved = preferredAudioLanguage == "original" || audioTracks.isNotEmpty()
+        val audioResolved = targetAudioLanguage.isNullOrBlank() || audioTracks.isNotEmpty()
         val subtitlesResolved =
             preferredSubtitleLanguage == "none" || subtitleTracks.isNotEmpty() || !hasTextGroups
 
@@ -732,6 +749,22 @@ class PlayerViewModel @Inject constructor(
             "tha", "th" -> setOf("tha", "th")
             else -> setOf(normalized)
         }
+    }
+
+    private suspend fun resolveTmdbOriginalLanguage(): String? {
+        tmdbMetadataDao.getByDriveFileId(currentFileId)
+            ?.originalLanguage
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val parentId = mediaFileDao.getFileById(currentFileId)
+            ?.parentId
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+
+        return tmdbMetadataDao.getByDriveFileId(parentId)
+            ?.originalLanguage
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun extractChapters() {
@@ -826,11 +859,12 @@ class PlayerViewModel @Inject constructor(
     }
     
     fun setDecoderMode(mode: String) {
-        if (_uiState.value.decoderMode == mode) return
-        sessionDecoderMode = mode
+        val normalized = normalizeDecoderMode(mode)
+        if (_uiState.value.decoderMode == normalized) return
+        sessionDecoderMode = normalized
         _uiState.update {
             it.copy(
-                decoderMode = mode,
+                decoderMode = normalized,
                 isLoading = true,
                 isPlaying = false,
                 error = null,
@@ -847,6 +881,7 @@ class PlayerViewModel @Inject constructor(
         hasResumed = false
         preferredTracksApplied = false
         
+        rememberPlaybackSelection()
         initializePlayer()
     }
 
@@ -885,7 +920,8 @@ class PlayerViewModel @Inject constructor(
         externalPlayerCleanupJob = null
     }
 
-    fun prepareForEngineFallback() {
+    fun prepareForEngineFallback(targetEngine: PlayerEngine? = null) {
+        handoffPlayerEngine = targetEngine
         _player?.pause()
         savePlaybackPosition()
         _uiState.update {
@@ -1181,9 +1217,41 @@ class PlayerViewModel @Inject constructor(
                     duration = dur,
                     lastPlayedAt = System.currentTimeMillis(),
                     posterPath = metadata?.posterPath,
-                    thumbnailUrl = fileEntity?.thumbnailLink
+                    thumbnailUrl = fileEntity?.thumbnailLink,
+                    lastPlayerEngine = historyPlayerEngineName(),
+                    lastDecoderMode = sessionDecoderMode
                 )
             )
+        }
+    }
+
+    private fun rememberPlaybackSelection() {
+        viewModelScope.launch {
+            playbackHistoryDao.updatePlaybackSelection(
+                fileId = currentFileId,
+                playerEngine = historyPlayerEngineName(),
+                decoderMode = sessionDecoderMode
+            )
+        }
+    }
+
+    private fun historyPlayerEngineName(): String {
+        return (handoffPlayerEngine ?: PlayerEngine.EXO_PLAYER).name
+    }
+
+    private fun normalizeDecoderMode(mode: String): String {
+        return when (mode.lowercase(Locale.US)) {
+            "hw", "sw", "hw+", "auto" -> mode.lowercase(Locale.US)
+            else -> "hw+"
+        }
+    }
+
+    private fun decodeDecoderRouteValue(value: String?): String? {
+        val raw = value?.takeIf { it.isNotBlank() } ?: return null
+        return if ('%' in raw) {
+            runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+        } else {
+            raw
         }
     }
 }

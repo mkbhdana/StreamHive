@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,8 +29,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
+import android.view.View
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -153,7 +154,8 @@ fun SettingsScreen(
                         "Dolby Vision Profile 7 to HEVC fallback for unsupported devices",
                         Icons.Default.Memory,
                         state.mapDv7ToHevc,
-                        viewModel::setMapDv7ToHevc
+                        viewModel::setMapDv7ToHevc,
+                        hapticsEnabled = state.hapticFeedbackEnabled
                     )
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -163,7 +165,8 @@ fun SettingsScreen(
                         "Experimental hardware path; applied only with HW decoder",
                         Icons.Default.Speed,
                         state.tunneledPlaybackEnabled,
-                        viewModel::setTunneledPlaybackEnabled
+                        viewModel::setTunneledPlaybackEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
                     )
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -187,17 +190,17 @@ fun SettingsScreen(
             }
 
             // ──── Gesture Settings ────
-            item { SettingsSectionHeader(Icons.Default.TouchApp, "Gestures") }
+            item { SettingsSectionHeader(Icons.Default.TouchApp, "Gestures & Haptics") }
 
             item {
                 SettingsCard {
-                    SettingsSwitchItem("Volume Gesture", "Swipe right side to adjust volume", Icons.Default.VolumeUp, state.gestureVolumeEnabled, viewModel::setGestureVolumeEnabled)
+                    SettingsSwitchItem("Volume Gesture", "Swipe right side to adjust volume", Icons.Default.VolumeUp, state.gestureVolumeEnabled, viewModel::setGestureVolumeEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsSwitchItem("Brightness Gesture", "Swipe left side to adjust brightness", Icons.Default.LightMode, state.gestureBrightnessEnabled, viewModel::setGestureBrightnessEnabled)
+                    SettingsSwitchItem("Brightness Gesture", "Swipe left side to adjust brightness", Icons.Default.LightMode, state.gestureBrightnessEnabled, viewModel::setGestureBrightnessEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsSwitchItem("Seek Gesture", "Swipe horizontally to seek", Icons.Default.FastForward, state.gestureSeekEnabled, viewModel::setGestureSeekEnabled)
+                    SettingsSwitchItem("Seek Gesture", "Swipe horizontally to seek", Icons.Default.FastForward, state.gestureSeekEnabled, viewModel::setGestureSeekEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsSwitchItem("Double Tap Seek", "Double tap sides to skip", Icons.Default.FastForward, state.gestureDoubleTapEnabled, viewModel::setGestureDoubleTapEnabled)
+                    SettingsSwitchItem("Double Tap Seek", "Double tap sides to skip", Icons.Default.FastForward, state.gestureDoubleTapEnabled, viewModel::setGestureDoubleTapEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
                     // Tap Seek Duration
@@ -214,13 +217,13 @@ fun SettingsScreen(
                             value = state.tapSeekDuration.toFloat(),
                             onValueChange = { viewModel.setTapSeekDuration(it.toInt()) },
                             valueRange = 10f..60f, steps = 4, // 10, 20, 30, 40, 50, 60
-                            modifier = Modifier.padding(start = 40.dp)
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
                         )
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsSwitchItem("Pinch to Zoom", "Pinch gesture to zoom video", Icons.Default.ZoomIn, state.gestureZoomEnabled, viewModel::setGestureZoomEnabled)
+                    SettingsSwitchItem("Pinch to Zoom", "Pinch gesture to zoom video", Icons.Default.ZoomIn, state.gestureZoomEnabled, viewModel::setGestureZoomEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
@@ -233,13 +236,22 @@ fun SettingsScreen(
                                 )
                             }
                         }
-                        HapticSlider(value = state.gestureSensitivity, onValueChange = viewModel::setGestureSensitivity, valueRange = 0.5f..2.0f, steps = 5, modifier = Modifier.padding(start = 40.dp))
+                        HapticSlider(
+                            value = state.gestureSensitivity,
+                            onValueChange = viewModel::setGestureSensitivity,
+                            valueRange = 0.5f..2.0f,
+                            steps = 5,
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
+                        )
                     }
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsSwitchItem("Haptic Feedback", "Vibration feedback for gestures, sliders, and switches", Icons.Default.TouchApp, state.hapticFeedbackEnabled, viewModel::setHapticFeedbackEnabled, hapticsEnabled = state.hapticFeedbackEnabled)
                 }
             }
 
             // ──── Subtitle Settings ────
-            item { SettingsSectionHeader(Icons.Default.Subtitles, "Subtitles") }
+            item { SettingsSectionHeader(Icons.Default.Subtitles, "Audio & Subtitles") }
 
             item {
                 SettingsCard {
@@ -324,7 +336,8 @@ fun SettingsScreen(
                         "Use libass styling for ASS/SSA in MPV; Exo keeps embedded ASS styles",
                         Icons.Default.Subtitles,
                         state.libassSubtitlesEnabled,
-                        viewModel::setLibassSubtitlesEnabled
+                        viewModel::setLibassSubtitlesEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
                     )
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -334,7 +347,8 @@ fun SettingsScreen(
                         "Apply subtitle edits over ASS/SSA embedded styling",
                         Icons.Default.Palette,
                         state.overrideAssSubtitleStyles,
-                        viewModel::setOverrideAssSubtitleStyles
+                        viewModel::setOverrideAssSubtitleStyles,
+                        hapticsEnabled = state.hapticFeedbackEnabled
                     )
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -414,7 +428,8 @@ fun SettingsScreen(
                             value = state.subtitleFontSize.toFloat(),
                             onValueChange = { viewModel.setSubtitleFontSize(it.toInt()) },
                             valueRange = 10f..48f, steps = 18,
-                            modifier = Modifier.padding(start = 40.dp)
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
                         )
                     }
 
@@ -467,7 +482,13 @@ fun SettingsScreen(
                                 Text("${(state.subtitleBgOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        HapticSlider(value = state.subtitleBgOpacity, onValueChange = viewModel::setSubtitleBgOpacity, valueRange = 0f..1f, modifier = Modifier.padding(start = 40.dp))
+                        HapticSlider(
+                            value = state.subtitleBgOpacity,
+                            onValueChange = viewModel::setSubtitleBgOpacity,
+                            valueRange = 0f..1f,
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
+                        )
                     }
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -486,7 +507,8 @@ fun SettingsScreen(
                             value = state.subtitlePosition.toFloat(),
                             onValueChange = { viewModel.setSubtitlePosition(it.toInt()) },
                             valueRange = 50f..100f, steps = 9,
-                            modifier = Modifier.padding(start = 40.dp)
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
                         )
                     }
 
@@ -532,7 +554,8 @@ fun SettingsScreen(
                             value = state.subtitleEdgeSize.toFloat(),
                             onValueChange = { viewModel.setSubtitleEdgeSize(it.toInt()) },
                             valueRange = 0f..20f, steps = 19,
-                            modifier = Modifier.padding(start = 40.dp)
+                            modifier = Modifier.padding(start = 40.dp),
+                            hapticsEnabled = state.hapticFeedbackEnabled
                         )
                     }
 
@@ -1221,9 +1244,10 @@ private fun HapticSlider(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
-    steps: Int = 0
+    steps: Int = 0,
+    hapticsEnabled: Boolean = true
 ) {
-    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
     var lastStep by remember(valueRange.start, valueRange.endInclusive, steps) {
         mutableIntStateOf(sliderHapticStep(value, valueRange, steps))
     }
@@ -1232,8 +1256,10 @@ private fun HapticSlider(
         value = value,
         onValueChange = { newValue ->
             val nextStep = sliderHapticStep(newValue, valueRange, steps)
-            if (nextStep != lastStep) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            if (hapticsEnabled && nextStep != lastStep) {
+                view.performSliderHaptic()
+                lastStep = nextStep
+            } else if (!hapticsEnabled) {
                 lastStep = nextStep
             }
             onValueChange(newValue)
@@ -1241,6 +1267,22 @@ private fun HapticSlider(
         valueRange = valueRange,
         steps = steps,
         modifier = modifier
+    )
+}
+
+private fun View.performSliderHaptic() {
+    isHapticFeedbackEnabled = true
+    val flags = HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+    if (!performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK, flags)) {
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY, flags)
+    }
+}
+
+private fun View.performSwitchHaptic() {
+    isHapticFeedbackEnabled = true
+    performHapticFeedback(
+        HapticFeedbackConstants.VIRTUAL_KEY,
+        HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
     )
 }
 
@@ -1280,9 +1322,22 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun SettingsSwitchItem(title: String, subtitle: String, icon: ImageVector, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingsSwitchItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    hapticsEnabled: Boolean = true
+) {
+    val view = LocalView.current
+    fun updateChecked(value: Boolean) {
+        if (hapticsEnabled) view.performSwitchHaptic()
+        onCheckedChange(value)
+    }
+
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) }.padding(16.dp),
+        modifier = Modifier.fillMaxWidth().clickable { updateChecked(!checked) }.padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
@@ -1291,7 +1346,7 @@ private fun SettingsSwitchItem(title: String, subtitle: String, icon: ImageVecto
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = ::updateChecked)
     }
 }
 

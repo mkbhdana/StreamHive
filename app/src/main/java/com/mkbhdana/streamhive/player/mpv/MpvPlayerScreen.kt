@@ -43,8 +43,8 @@ fun MpvPlayerScreen(
     onBack: () -> Unit,
     allowEngineFallback: Boolean = true,
     switchingMessage: String? = null,
-    onFallbackToExo: (() -> Unit)? = null,
-    onSwitchToExo: (() -> Unit)? = null,
+    onFallbackToExo: ((String?) -> Unit)? = null,
+    onSwitchToExo: ((String?) -> Unit)? = null,
     viewModel: MpvPlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -126,9 +126,9 @@ fun MpvPlayerScreen(
             isSwitchingPlayer = true
             activeSwitchingMessage = "Switching to Exo"
             viewModel.hideControls()
-            viewModel.prepareForEngineFallback()
+            viewModel.prepareForEngineFallback(PlayerEngine.EXO_PLAYER)
             (context as? Activity)?.enterPlayerWindowMode()
-            onFallbackToExo()
+            onFallbackToExo(uiState.decoderMode)
         } else if (uiState.error != null && (!allowEngineFallback || onFallbackToExo == null)) {
             isSwitchingPlayer = false
             activeSwitchingMessage = null
@@ -203,7 +203,8 @@ fun MpvPlayerScreen(
             volumeEnabled = uiState.gestureVolumeEnabled,
             brightnessEnabled = uiState.gestureBrightnessEnabled,
             doubleTapEnabled = uiState.gestureDoubleTapEnabled,
-            zoomEnabled = uiState.gestureZoomEnabled
+            zoomEnabled = uiState.gestureZoomEnabled,
+            hapticFeedbackEnabled = uiState.hapticFeedbackEnabled
         ) {
             GestureIndicatorOverlay(gestureState = gestureState.value)
         }
@@ -257,6 +258,7 @@ fun MpvPlayerScreen(
                 playbackSpeed = uiState.playbackSpeed,
                 subtitleDelay = uiState.subtitleDelay,
                 subtitleSpeed = uiState.subtitleSpeed,
+                hapticFeedbackEnabled = uiState.hapticFeedbackEnabled,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
                 onBack = handleBack,
@@ -299,9 +301,9 @@ fun MpvPlayerScreen(
                         isSwitchingPlayer = true
                         activeSwitchingMessage = "Switching to Exo"
                         viewModel.hideControls()
-                        viewModel.prepareForEngineFallback()
+                        viewModel.prepareForEngineFallback(PlayerEngine.EXO_PLAYER)
                         (context as? Activity)?.enterPlayerWindowMode()
-                        onSwitchToExo()
+                        onSwitchToExo(uiState.decoderMode)
                     }
                 } else {
                     null

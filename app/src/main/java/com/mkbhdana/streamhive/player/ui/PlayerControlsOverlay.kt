@@ -1,7 +1,8 @@
 package com.mkbhdana.streamhive.player.ui
 
+import android.view.HapticFeedbackConstants
+import android.view.View
 import android.widget.Toast
-
 import androidx.compose.animation.*
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -28,9 +29,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,6 +112,7 @@ fun PlayerControlsOverlay(
     playbackSpeed: Float,
     subtitleDelay: Long,
     subtitleSpeed: Float = 1.0f,
+    hapticFeedbackEnabled: Boolean = true,
     audioTracks: List<TrackInfo>,
     subtitleTracks: List<TrackInfo>,
     chapters: List<ChapterInfo> = emptyList(),
@@ -491,6 +492,7 @@ fun PlayerControlsOverlay(
                 onSubtitleOutlineColorChange = onSubtitleOutlineColorChange,
                 onSubtitleBgOpacityChange = onSubtitleBgOpacityChange,
                 onOverrideAssSubtitleStylesChange = onOverrideAssSubtitleStylesChange,
+                hapticsEnabled = hapticFeedbackEnabled,
                 onReset = onSubtitleStyleReset,
                 onDismiss = { showSubtitleStyleSidebar = false }
             )
@@ -1007,9 +1009,12 @@ private fun SubtitleStyleSidebar(
     onSubtitleOutlineColorChange: (Long) -> Unit,
     onSubtitleBgOpacityChange: (Float) -> Unit,
     onOverrideAssSubtitleStylesChange: (Boolean) -> Unit,
+    hapticsEnabled: Boolean,
     onReset: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val switchHapticView = LocalView.current
+
     Surface(
         modifier = Modifier
             .padding(end = 16.dp)
@@ -1033,7 +1038,8 @@ private fun SubtitleStyleSidebar(
                 valueText = "$subtitleFontSize sp",
                 value = subtitleFontSize.toFloat(),
                 valueRange = 10f..48f,
-                onValueChange = { onSubtitleFontSizeChange(it.toInt()) }
+                onValueChange = { onSubtitleFontSizeChange(it.toInt()) },
+                hapticsEnabled = hapticsEnabled
             )
             ColorChoiceRow(
                 title = "Subtitle Color",
@@ -1045,7 +1051,8 @@ private fun SubtitleStyleSidebar(
                 valueText = "$subtitlePosition",
                 value = subtitlePosition.toFloat(),
                 valueRange = 0f..100f,
-                onValueChange = { onSubtitlePositionChange(it.toInt()) }
+                onValueChange = { onSubtitlePositionChange(it.toInt()) },
+                hapticsEnabled = hapticsEnabled
             )
             ColorChoiceRow(
                 title = "Edge Color",
@@ -1057,7 +1064,8 @@ private fun SubtitleStyleSidebar(
                 valueText = "${(subtitleBgOpacity * 100).toInt()}%",
                 value = subtitleBgOpacity,
                 valueRange = 0f..1f,
-                onValueChange = onSubtitleBgOpacityChange
+                onValueChange = onSubtitleBgOpacityChange,
+                hapticsEnabled = hapticsEnabled
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1072,7 +1080,10 @@ private fun SubtitleStyleSidebar(
                 )
                 Switch(
                     checked = overrideAssSubtitleStyles,
-                    onCheckedChange = onOverrideAssSubtitleStylesChange
+                    onCheckedChange = { enabled ->
+                        if (hapticsEnabled) switchHapticView.performSwitchHaptic()
+                        onOverrideAssSubtitleStylesChange(enabled)
+                    }
                 )
             }
             Button(
@@ -1168,7 +1179,7 @@ private fun SubtitleDelaySidebar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(50L, -50L, 100L, -100L, 500L, -500L).forEach { delta ->
+                listOf(-500L, -100L, -50L, 50L, 100L, 500L).forEach { delta ->
                     FilterChip(
                         selected = false,
                         onClick = { onDelayChange(currentDelay + delta) },
@@ -1394,9 +1405,10 @@ private fun HapticSlider(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
-    steps: Int = 0
+    steps: Int = 0,
+    hapticsEnabled: Boolean = true
 ) {
-    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
     var lastStep by remember(valueRange.start, valueRange.endInclusive, steps) {
         mutableIntStateOf(sliderHapticStep(value, valueRange, steps))
     }
@@ -1405,8 +1417,10 @@ private fun HapticSlider(
         value = value,
         onValueChange = { newValue ->
             val nextStep = sliderHapticStep(newValue, valueRange, steps)
-            if (nextStep != lastStep) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            if (hapticsEnabled && nextStep != lastStep) {
+                view.performSliderHaptic()
+                lastStep = nextStep
+            } else if (!hapticsEnabled) {
                 lastStep = nextStep
             }
             onValueChange(newValue)
@@ -1414,6 +1428,22 @@ private fun HapticSlider(
         valueRange = valueRange,
         steps = steps,
         modifier = modifier
+    )
+}
+
+private fun View.performSliderHaptic() {
+    isHapticFeedbackEnabled = true
+    val flags = HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+    if (!performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK, flags)) {
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY, flags)
+    }
+}
+
+private fun View.performSwitchHaptic() {
+    isHapticFeedbackEnabled = true
+    performHapticFeedback(
+        HapticFeedbackConstants.VIRTUAL_KEY,
+        HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
     )
 }
 
@@ -1435,7 +1465,8 @@ private fun SidebarSlider(
     valueText: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit
+    onValueChange: (Float) -> Unit,
+    hapticsEnabled: Boolean = true
 ) {
     Column {
         Row(
@@ -1455,7 +1486,8 @@ private fun SidebarSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            hapticsEnabled = hapticsEnabled
         )
     }
 }

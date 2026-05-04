@@ -39,8 +39,8 @@ import androidx.compose.ui.unit.dp
 object Routes {
     const val AUTH = "auth"
     const val CATALOG = "catalog"
-    const val PLAYER = "player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}"
-    const val MPV_PLAYER = "mpv_player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}"
+    const val PLAYER = "player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}&decoder={decoder}"
+    const val MPV_PLAYER = "mpv_player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}&decoder={decoder}"
     const val SETTINGS = "settings"
     const val MEDIA_INFO = "media_info/{driveFileId}?mediaType={mediaType}"
     const val TMDB_SEE_ALL = "tmdb_see_all/{category}"
@@ -103,27 +103,31 @@ fun AppNavigation(isTv: Boolean = false) {
 
         composable(Routes.CATALOG) {
             val ctx = LocalContext.current
-            CatalogScreen(
-                onPlayFile = { fileId, fileName, engine ->
-                    when (engine) {
-                        PlayerEngine.EXO_PLAYER -> {
-                            navController.navigateToPlayback(playerRoute(fileId, fileName))
-                        }
-                        PlayerEngine.MPV -> {
-                            navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName))
-                        }
-                        PlayerEngine.EXTERNAL -> {
-                            // Start foreground service to keep proxy alive while external player runs
-                            StreamProxyService.start(ctx)
-                            val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
-                            if (proxyUrl != null) {
-                                ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
-                            } else {
-                                Toast.makeText(ctx, "Server not ready, please try again", Toast.LENGTH_SHORT).show()
-                            }
+            val launchPlayback: (String, String, PlayerEngine, String?) -> Unit = { fileId, fileName, engine, decoderMode ->
+                when (engine) {
+                    PlayerEngine.EXO_PLAYER -> {
+                        navController.navigateToPlayback(playerRoute(fileId, fileName, decoderMode = decoderMode))
+                    }
+                    PlayerEngine.MPV -> {
+                        navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName, decoderMode = decoderMode))
+                    }
+                    PlayerEngine.EXTERNAL -> {
+                        // Start foreground service to keep proxy alive while external player runs
+                        StreamProxyService.start(ctx)
+                        val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
+                        if (proxyUrl != null) {
+                            ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
+                        } else {
+                            Toast.makeText(ctx, "Server not ready, please try again", Toast.LENGTH_SHORT).show()
                         }
                     }
+                }
+            }
+            CatalogScreen(
+                onPlayFile = { fileId, fileName, engine ->
+                    launchPlayback(fileId, fileName, engine, null)
                 },
+                onPlayFileWithDecoder = launchPlayback,
                 onLogout = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(0) { inclusive = true }
@@ -159,6 +163,10 @@ fun AppNavigation(isTv: Boolean = false) {
                 navArgument("handoff") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument("decoder") {
+                    type = NavType.StringType
+                    defaultValue = ""
                 }
             ),
             enterTransition = { fadeIn(animationSpec = tween(140)) },
@@ -176,15 +184,15 @@ fun AppNavigation(isTv: Boolean = false) {
                 onBack = { navController.popBackStack() },
                 allowEngineFallback = allowFallback,
                 switchingMessage = if (handoff) "Switching to Exo" else null,
-                onFallbackToMpv = {
+                onFallbackToMpv = { decoderMode ->
                     navController.navigateToPlayback(
-                        mpvPlayerRoute(fileId, fileName, allowFallback = false, handoff = true),
+                        mpvPlayerRoute(fileId, fileName, allowFallback = false, handoff = true, decoderMode = decoderMode),
                         replaceCurrent = true
                     )
                 },
-                onSwitchToMpv = {
+                onSwitchToMpv = { decoderMode ->
                     navController.navigateToPlayback(
-                        mpvPlayerRoute(fileId, fileName, allowFallback = true, handoff = true),
+                        mpvPlayerRoute(fileId, fileName, allowFallback = true, handoff = true, decoderMode = decoderMode),
                         replaceCurrent = true
                     )
                 }
@@ -203,6 +211,10 @@ fun AppNavigation(isTv: Boolean = false) {
                 navArgument("handoff") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument("decoder") {
+                    type = NavType.StringType
+                    defaultValue = ""
                 }
             ),
             enterTransition = { fadeIn(animationSpec = tween(140)) },
@@ -220,15 +232,15 @@ fun AppNavigation(isTv: Boolean = false) {
                 onBack = { navController.popBackStack() },
                 allowEngineFallback = allowFallback,
                 switchingMessage = if (handoff) "Switching to MPV" else null,
-                onFallbackToExo = {
+                onFallbackToExo = { decoderMode ->
                     navController.navigateToPlayback(
-                        playerRoute(fileId, fileName, allowFallback = false, handoff = true),
+                        playerRoute(fileId, fileName, allowFallback = false, handoff = true, decoderMode = decoderMode),
                         replaceCurrent = true
                     )
                 },
-                onSwitchToExo = {
+                onSwitchToExo = { decoderMode ->
                     navController.navigateToPlayback(
-                        playerRoute(fileId, fileName, allowFallback = true, handoff = true),
+                        playerRoute(fileId, fileName, allowFallback = true, handoff = true, decoderMode = decoderMode),
                         replaceCurrent = true
                     )
                 }
@@ -329,18 +341,22 @@ private fun playerRoute(
     fileId: String,
     fileName: String,
     allowFallback: Boolean = true,
-    handoff: Boolean = false
+    handoff: Boolean = false,
+    decoderMode: String? = null
 ): String {
-    return "player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff"
+    val decoderQuery = decoderMode?.takeIf { it.isNotBlank() }?.let { "&decoder=${encodeRouteValue(it)}" }.orEmpty()
+    return "player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff$decoderQuery"
 }
 
 private fun mpvPlayerRoute(
     fileId: String,
     fileName: String,
     allowFallback: Boolean = true,
-    handoff: Boolean = false
+    handoff: Boolean = false,
+    decoderMode: String? = null
 ): String {
-    return "mpv_player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff"
+    val decoderQuery = decoderMode?.takeIf { it.isNotBlank() }?.let { "&decoder=${encodeRouteValue(it)}" }.orEmpty()
+    return "mpv_player/$fileId/${encodeRouteValue(fileName)}?allowFallback=$allowFallback&handoff=$handoff$decoderQuery"
 }
 
 private fun encodeRouteValue(value: String): String {
