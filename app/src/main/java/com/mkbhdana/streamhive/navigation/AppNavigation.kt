@@ -66,7 +66,7 @@ fun AppNavigation(isTv: Boolean = false) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        uriHandler.openUri(update.downloadUrl)
+                        uriHandler.openUri(update.releaseUrl)
                         updateViewModel.dismissUpdatePrompt(suppressThisVersion = true)
                     }
                 ) {

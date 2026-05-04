@@ -56,7 +56,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        uriHandler.openUri(update.downloadUrl)
+                        uriHandler.openUri(update.releaseUrl)
                         viewModel.dismissUpdatePrompt()
                     }
                 ) {
