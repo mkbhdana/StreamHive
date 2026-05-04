@@ -237,14 +237,12 @@ This app uses `https://www.googleapis.com/auth/drive.readonly` scope that for th
 ## 🙏 Credits
 
 - [TheMovieDB](https://www.themoviedb.org/) – for metadata & search API
-- [NextLib](https://github.com/anilbeesetti/nextlib) – for ffmpeg codecs
 
 ## Acknowledgments
 
 - [DriveStream](https://github.com/itszechs/DriveStream)
 - [mpv-android](https://github.com/mpv-android)
 - [mpvKt](https://github.com/abdallahmehiz/mpvKt)
-- [Next player](https://github.com/anilbeesetti/nextplayer)
 
 ## ⚠️ Note
 
