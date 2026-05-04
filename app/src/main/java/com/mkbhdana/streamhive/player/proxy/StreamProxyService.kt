@@ -26,10 +26,14 @@ class StreamProxyService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, StreamProxyService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Unable to start proxy foreground service", error)
             }
         }
 
@@ -41,8 +45,14 @@ class StreamProxyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        try {
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, buildNotification())
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to start proxy foreground service", error)
+            stopSelf()
+            return
+        }
         Log.d(TAG, "Proxy service started — server on port ${StreamProxyServer.instancePort}")
     }
 

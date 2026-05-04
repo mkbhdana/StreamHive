@@ -153,7 +153,10 @@ fun MpvPlayerScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE,
                 Lifecycle.Event.ON_STOP -> viewModel.suspendVideoOutputForTransientView()
-                Lifecycle.Event.ON_RESUME -> viewModel.recoverVideoOutput()
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.cancelExternalPlayerCleanup()
+                    viewModel.recoverVideoOutput()
+                }
                 else -> Unit
             }
         }
@@ -306,6 +309,7 @@ fun MpvPlayerScreen(
                 onOpenExternal = {
                     viewModel.getProxyUrl()?.let { url ->
                         viewModel.pauseForExternalLaunch()
+                        viewModel.scheduleExternalPlayerCleanup()
                         viewModel.suspendVideoOutputForTransientView()
                         com.mkbhdana.streamhive.player.proxy.StreamProxyService.start(context)
                         com.mkbhdana.streamhive.player.ExternalPlayerLauncher.launch(context, url, uiState.fileName)

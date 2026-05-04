@@ -161,8 +161,11 @@ fun PlayerScreen(
     // Auto pause player on backgrounding
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                viewModel.player?.pause()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> viewModel.player?.pause()
+                Lifecycle.Event.ON_RESUME -> viewModel.cancelExternalPlayerCleanup()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -448,6 +451,7 @@ fun PlayerScreen(
                     viewModel.getProxyUrl()?.let { url ->
                         // Pause in-app player before launching external
                         viewModel.player?.pause()
+                        viewModel.scheduleExternalPlayerCleanup()
                         com.mkbhdana.streamhive.player.proxy.StreamProxyService.start(context)
                         ExternalPlayerLauncher.launch(context, url, uiState.fileName)
                     }

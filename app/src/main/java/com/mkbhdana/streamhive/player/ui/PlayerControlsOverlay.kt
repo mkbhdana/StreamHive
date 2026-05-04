@@ -28,7 +28,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -1387,6 +1389,47 @@ private fun RoundStepperButton(
 }
 
 @Composable
+private fun HapticSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0
+) {
+    val haptic = LocalHapticFeedback.current
+    var lastStep by remember(valueRange.start, valueRange.endInclusive, steps) {
+        mutableIntStateOf(sliderHapticStep(value, valueRange, steps))
+    }
+
+    Slider(
+        value = value,
+        onValueChange = { newValue ->
+            val nextStep = sliderHapticStep(newValue, valueRange, steps)
+            if (nextStep != lastStep) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                lastStep = nextStep
+            }
+            onValueChange(newValue)
+        },
+        valueRange = valueRange,
+        steps = steps,
+        modifier = modifier
+    )
+}
+
+private fun sliderHapticStep(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int
+): Int {
+    val rangeSize = valueRange.endInclusive - valueRange.start
+    if (rangeSize <= 0f) return 0
+    val intervals = if (steps > 0) steps + 1 else 20
+    val fraction = ((value - valueRange.start) / rangeSize).coerceIn(0f, 1f)
+    return (fraction * intervals).toInt()
+}
+
+@Composable
 private fun SidebarSlider(
     title: String,
     valueText: String,
@@ -1408,7 +1451,7 @@ private fun SidebarSlider(
             )
             Text(valueText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
-        Slider(
+        HapticSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
