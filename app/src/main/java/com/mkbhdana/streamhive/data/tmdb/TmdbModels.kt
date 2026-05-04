@@ -110,7 +110,8 @@ data class TmdbMultiResult(
     @SerializedName("backdrop_path") val backdropPath: String? = null,
     @SerializedName("vote_average") val voteAverage: Float? = null,
     @SerializedName("release_date") val releaseDate: String? = null,
-    @SerializedName("first_air_date") val firstAirDate: String? = null
+    @SerializedName("first_air_date") val firstAirDate: String? = null,
+    @SerializedName("original_language") val originalLanguage: String? = null
 ) {
     val displayTitle: String
         get() = title ?: name ?: ""

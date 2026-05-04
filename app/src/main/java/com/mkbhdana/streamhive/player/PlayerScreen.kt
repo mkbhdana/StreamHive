@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mkbhdana.streamhive.player.gesture.GestureIndicatorOverlay
 import com.mkbhdana.streamhive.player.gesture.GestureState
 import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
+import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.player.ui.PlayerControlsOverlay
 import com.mkbhdana.streamhive.ui.theme.AccentGreen
 import kotlinx.coroutines.delay
@@ -43,8 +44,8 @@ fun PlayerScreen(
     onBack: () -> Unit,
     allowEngineFallback: Boolean = true,
     switchingMessage: String? = null,
-    onFallbackToMpv: (() -> Unit)? = null,
-    onSwitchToMpv: (() -> Unit)? = null,
+    onFallbackToMpv: ((String?) -> Unit)? = null,
+    onSwitchToMpv: ((String?) -> Unit)? = null,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -105,9 +106,9 @@ fun PlayerScreen(
             isSwitchingPlayer = true
             activeSwitchingMessage = "Switching to MPV"
             viewModel.hideControls()
-            viewModel.prepareForEngineFallback()
+            viewModel.prepareForEngineFallback(PlayerEngine.MPV)
             (context as? Activity)?.enterPlayerWindowMode()
-            onFallbackToMpv?.invoke()
+            onFallbackToMpv?.invoke(uiState.decoderMode)
         } else if (uiState.error != null && !canFallbackToMpv) {
             isSwitchingPlayer = false
             activeSwitchingMessage = null
@@ -327,7 +328,8 @@ fun PlayerScreen(
             volumeEnabled = uiState.gestureVolumeEnabled,
             brightnessEnabled = uiState.gestureBrightnessEnabled,
             doubleTapEnabled = uiState.gestureDoubleTapEnabled,
-            zoomEnabled = uiState.gestureZoomEnabled
+            zoomEnabled = uiState.gestureZoomEnabled,
+            hapticFeedbackEnabled = uiState.hapticFeedbackEnabled
         ) {
         }
 
@@ -393,6 +395,7 @@ fun PlayerScreen(
                 playbackSpeed = uiState.playbackSpeed,
                 subtitleDelay = uiState.subtitleDelay,
                 subtitleSpeed = uiState.subtitleSpeed,
+                hapticFeedbackEnabled = uiState.hapticFeedbackEnabled,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
                 chapters = uiState.chapters,
@@ -437,9 +440,9 @@ fun PlayerScreen(
                         isSwitchingPlayer = true
                         activeSwitchingMessage = "Switching to MPV"
                         viewModel.hideControls()
-                        viewModel.prepareForEngineFallback()
+                        viewModel.prepareForEngineFallback(PlayerEngine.MPV)
                         (context as? Activity)?.enterPlayerWindowMode()
-                        onSwitchToMpv?.invoke()
+                        onSwitchToMpv?.invoke(uiState.decoderMode)
                     }
                 } else {
                     null

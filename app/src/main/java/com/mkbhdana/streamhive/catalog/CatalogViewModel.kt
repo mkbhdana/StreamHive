@@ -572,7 +572,12 @@ class CatalogViewModel @Inject constructor(
                     _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + cachedMap) }
                 }
 
-                val uncachedFiles = distinctFiles.filter { it.id !in cachedMap }
+                val missingOriginalLanguageIds = cachedMap
+                    .filterValues { it.originalLanguage.isNullOrBlank() }
+                    .keys
+                val uncachedFiles = distinctFiles.filter {
+                    it.id !in cachedMap || it.id in missingOriginalLanguageIds
+                }
                 
                 // Determine mediaType mapping for fallback requests
                 val movieIds = movieFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
@@ -859,11 +864,17 @@ class CatalogViewModel @Inject constructor(
 
         val metadataByFileId = mutableMapOf<String, TmdbMetadataEntity>()
         val directMetadata = tmdbRepository.getMetadataForFiles(items.map { it.fileId })
+        val missingOriginalLanguageIds = directMetadata
+            .filter { it.originalLanguage.isNullOrBlank() }
+            .map { it.driveFileId }
+            .toMutableSet()
         directMetadata.forEach { metadata ->
             metadataByFileId[metadata.driveFileId] = metadata
         }
 
-        val missingItems = items.filter { it.fileId !in metadataByFileId }
+        val missingItems = items.filter {
+            it.fileId !in metadataByFileId || it.fileId in missingOriginalLanguageIds
+        }
         if (missingItems.isNotEmpty()) {
             val filesById = missingItems.mapNotNull { item ->
                 mediaFileDao.getFileById(item.fileId)?.let { file -> item.fileId to file }
@@ -874,13 +885,19 @@ class CatalogViewModel @Inject constructor(
 
             filesById.forEach { (fileId, file) ->
                 parentMetadata[file.parentId]?.let { metadata ->
-                    metadataByFileId[fileId] = metadata
+                    if (fileId !in metadataByFileId || metadataByFileId[fileId]?.originalLanguage.isNullOrBlank()) {
+                        metadataByFileId[fileId] = metadata
+                    }
+                    if (!metadata.originalLanguage.isNullOrBlank()) {
+                        missingOriginalLanguageIds.remove(fileId)
+                    }
                 }
             }
 
             if (tmdbRepository.isConfigured()) {
                 filesById.forEach { (fileId, file) ->
-                    if (fileId !in metadataByFileId && continueMetadataFetchAttempted.add(fileId)) {
+                    val needsMetadataFetch = fileId !in metadataByFileId || fileId in missingOriginalLanguageIds
+                    if (needsMetadataFetch && continueMetadataFetchAttempted.add(fileId)) {
                         val metadata = tmdbRepository.fetchAndCacheMetadata(
                             driveFileId = fileId,
                             name = file.name,

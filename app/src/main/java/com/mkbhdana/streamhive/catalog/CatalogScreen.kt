@@ -43,6 +43,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun CatalogScreen(
     onPlayFile: (fileId: String, fileName: String, engine: PlayerEngine) -> Unit,
+    onPlayFileWithDecoder: (
+        fileId: String,
+        fileName: String,
+        engine: PlayerEngine,
+        decoderMode: String?
+    ) -> Unit = { fileId, fileName, engine, _ -> onPlayFile(fileId, fileName, engine) },
     onLogout: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToInfo: (driveFileId: String, mediaType: String) -> Unit = { _, _ -> },
@@ -267,14 +273,15 @@ fun CatalogScreen(
                         HomeTab(
                             state = uiState,
                             onPlayFile = onPlayFile,
+                            onPlayFileWithDecoder = onPlayFileWithDecoder,
                             onNavigateToSettings = onNavigateToSettings,
                             onClearHistory = viewModel::clearPlaybackHistory,
                             onNavigateToInfo = onNavigateToInfo,
                             onRemoveFromContinue = viewModel::removeFromHistory,
-                            onPlayFromStart = { fileId, fileName, engine ->
+                            onPlayFromStart = { fileId, fileName, engine, decoderMode ->
                                 scope.launch {
                                     viewModel.removeFromHistorySync(fileId)
-                                    onPlayFile(fileId, fileName, engine)
+                                    onPlayFileWithDecoder(fileId, fileName, engine, decoderMode)
                                 }
                             },
                             onNavigateToSeeAll = onNavigateToSeeAll

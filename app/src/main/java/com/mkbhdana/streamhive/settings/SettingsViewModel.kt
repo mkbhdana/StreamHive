@@ -38,6 +38,7 @@ data class SettingsUiState(
     val gestureSeekEnabled: Boolean = true,
     val gestureDoubleTapEnabled: Boolean = true,
     val gestureZoomEnabled: Boolean = true,
+    val hapticFeedbackEnabled: Boolean = true,
     val gestureSensitivity: Float = 1.0f,
 
     // Subtitles
@@ -101,6 +102,7 @@ class SettingsViewModel @Inject constructor(
         gestureSeekEnabled = prefs.gestureSeekEnabled,
         gestureDoubleTapEnabled = prefs.gestureDoubleTapEnabled,
         gestureZoomEnabled = prefs.gestureZoomEnabled,
+        hapticFeedbackEnabled = prefs.hapticFeedbackEnabled,
         gestureSensitivity = prefs.gestureSensitivity,
         tapSeekDuration = prefs.tapSeekDuration,
         preferredAudioLanguage = prefs.preferredAudioLanguage,
@@ -176,6 +178,11 @@ class SettingsViewModel @Inject constructor(
     fun setGestureZoomEnabled(enabled: Boolean) {
         prefs.gestureZoomEnabled = enabled
         uiState = uiState.copy(gestureZoomEnabled = enabled)
+    }
+
+    fun setHapticFeedbackEnabled(enabled: Boolean) {
+        prefs.hapticFeedbackEnabled = enabled
+        uiState = uiState.copy(hapticFeedbackEnabled = enabled)
     }
 
     fun setGestureSensitivity(sensitivity: Float) {
@@ -507,6 +514,8 @@ class SettingsViewModel @Inject constructor(
                         obj.put("lastPlayedAt", h.lastPlayedAt)
                         obj.put("posterPath", h.posterPath ?: "")
                         obj.put("thumbnailUrl", h.thumbnailUrl ?: "")
+                        obj.put("lastPlayerEngine", h.lastPlayerEngine ?: "")
+                        obj.put("lastDecoderMode", h.lastDecoderMode ?: "")
                         historyArray.put(obj)
                     }
                     rootObject.put("playback_history", historyArray)
@@ -547,6 +556,7 @@ class SettingsViewModel @Inject constructor(
                             obj.put("backdropPath", m.backdropPath ?: "")
                             obj.put("rating", m.rating?.toDouble() ?: 0.0)
                             obj.put("year", m.year ?: "")
+                            obj.put("originalLanguage", m.originalLanguage ?: "")
                             obj.put("mediaType", m.mediaType)
                             obj.put("cachedAt", m.cachedAt)
                             metaArray.put(obj)
@@ -642,7 +652,9 @@ class SettingsViewModel @Inject constructor(
                                 duration = obj.getLong("duration"),
                                 lastPlayedAt = obj.getLong("lastPlayedAt"),
                                 posterPath = obj.optString("posterPath").ifBlank { null },
-                                thumbnailUrl = obj.optString("thumbnailUrl").ifBlank { null }
+                                thumbnailUrl = obj.optString("thumbnailUrl").ifBlank { null },
+                                lastPlayerEngine = obj.optString("lastPlayerEngine").ifBlank { null },
+                                lastDecoderMode = obj.optString("lastDecoderMode").ifBlank { null }
                             ))
                         }
                         jsonObject.remove("playback_history")
@@ -663,6 +675,7 @@ class SettingsViewModel @Inject constructor(
                                 backdropPath = obj.optString("backdropPath").ifBlank { null },
                                 rating = obj.optDouble("rating", 0.0).toFloat().takeIf { it > 0f },
                                 year = obj.optString("year").ifBlank { null },
+                                originalLanguage = obj.optString("originalLanguage").ifBlank { null },
                                 mediaType = obj.optString("mediaType", "movie"),
                                 cachedAt = obj.optLong("cachedAt", System.currentTimeMillis())
                             ))

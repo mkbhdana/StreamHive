@@ -14,6 +14,7 @@ data class TmdbMetadataEntity(
     val backdropPath: String? = null,
     val rating: Float? = null,
     val year: String? = null,
+    val originalLanguage: String? = null,
     val mediaType: String = "movie", // "movie" or "tv"
     val cachedAt: Long = System.currentTimeMillis()
 ) {

@@ -26,6 +26,9 @@ interface PlaybackHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PlaybackHistoryEntity)
 
+    @Query("UPDATE playback_history SET lastPlayerEngine = :playerEngine, lastDecoderMode = :decoderMode WHERE fileId = :fileId")
+    suspend fun updatePlaybackSelection(fileId: String, playerEngine: String, decoderMode: String)
+
     @Query("DELETE FROM playback_history WHERE fileId = :fileId")
     suspend fun delete(fileId: String)
 

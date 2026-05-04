@@ -3,6 +3,8 @@ package com.mkbhdana.streamhive.player.gesture
 import android.content.Context
 import android.media.AudioManager
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -14,11 +16,13 @@ import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -56,11 +60,13 @@ fun PlayerGestureHandler(
     brightnessEnabled: Boolean = true,
     doubleTapEnabled: Boolean = true,
     zoomEnabled: Boolean = true,
+    hapticFeedbackEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
+    val hapticView = LocalView.current
 
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -129,7 +135,17 @@ fun PlayerGestureHandler(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(duration, screenWidthPx, screenHeightPx) {
+            .pointerInput(
+                duration,
+                screenWidthPx,
+                screenHeightPx,
+                seekEnabled,
+                volumeEnabled,
+                brightnessEnabled,
+                doubleTapEnabled,
+                zoomEnabled,
+                hapticFeedbackEnabled
+            ) {
                 coroutineScope {
                     awaitEachGesture {
                         val firstDown = awaitFirstDown(requireUnconsumed = false)
@@ -143,6 +159,8 @@ fun PlayerGestureHandler(
                         var isPinching = false
                         var lastPinchDist = 0f
                         var currentZoom = gestureState.value.zoomLevel.coerceIn(0.5f, 3f)
+                        var lastSeekFeedbackStep = (updatedPosition / SEEK_HAPTIC_INTERVAL_MS).toInt()
+                        var lastZoomFeedbackStep = (currentZoom * ZOOM_HAPTIC_STEPS).toInt()
 
                         var ignoreGesture = false
                         val edgeMarginX = screenWidthPx * 0.08f
@@ -153,6 +171,7 @@ fun PlayerGestureHandler(
                         }
 
                         val initialVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        var lastVolumeFeedbackStep = initialVolume
                         val window = (context as? android.app.Activity)?.window
                         val initialBrightness = run {
                             val lp = window?.attributes
@@ -167,6 +186,7 @@ fun PlayerGestureHandler(
                                 } catch (_: Exception) { 0.5f }
                             }
                         }
+                        var lastBrightnessFeedbackStep = (initialBrightness * BRIGHTNESS_HAPTIC_STEPS).toInt()
 
                         var consumed = false
 
@@ -176,8 +196,11 @@ fun PlayerGestureHandler(
 
                             if (changes.all { !it.pressed }) {
                                 // All pointers up
-                                if (isDragging && gestureDir == GestureDir.HORIZONTAL) {
+                                if (isDragging && gestureDir == GestureDir.HORIZONTAL && seekEnabled) {
                                     onSeekTo(gestureState.value.seekToPosition)
+                                    if (hapticFeedbackEnabled) {
+                                        hapticView.performGestureTickHaptic()
+                                    }
                                 }
                                 if (isDragging || isPinching) {
                                     scheduleHide()
@@ -225,6 +248,13 @@ fun PlayerGestureHandler(
                                 if (lastPinchDist > 0f) {
                                     val scale = dist / lastPinchDist
                                     currentZoom = (currentZoom * scale).coerceIn(0.5f, 3f)
+                                    val zoomStep = (currentZoom * ZOOM_HAPTIC_STEPS).toInt()
+                                    if (hapticFeedbackEnabled && zoomStep != lastZoomFeedbackStep) {
+                                        hapticView.performGestureTickHaptic()
+                                        lastZoomFeedbackStep = zoomStep
+                                    } else if (!hapticFeedbackEnabled) {
+                                        lastZoomFeedbackStep = zoomStep
+                                    }
                                     gestureState.value = gestureState.value.copy(
                                         showZoomIndicator = true,
                                         showVolumeIndicator = false,
@@ -270,6 +300,13 @@ fun PlayerGestureHandler(
                                                 val eased = norm.sign() * abs(norm).pow(1.5f)
                                                 val seekDelta = (eased * duration * 0.5f).toLong()
                                                 val newPos = (updatedPosition + seekDelta).coerceIn(0, duration)
+                                                val seekFeedbackStep = (newPos / SEEK_HAPTIC_INTERVAL_MS).toInt()
+                                                if (hapticFeedbackEnabled && seekFeedbackStep != lastSeekFeedbackStep) {
+                                                    hapticView.performGestureTickHaptic()
+                                                    lastSeekFeedbackStep = seekFeedbackStep
+                                                } else if (!hapticFeedbackEnabled) {
+                                                    lastSeekFeedbackStep = seekFeedbackStep
+                                                }
                                                 gestureState.value = gestureState.value.copy(
                                                     showSeekIndicator = true,
                                                     showVolumeIndicator = false,
@@ -287,7 +324,13 @@ fun PlayerGestureHandler(
                                                 val eased = vDelta.sign() * abs(vDelta).pow(0.8f)
                                                 val newVol = (initialVolume + (eased * maxVolume).toInt())
                                                     .coerceIn(0, maxVolume)
-                                                val pct = newVol.toFloat() / maxVolume
+                                                val pct = if (maxVolume > 0) newVol.toFloat() / maxVolume else 0f
+                                                if (hapticFeedbackEnabled && newVol != lastVolumeFeedbackStep) {
+                                                    hapticView.performGestureTickHaptic()
+                                                    lastVolumeFeedbackStep = newVol
+                                                } else if (!hapticFeedbackEnabled) {
+                                                    lastVolumeFeedbackStep = newVol
+                                                }
                                                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
                                                 onVolumeChange(pct)
                                                 gestureState.value = gestureState.value.copy(
@@ -304,6 +347,13 @@ fun PlayerGestureHandler(
                                                 val bDelta = -totalDragY / (screenHeightPx * 0.5f)
                                                 val eased = bDelta.sign() * abs(bDelta).pow(0.8f)
                                                 val newBright = (initialBrightness + eased).coerceIn(0.01f, 1f)
+                                                val brightnessStep = (newBright * BRIGHTNESS_HAPTIC_STEPS).toInt()
+                                                if (hapticFeedbackEnabled && brightnessStep != lastBrightnessFeedbackStep) {
+                                                    hapticView.performGestureTickHaptic()
+                                                    lastBrightnessFeedbackStep = brightnessStep
+                                                } else if (!hapticFeedbackEnabled) {
+                                                    lastBrightnessFeedbackStep = brightnessStep
+                                                }
                                                 window?.let { w ->
                                                     val lp = w.attributes
                                                     lp.screenBrightness = newBright
@@ -333,6 +383,22 @@ fun PlayerGestureHandler(
 }
 
 private fun Float.sign(): Float = if (this >= 0f) 1f else -1f
+
+private fun View.performGestureTickHaptic() {
+    performPlayerHaptic(HapticFeedbackConstants.CLOCK_TICK)
+}
+
+private fun View.performPlayerHaptic(effect: Int) {
+    isHapticFeedbackEnabled = true
+    val flags = HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+    if (!performHapticFeedback(effect, flags) && effect != HapticFeedbackConstants.VIRTUAL_KEY) {
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY, flags)
+    }
+}
+
+private const val BRIGHTNESS_HAPTIC_STEPS = 20
+private const val SEEK_HAPTIC_INTERVAL_MS = 10_000L
+private const val ZOOM_HAPTIC_STEPS = 10
 
 private enum class GestureDir {
     HORIZONTAL, VERT_LEFT, VERT_RIGHT

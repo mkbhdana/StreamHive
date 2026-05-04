@@ -53,11 +53,17 @@ import kotlin.math.absoluteValue
 fun HomeTab(
     state: CatalogUiState,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
+    onPlayFileWithDecoder: (
+        fileId: String,
+        fileName: String,
+        engine: PlayerEngine,
+        decoderMode: String?
+    ) -> Unit = { fileId, fileName, engine, _ -> onPlayFile(fileId, fileName, engine) },
     onNavigateToSettings: () -> Unit,
     onClearHistory: () -> Unit = {},
     onNavigateToInfo: (String, String) -> Unit = { _, _ -> },
     onRemoveFromContinue: (String) -> Unit = {},
-    onPlayFromStart: (String, String, PlayerEngine) -> Unit = onPlayFile,
+    onPlayFromStart: (String, String, PlayerEngine, String?) -> Unit = onPlayFileWithDecoder,
     onNavigateToSeeAll: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -129,7 +135,7 @@ fun HomeTab(
                     items = state.continuePlayingItems,
                     tmdbMetadata = state.tmdbMetadata,
                     engine = state.selectedEngine,
-                    onPlayFile = onPlayFile,
+                    onPlayFile = onPlayFileWithDecoder,
                     onRemoveItem = onRemoveFromContinue,
                     onPlayFromStart = onPlayFromStart
                 )
@@ -499,9 +505,9 @@ private fun ContinuePlayingSection(
     items: List<PlaybackHistoryEntity>,
     tmdbMetadata: Map<String, TmdbMetadataEntity>,
     engine: PlayerEngine,
-    onPlayFile: (String, String, PlayerEngine) -> Unit,
+    onPlayFile: (String, String, PlayerEngine, String?) -> Unit,
     onRemoveItem: (String) -> Unit = {},
-    onPlayFromStart: (String, String, PlayerEngine) -> Unit = onPlayFile
+    onPlayFromStart: (String, String, PlayerEngine, String?) -> Unit = onPlayFile
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -537,7 +543,14 @@ private fun ContinuePlayingSection(
                 ContinuePlayingCard(
                     item = item,
                     metadata = tmdbMetadata[item.fileId],
-                    onClick = { onPlayFile(item.fileId, item.fileName, engine) },
+                    onClick = {
+                        onPlayFile(
+                            item.fileId,
+                            item.fileName,
+                            item.continueEngineOr(engine),
+                            item.continueDecoderMode()
+                        )
+                    },
                     onLongClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         longPressItem = item
@@ -572,7 +585,12 @@ private fun ContinuePlayingSection(
                             .clickable {
                                 longPressItem = null
                                 scope.launch {
-                                    onPlayFromStart(item.fileId, item.fileName, engine)
+                                    onPlayFromStart(
+                                        item.fileId,
+                                        item.fileName,
+                                        item.continueEngineOr(engine),
+                                        item.continueDecoderMode()
+                                    )
                                 }
                             }
                             .padding(vertical = 12.dp, horizontal = 8.dp),
@@ -606,6 +624,15 @@ private fun ContinuePlayingSection(
             }
         )
     }
+}
+
+private fun PlaybackHistoryEntity.continueEngineOr(defaultEngine: PlayerEngine): PlayerEngine {
+    val storedEngine = lastPlayerEngine?.takeIf { it.isNotBlank() } ?: return defaultEngine
+    return runCatching { PlayerEngine.valueOf(storedEngine) }.getOrDefault(defaultEngine)
+}
+
+private fun PlaybackHistoryEntity.continueDecoderMode(): String? {
+    return lastDecoderMode?.takeIf { it.isNotBlank() }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
