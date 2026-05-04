@@ -28,7 +28,9 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: |
+          VERSION_NAME=${GITHUB_REF_NAME#v}
+          ./gradlew assembleRelease -PSTREAMHIVE_VERSION_NAME="$VERSION_NAME"
 
       - name: Sign APK
         id: sign_app

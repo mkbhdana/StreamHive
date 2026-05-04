@@ -30,7 +30,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StreamHive"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:remove="android:versionCode,android:versionName"
         tools:replace="android:allowBackup"
         tools:targetApi="31">
 

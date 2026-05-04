@@ -7,6 +7,51 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val streamHiveVersionNameProperty = providers.gradleProperty("STREAMHIVE_VERSION_NAME").orNull
+val streamHiveVersionCodeProperty = providers.gradleProperty("STREAMHIVE_VERSION_CODE").orNull
+val streamHiveGithubRefName = providers.environmentVariable("GITHUB_REF_NAME").orNull
+
+fun streamHiveReleaseVersionName(explicitVersion: String?, githubTag: String?): String {
+    return (explicitVersion ?: githubTag)
+        ?.trim()
+        ?.trimStart('v', 'V')
+        ?.takeIf { it.isNotBlank() }
+        ?: "1.0.0"
+}
+
+fun streamHiveReleaseVersionCode(
+    versionName: String,
+    explicitVersionCode: String?,
+    hasExternalVersion: Boolean
+): Int {
+    explicitVersionCode
+        ?.toIntOrNull()
+        ?.takeIf { it > 0 }
+        ?.let { return it }
+
+    if (!hasExternalVersion) return 1
+
+    val parts = Regex("""\d+""")
+        .findAll(versionName)
+        .mapNotNull { it.value.toIntOrNull() }
+        .take(4)
+        .toList()
+
+    val major = parts.getOrElse(0) { 0 }.coerceIn(0, 2099)
+    val minor = parts.getOrElse(1) { 0 }.coerceIn(0, 99)
+    val patch = parts.getOrElse(2) { 0 }.coerceIn(0, 99)
+    val build = parts.getOrElse(3) { 0 }.coerceIn(0, 99)
+
+    return (major * 1_000_000 + minor * 10_000 + patch * 100 + build)
+        .coerceAtLeast(1)
+}
+
+val streamHiveHasExternalVersion = streamHiveVersionNameProperty != null || streamHiveGithubRefName != null
+val streamHiveVersionName = streamHiveReleaseVersionName(
+    explicitVersion = streamHiveVersionNameProperty,
+    githubTag = streamHiveGithubRefName
+)
+
 android {
     namespace = "com.mkbhdana.streamhive"
     compileSdk = 36
@@ -15,8 +60,12 @@ android {
         applicationId = "com.mkbhdana.streamhive"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = streamHiveReleaseVersionCode(
+            versionName = streamHiveVersionName,
+            explicitVersionCode = streamHiveVersionCodeProperty,
+            hasExternalVersion = streamHiveHasExternalVersion
+        )
+        versionName = streamHiveVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
