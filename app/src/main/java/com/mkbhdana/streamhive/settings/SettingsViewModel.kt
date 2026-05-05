@@ -68,7 +68,10 @@ data class SettingsUiState(
     // Updates
     val lastUpdateCheckAt: Long = 0L,
     val isCheckingForUpdate: Boolean = false,
-    val availableUpdate: AppUpdateInfo? = null
+    val availableUpdate: AppUpdateInfo? = null,
+    val isDownloadingUpdate: Boolean = false,
+    val updateDownloadProgress: Int = 0,
+    val updateStatusMessage: String? = null
 )
 
 @HiltViewModel
@@ -270,7 +273,8 @@ class SettingsViewModel @Inject constructor(
                     uiState = uiState.copy(
                         isCheckingForUpdate = false,
                         lastUpdateCheckAt = checkedAt,
-                        availableUpdate = update
+                        availableUpdate = update,
+                        updateStatusMessage = null
                     )
                     onComplete(
                         if (update != null) "Update v${update.versionName} is available"
@@ -287,6 +291,61 @@ class SettingsViewModel @Inject constructor(
 
     fun dismissUpdatePrompt() {
         uiState = uiState.copy(availableUpdate = null)
+    }
+
+    fun downloadAndInstallUpdate() {
+        val update = uiState.availableUpdate ?: return
+        if (uiState.isDownloadingUpdate) return
+
+        if (!appUpdateRepository.canRequestPackageInstalls()) {
+            appUpdateRepository.openInstallPermissionSettings()
+            uiState = uiState.copy(
+                updateStatusMessage = "Allow StreamHive to install unknown apps, then tap Download again."
+            )
+            return
+        }
+
+        uiState = uiState.copy(
+            isDownloadingUpdate = true,
+            updateDownloadProgress = 0,
+            updateStatusMessage = null
+        )
+
+        viewModelScope.launch {
+            appUpdateRepository.downloadUpdateApk(update) { progress ->
+                uiState = uiState.copy(updateDownloadProgress = progress)
+            }.fold(
+                onSuccess = { apkFile ->
+                    runCatching { appUpdateRepository.launchApkInstaller(apkFile) }
+                        .fold(
+                            onSuccess = {
+                                uiState = uiState.copy(
+                                    availableUpdate = null,
+                                    isDownloadingUpdate = false,
+                                    updateDownloadProgress = 100,
+                                    updateStatusMessage = "Opening installer"
+                                )
+                            },
+                            onFailure = { error ->
+                                uiState = uiState.copy(
+                                    isDownloadingUpdate = false,
+                                    updateStatusMessage = error.message ?: "Unable to open installer"
+                                )
+                            }
+                        )
+                },
+                onFailure = { error ->
+                    uiState = uiState.copy(
+                        isDownloadingUpdate = false,
+                        updateStatusMessage = error.message ?: "Update download failed"
+                    )
+                }
+            )
+        }
+    }
+
+    fun clearUpdateStatusMessage() {
+        uiState = uiState.copy(updateStatusMessage = null)
     }
 
     // ──── TMDB ────

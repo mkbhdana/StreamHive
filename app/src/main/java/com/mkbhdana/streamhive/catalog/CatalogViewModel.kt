@@ -85,7 +85,10 @@ data class CatalogUiState(
     val isOffline: Boolean = false,
 
     // App updates
-    val availableUpdate: AppUpdateInfo? = null
+    val availableUpdate: AppUpdateInfo? = null,
+    val isDownloadingUpdate: Boolean = false,
+    val updateDownloadProgress: Int = 0,
+    val updateStatusMessage: String? = null
 )
 
 data class SearchFolderInfo(
@@ -975,6 +978,71 @@ class CatalogViewModel @Inject constructor(
             appPreferences.dismissedUpdateTag = update.tagName
         }
         _uiState.update { it.copy(availableUpdate = null) }
+    }
+
+    fun downloadAndInstallUpdate() {
+        val update = _uiState.value.availableUpdate ?: return
+        if (_uiState.value.isDownloadingUpdate) return
+
+        if (!appUpdateRepository.canRequestPackageInstalls()) {
+            appUpdateRepository.openInstallPermissionSettings()
+            _uiState.update {
+                it.copy(
+                    updateStatusMessage = "Allow StreamHive to install unknown apps, then tap Download again."
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                isDownloadingUpdate = true,
+                updateDownloadProgress = 0,
+                updateStatusMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            appUpdateRepository.downloadUpdateApk(update) { progress ->
+                _uiState.update { it.copy(updateDownloadProgress = progress) }
+            }.fold(
+                onSuccess = { apkFile ->
+                    runCatching { appUpdateRepository.launchApkInstaller(apkFile) }
+                        .fold(
+                            onSuccess = {
+                                _uiState.update {
+                                    it.copy(
+                                        availableUpdate = null,
+                                        isDownloadingUpdate = false,
+                                        updateDownloadProgress = 100,
+                                        updateStatusMessage = "Opening installer"
+                                    )
+                                }
+                            },
+                            onFailure = { error ->
+                                _uiState.update {
+                                    it.copy(
+                                        isDownloadingUpdate = false,
+                                        updateStatusMessage = error.message ?: "Unable to open installer"
+                                    )
+                                }
+                            }
+                        )
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isDownloadingUpdate = false,
+                            updateStatusMessage = error.message ?: "Update download failed"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearUpdateStatusMessage() {
+        _uiState.update { it.copy(updateStatusMessage = null) }
     }
 
     override fun onCleared() {

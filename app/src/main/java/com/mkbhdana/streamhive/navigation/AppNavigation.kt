@@ -7,10 +7,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.util.UnstableApi
@@ -55,26 +55,53 @@ fun AppNavigation(isTv: Boolean = false) {
     val navController = rememberNavController()
     val updateViewModel: AppUpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.uiState.collectAsState()
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+
+    LaunchedEffect(updateState.updateStatusMessage) {
+        updateState.updateStatusMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            updateViewModel.clearUpdateStatusMessage()
+        }
+    }
 
     updateState.availableUpdate?.let { update ->
         AlertDialog(
-            onDismissRequest = { updateViewModel.dismissUpdatePrompt() },
+            onDismissRequest = {
+                if (!updateState.isDownloadingUpdate) updateViewModel.dismissUpdatePrompt()
+            },
             shape = RoundedCornerShape(16.dp),
             title = { Text("Update Available") },
-            text = { Text("StreamHive v${update.versionName} is available. Download the latest APK to update the app.") },
+            text = {
+                Text(
+                    buildString {
+                        append("StreamHive v${update.versionName} is available.")
+                        if (update.targetAbi.isNotBlank()) {
+                            append("\nAPK: ${update.targetAbi}")
+                        }
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(
+                    enabled = !updateState.isDownloadingUpdate,
                     onClick = {
-                        uriHandler.openUri(update.releaseUrl)
-                        updateViewModel.dismissUpdatePrompt(suppressThisVersion = true)
+                        updateViewModel.downloadAndInstallUpdate()
                     }
                 ) {
-                    Text("Download")
+                    Text(
+                        if (updateState.isDownloadingUpdate) {
+                            "Downloading ${updateState.updateDownloadProgress}%"
+                        } else {
+                            "Download & Install"
+                        }
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { updateViewModel.dismissUpdatePrompt() }) {
+                TextButton(
+                    enabled = !updateState.isDownloadingUpdate,
+                    onClick = { updateViewModel.dismissUpdatePrompt() }
+                ) {
                     Text("Later")
                 }
             }

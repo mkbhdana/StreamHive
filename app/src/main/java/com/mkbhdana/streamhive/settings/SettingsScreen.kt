@@ -29,7 +29,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -43,28 +42,52 @@ fun SettingsScreen(
     val state = viewModel.uiState
     val availableFolders by viewModel.availableFolders.collectAsState()
     val screenContext = LocalContext.current
-    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(state.updateStatusMessage) {
+        state.updateStatusMessage?.let { message ->
+            Toast.makeText(screenContext, message, Toast.LENGTH_LONG).show()
+            viewModel.clearUpdateStatusMessage()
+        }
+    }
 
     state.availableUpdate?.let { update ->
         AlertDialog(
-            onDismissRequest = { viewModel.dismissUpdatePrompt() },
+            onDismissRequest = {
+                if (!state.isDownloadingUpdate) viewModel.dismissUpdatePrompt()
+            },
             shape = RoundedCornerShape(16.dp),
             title = { Text("Update Available") },
             text = {
-                Text("StreamHive v${update.versionName} is available. Download the latest APK to update.")
+                Text(
+                    buildString {
+                        append("StreamHive v${update.versionName} is available.")
+                        if (update.targetAbi.isNotBlank()) {
+                            append("\nAPK: ${update.targetAbi}")
+                        }
+                    }
+                )
             },
             confirmButton = {
                 TextButton(
+                    enabled = !state.isDownloadingUpdate,
                     onClick = {
-                        uriHandler.openUri(update.releaseUrl)
-                        viewModel.dismissUpdatePrompt()
+                        viewModel.downloadAndInstallUpdate()
                     }
                 ) {
-                    Text("Download")
+                    Text(
+                        if (state.isDownloadingUpdate) {
+                            "Downloading ${state.updateDownloadProgress}%"
+                        } else {
+                            "Download & Install"
+                        }
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                TextButton(
+                    enabled = !state.isDownloadingUpdate,
+                    onClick = { viewModel.dismissUpdatePrompt() }
+                ) {
                     Text("Later")
                 }
             }

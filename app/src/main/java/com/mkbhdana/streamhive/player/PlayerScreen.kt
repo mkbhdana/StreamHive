@@ -64,6 +64,16 @@ fun PlayerScreen(
     val canSwitchToMpv = remember(onSwitchToMpv, viewModel) {
         onSwitchToMpv != null && viewModel.isMpvAvailable()
     }
+    val gesturePreviewPosition = gestureState.value
+        .takeIf {
+            uiState.showControls &&
+                it.showSeekIndicator &&
+                it.showSeekTimestamp &&
+                uiState.duration > 0L
+        }
+        ?.seekToPosition
+        ?.coerceIn(0L, uiState.duration)
+    val controlsCurrentPosition = gesturePreviewPosition ?: uiState.currentPosition
 
     fun showQuickSeekPill(deltaMs: Long) {
         val basePosition = viewModel.player?.currentPosition ?: uiState.currentPosition
@@ -74,7 +84,8 @@ fun PlayerScreen(
             showBrightnessIndicator = false,
             showZoomIndicator = false,
             seekDeltaSeconds = (deltaMs / 1000L).toInt(),
-            seekToPosition = targetPosition
+            seekToPosition = targetPosition,
+            showSeekTimestamp = false
         )
         seekPillSignal++
     }
@@ -386,7 +397,7 @@ fun PlayerScreen(
                 engineLabel = "ExoPlayer",
                 engineColor = AccentGreen,
                 isPlaying = uiState.isPlaying,
-                currentPosition = uiState.currentPosition,
+                currentPosition = controlsCurrentPosition,
                 duration = uiState.duration,
                 bufferedPercentage = uiState.bufferedPercentage,
                 isLocked = uiState.isLocked,
