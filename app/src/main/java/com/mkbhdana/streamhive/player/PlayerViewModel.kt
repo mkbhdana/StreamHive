@@ -809,7 +809,7 @@ class PlayerViewModel @Inject constructor(
     fun seekToChapter(index: Int) {
         val chapters = _uiState.value.chapters
         if (index in chapters.indices) {
-            _player?.seekTo(chapters[index].startMs)
+            seekTo(chapters[index].startMs)
         }
     }
 
@@ -818,7 +818,7 @@ class PlayerViewModel @Inject constructor(
         val currentPos = _player?.currentPosition ?: return
         val nextChapter = chapters.firstOrNull { it.startMs > currentPos + 1000 }
         if (nextChapter != null) {
-            _player?.seekTo(nextChapter.startMs)
+            seekTo(nextChapter.startMs)
         }
     }
 
@@ -829,9 +829,9 @@ class PlayerViewModel @Inject constructor(
         val currentIdx = chapters.indexOfLast { it.startMs <= currentPos }
         if (currentIdx >= 0) {
             if (currentPos - chapters[currentIdx].startMs > 3000 || currentIdx == 0) {
-                _player?.seekTo(chapters[currentIdx].startMs)
+                seekTo(chapters[currentIdx].startMs)
             } else {
-                _player?.seekTo(chapters[currentIdx - 1].startMs)
+                seekTo(chapters[currentIdx - 1].startMs)
             }
         }
     }
@@ -843,15 +843,41 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekTo(positionMs: Long) {
-        _player?.seekTo(positionMs)
+        val player = _player ?: return
+        val durationMs = player.duration
+            .takeIf { it > 0L }
+            ?: _uiState.value.duration
+                .takeIf { it > 0L }
+        val targetPosition = if (durationMs != null) {
+            positionMs.coerceIn(0L, durationMs)
+        } else {
+            positionMs.coerceAtLeast(0L)
+        }
+        player.seekTo(targetPosition)
+        _uiState.update {
+            it.copy(
+                currentPosition = targetPosition,
+                bufferedPercentage = player.bufferedPercentage,
+                duration = durationMs ?: it.duration
+            )
+        }
     }
 
     fun seekForward(ms: Long = 10_000) {
-        _player?.let { it.seekTo((it.currentPosition + ms).coerceAtMost(it.duration)) }
+        _player?.let { player ->
+            val durationMs = player.duration
+                .takeIf { it > 0L }
+                ?: _uiState.value.duration
+                    .takeIf { it > 0L }
+            val targetPosition = player.currentPosition + ms
+            seekTo(durationMs?.let { targetPosition.coerceAtMost(it) } ?: targetPosition)
+        }
     }
 
     fun seekBackward(ms: Long = 10_000) {
-        _player?.let { it.seekTo((it.currentPosition - ms).coerceAtLeast(0)) }
+        _player?.let { player ->
+            seekTo((player.currentPosition - ms).coerceAtLeast(0L))
+        }
     }
 
     fun toggleControls() {

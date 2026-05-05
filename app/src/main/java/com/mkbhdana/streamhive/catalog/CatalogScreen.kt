@@ -1,5 +1,6 @@
 package com.mkbhdana.streamhive.catalog
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -23,7 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,7 +61,14 @@ fun CatalogScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0=Home, 1=Folders
     var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val uriHandler = LocalUriHandler.current
+    val screenContext = LocalContext.current
+
+    LaunchedEffect(uiState.updateStatusMessage) {
+        uiState.updateStatusMessage?.let { message ->
+            Toast.makeText(screenContext, message, Toast.LENGTH_LONG).show()
+            viewModel.clearUpdateStatusMessage()
+        }
+    }
 
     // Load home content when Home tab is selected
     LaunchedEffect(selectedTab) {
@@ -90,7 +98,7 @@ fun CatalogScreen(
 
     var showExitDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
-    val activity = (androidx.compose.ui.platform.LocalContext.current as? android.app.Activity)
+    val activity = (screenContext as? android.app.Activity)
 
     BackHandler(enabled = true) {
         if (uiState.folderStack.isNotEmpty() && selectedTab == 1) {
@@ -230,26 +238,42 @@ fun CatalogScreen(
 
         uiState.availableUpdate?.let { update ->
             AlertDialog(
-                onDismissRequest = { viewModel.dismissUpdatePrompt() },
+                onDismissRequest = {
+                    if (!uiState.isDownloadingUpdate) viewModel.dismissUpdatePrompt()
+                },
                 shape = RoundedCornerShape(16.dp),
                 title = { Text("Update Available") },
                 text = {
                     Text(
-                        "StreamHive v${update.versionName} is available. Download the latest APK to update the app."
+                        buildString {
+                            append("StreamHive v${update.versionName} is available.")
+                            if (update.targetAbi.isNotBlank()) {
+                                append("\nAPK: ${update.targetAbi}")
+                            }
+                        }
                     )
                 },
                 confirmButton = {
                     TextButton(
+                        enabled = !uiState.isDownloadingUpdate,
                         onClick = {
-                            uriHandler.openUri(update.releaseUrl)
-                            viewModel.dismissUpdatePrompt(suppressThisVersion = true)
+                            viewModel.downloadAndInstallUpdate()
                         }
                     ) {
-                        Text("Download")
+                        Text(
+                            if (uiState.isDownloadingUpdate) {
+                                "Downloading ${uiState.updateDownloadProgress}%"
+                            } else {
+                                "Download & Install"
+                            }
+                        )
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                    TextButton(
+                        enabled = !uiState.isDownloadingUpdate,
+                        onClick = { viewModel.dismissUpdatePrompt() }
+                    ) {
                         Text("Later")
                     }
                 }

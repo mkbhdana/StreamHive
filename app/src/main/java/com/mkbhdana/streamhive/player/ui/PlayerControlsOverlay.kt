@@ -43,6 +43,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mkbhdana.streamhive.util.FileUtils
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun HideBottomSheetSystemUI() {
@@ -163,6 +164,7 @@ fun PlayerControlsOverlay(
     // Local seek state to prevent seekbar stutter
     var isSeeking by remember { mutableStateOf(false) }
     var seekFraction by remember { mutableFloatStateOf(0f) }
+    var pendingSeekPosition by remember { mutableStateOf<Long?>(null) }
     var showAudioSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showSubtitleStyleSidebar by remember { mutableStateOf(false) }
@@ -178,6 +180,13 @@ fun PlayerControlsOverlay(
         if (showResizePill) {
             kotlinx.coroutines.delay(1000)
             showResizePill = false
+        }
+    }
+
+    LaunchedEffect(currentPosition, pendingSeekPosition) {
+        val pending = pendingSeekPosition ?: return@LaunchedEffect
+        if (abs(currentPosition - pending) <= SEEK_POSITION_SETTLE_TOLERANCE_MS) {
+            pendingSeekPosition = null
         }
     }
 
@@ -403,9 +412,15 @@ fun PlayerControlsOverlay(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val displayPosition = when {
+                    isSeeking -> (seekFraction * duration).toLong()
+                    pendingSeekPosition != null -> pendingSeekPosition ?: currentPosition
+                    else -> currentPosition
+                }.coerceIn(0L, duration.coerceAtLeast(0L))
+
                 // Current Time
                 Text(
-                    text = FileUtils.formatDuration(if (isSeeking) (seekFraction * duration).toLong() else currentPosition),
+                    text = FileUtils.formatDuration(displayPosition),
                     color = Color.White,
                     style = MaterialTheme.typography.labelMedium
                 )
@@ -413,7 +428,7 @@ fun PlayerControlsOverlay(
                 // Seekbar Box to overlay markers on custom seekbar
                 Box(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     val displayFraction = if (isSeeking) seekFraction
-                        else if (duration > 0) currentPosition.toFloat() / duration.toFloat()
+                        else if (duration > 0) displayPosition.toFloat() / duration.toFloat()
                         else 0f
 
                     val animatedFraction by animateFloatAsState(
@@ -432,7 +447,10 @@ fun PlayerControlsOverlay(
                             seekFraction = fraction
                         },
                         onSeekFinished = {
-                            onSeekTo((seekFraction * duration).toLong())
+                            val targetPosition = (seekFraction * duration).toLong()
+                                .coerceIn(0L, duration.coerceAtLeast(0L))
+                            pendingSeekPosition = targetPosition
+                            onSeekTo(targetPosition)
                             isSeeking = false
                         },
                         isPlaying = isPlaying,
@@ -646,6 +664,8 @@ fun PlayerControlsOverlay(
 }
 
 // ──── Custom Seekbar ────
+
+private const val SEEK_POSITION_SETTLE_TOLERANCE_MS = 1_000L
 
 @Composable
 private fun CustomSeekbar(
