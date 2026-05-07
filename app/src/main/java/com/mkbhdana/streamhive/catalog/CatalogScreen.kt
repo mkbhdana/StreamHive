@@ -38,6 +38,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 
@@ -62,6 +64,20 @@ fun CatalogScreen(
     var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val screenContext = LocalContext.current
+    val homeListState = rememberLazyListState()
+
+    // Smooth scroll-based app bar opacity: fully transparent at top, fully opaque after 400px scroll
+    val appBarAlpha by remember {
+        derivedStateOf {
+            if (selectedTab != 0) 1f
+            else when {
+                homeListState.firstVisibleItemIndex > 0 -> 1f
+                else -> (homeListState.firstVisibleItemScrollOffset / 400f).coerceIn(0f, 1f)
+            }
+        }
+    }
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val appBarColor = surfaceColor.copy(alpha = appBarAlpha)
 
     LaunchedEffect(uiState.updateStatusMessage) {
         uiState.updateStatusMessage?.let { message ->
@@ -160,7 +176,7 @@ fun CatalogScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = appBarColor
                 )
             )
         },
@@ -283,16 +299,18 @@ fun CatalogScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
         ) {
             // Tab content
             when (selectedTab) {
                 0 -> {
                     // Pull-to-refresh for HomeTab -> same logic as refresh icon
+                    // Only apply bottom padding (nav bar) so hero extends behind transparent app bar
                     PullToRefreshBox(
                         isRefreshing = uiState.isHomeRefreshing,
                         onRefresh = { viewModel.refreshHomeContent() },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = paddingValues.calculateBottomPadding())
                     ) {
                         HomeTab(
                             state = uiState,
@@ -308,25 +326,34 @@ fun CatalogScreen(
                                     onPlayFileWithDecoder(fileId, fileName, engine, decoderMode)
                                 }
                             },
-                            onNavigateToSeeAll = onNavigateToSeeAll
+                            onNavigateToSeeAll = onNavigateToSeeAll,
+                            homeListState = homeListState
                         )
                     }
                 }
-                1 -> FoldersTab(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    onPlayFile = onPlayFile
-                )
-                2 -> SearchTab(
-                    state = uiState,
-                    viewModel = viewModel,
-                    focusRequestSignal = searchFocusRequest,
-                    onPlayFile = onPlayFile,
-                    onFolderNavigate = { folder ->
-                        viewModel.openSearchFolder(folder.id, folder.name, folder.driveId)
-                    },
-                    onNavigateToInfo = onNavigateToInfo
-                )
+                1 -> {
+                    Box(modifier = Modifier.padding(paddingValues)) {
+                        FoldersTab(
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            onPlayFile = onPlayFile
+                        )
+                    }
+                }
+                2 -> {
+                    Box(modifier = Modifier.padding(paddingValues)) {
+                        SearchTab(
+                            state = uiState,
+                            viewModel = viewModel,
+                            focusRequestSignal = searchFocusRequest,
+                            onPlayFile = onPlayFile,
+                            onFolderNavigate = { folder ->
+                                viewModel.openSearchFolder(folder.id, folder.name, folder.driveId)
+                            },
+                            onNavigateToInfo = onNavigateToInfo
+                        )
+                    }
+                }
             }
         }
     }

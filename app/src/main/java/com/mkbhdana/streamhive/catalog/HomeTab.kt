@@ -48,6 +48,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import kotlin.math.absoluteValue
+import androidx.compose.foundation.lazy.LazyListState
 
 @Composable
 fun HomeTab(
@@ -65,11 +66,12 @@ fun HomeTab(
     onRemoveFromContinue: (String) -> Unit = {},
     onPlayFromStart: (String, String, PlayerEngine, String?) -> Unit = onPlayFileWithDecoder,
     onNavigateToSeeAll: (String) -> Unit = {},
+    homeListState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
     val hasContinuePlaying = state.continuePlayingItems.isNotEmpty()
     val hasAnyContent = state.homeSections.isNotEmpty() || state.homeRecentlyAdded.isNotEmpty()
-    val listState = rememberLazyListState()
+    val listState = homeListState
     val heroPosterScale by animateFloatAsState(
         targetValue = 1f + when {
             listState.firstVisibleItemIndex == 0 -> (listState.firstVisibleItemScrollOffset / 900f).coerceIn(0f, 0.08f)
@@ -94,9 +96,8 @@ fun HomeTab(
         return
     }
 
-    val showSkeleton =
-        state.isHomeRefreshing ||
-            ((state.isLoading || state.isHomeLoading) && !hasAnyContent && !hasContinuePlaying)
+    val showSkeleton = state.isHomeRefreshing || state.isHomeLoading ||
+        (state.isLoading && !hasAnyContent)
 
     // Show skeleton while drives/home content load, and for explicit home refreshes.
     if (showSkeleton) {
@@ -173,22 +174,6 @@ fun HomeTab(
         if (!hasAnyContent && !hasContinuePlaying && state.hasTmdbSetup) {
             item {
                 NoHomeContent(onNavigateToSettings = onNavigateToSettings)
-            }
-        }
-
-        if (state.isHomeLoading) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    LoadingIndicator(
-                        modifier = Modifier.fillMaxSize(),
-                        message = "Getting Ready..."
-                    )
-                }
             }
         }
 
@@ -275,21 +260,7 @@ private fun RecentlyAddedHeroSection(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(88.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
+
 
         Box(
             modifier = Modifier
@@ -316,19 +287,25 @@ private fun RecentlyAddedHeroSection(
             Crossfade(
                 targetState = currentPage,
                 animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
-                label = "hero_copy"
+                label = "hero_copy",
+                modifier = Modifier.fillMaxWidth()
             ) { page ->
                 val file = heroItems[page]
                 val metadata = tmdbMetadata[file.id]
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
                         text = metadata?.title ?: cleanDisplayTitle(file.name),
                         style = MaterialTheme.typography.headlineLarge,
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
+                        minLines = 2,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -338,7 +315,8 @@ private fun RecentlyAddedHeroSection(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -1334,11 +1312,60 @@ private fun ShimmerBox(modifier: Modifier) {
 
 @Composable
 fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
+    val configuration = LocalConfiguration.current
+    val heroTargetHeight = (configuration.screenHeightDp * 0.62f).dp
+    val heroHeight = when {
+        heroTargetHeight < 360.dp -> 360.dp
+        heroTargetHeight > 500.dp -> 500.dp
+        else -> heroTargetHeight
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
+        // Hero section skeleton
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroHeight)
+            ) {
+                ShimmerBox(
+                    Modifier.fillMaxSize()
+                )
+                // Bottom content overlay skeleton
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 28.dp)
+                        .padding(bottom = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ShimmerBox(Modifier.width(220.dp).height(28.dp))
+                    Spacer(Modifier.height(10.dp))
+                    ShimmerBox(Modifier.width(120.dp).height(16.dp))
+                    Spacer(Modifier.height(20.dp))
+                    ShimmerBox(
+                        Modifier
+                            .width(176.dp)
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(28.dp))
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        repeat(4) {
+                            ShimmerBox(
+                                Modifier
+                                    .size(width = 10.dp, height = 10.dp)
+                                    .clip(RoundedCornerShape(50))
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // Continue Playing skeleton
         item {
             Column {

@@ -26,6 +26,9 @@ import com.mkbhdana.streamhive.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -120,21 +123,26 @@ class CatalogViewModel @Inject constructor(
 
     private var loadFilesJob: Job? = null
     private var cacheCollectionJob: Job? = null
+    private var homeLoadJob: Job? = null
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val continueMetadataFetchAttempted = mutableSetOf<String>()
+    private var lastHomeLoadTimestamp = 0L
 
     // TTL cache: folderKey -> timestamp of last API fetch
     private val lastLoadedTimestamps = mutableMapOf<String, Long>()
     private val cacheTtlMs = 5 * 60 * 1000L // 5 minutes
 
     init {
+        val hasTmdb = appPreferences.tmdbApiKey.isNotEmpty()
         _uiState.update {
             it.copy(
                 selectedEngine = appPreferences.preferredEngine,
                 isMpvAvailable = appPreferences.isMpvAvailable(),
-                hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty(),
-                isGridView = appPreferences.isGridView
+                hasTmdbSetup = hasTmdb,
+                isGridView = appPreferences.isGridView,
+                // Show skeleton from first render so continue-playing doesn't flash alone
+                isHomeLoading = hasTmdb
             )
         }
         observeNetworkConnectivity()
@@ -494,6 +502,10 @@ class CatalogViewModel @Inject constructor(
     // ──── Home Tab ────
 
     fun loadHomeContent(isRefresh: Boolean = false) {
+        // Don't attempt to load home content if drives haven't been fetched yet.
+        // loadSharedDrives() will call this again once drives are available.
+        if (_uiState.value.sharedDrives.isEmpty() && !isRefresh) return
+
         val movieFolders = appPreferences.tmdbMovieFolders
         val tvFolders = appPreferences.tmdbTvFolders
         val animeFolders = appPreferences.tmdbAnimeFolders
@@ -511,12 +523,18 @@ class CatalogViewModel @Inject constructor(
             return
         }
 
-        val needsSpinner = _uiState.value.homeSections.isEmpty() && _uiState.value.homeRecentlyAdded.isEmpty()
+        // Debounce: skip reload if data was loaded recently and we already have content
+        val hasContent = _uiState.value.homeSections.isNotEmpty() || _uiState.value.homeRecentlyAdded.isNotEmpty()
+        val now = System.currentTimeMillis()
+        if (!isRefresh && hasContent && (now - lastHomeLoadTimestamp) < HOME_CONTENT_DEBOUNCE_MS) {
+            return
+        }
 
-        viewModelScope.launch {
-            if (needsSpinner && !isRefresh) {
-                _uiState.update { it.copy(isHomeLoading = true) }
-            }
+        // Set loading state synchronously to prevent flash of partial content
+        _uiState.update { it.copy(isHomeLoading = true) }
+
+        homeLoadJob?.cancel()
+        homeLoadJob = viewModelScope.launch {
             try {
                 val allFolders = driveRepository.getAllFolders().first()
                 fun getFolderName(id: String) = allFolders.find { it.id == id }?.name ?: id
@@ -556,6 +574,7 @@ class CatalogViewModel @Inject constructor(
                     .take(10)
                 allFetchedFiles.addAll(homeRecentlyAdded)
 
+                lastHomeLoadTimestamp = System.currentTimeMillis()
                 _uiState.update {
                     it.copy(
                         homeSections = sections,
@@ -582,33 +601,40 @@ class CatalogViewModel @Inject constructor(
                     it.id !in cachedMap || it.id in missingOriginalLanguageIds
                 }
                 
-                // Determine mediaType mapping for fallback requests
-                val movieIds = movieFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
-                val tvIds = tvFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
-                val animeIds = animeFolders.flatMap { loadFilesFromFolders(setOf(it)).map { f -> f.id } }.toSet()
+                // Build mediaType lookup from already-fetched section data (no extra API calls)
+                val fileTypeMap = mutableMapOf<String, String>()
+                sections.forEach { section ->
+                    section.items.forEach { file -> fileTypeMap[file.id] = section.mediaType }
+                }
 
-                uncachedFiles.forEach { file ->
-                    val type = when {
-                        movieIds.contains(file.id) -> "movie"
-                        tvIds.contains(file.id) -> "tv"
-                        animeIds.contains(file.id) -> "tv"
-                        else -> "auto"
-                    }
+                // Fetch uncached TMDB metadata in parallel batches
+                uncachedFiles.chunked(5).forEach { batch ->
+                    coroutineScope {
+                        val results = batch.map { file ->
+                            async {
+                                val type = fileTypeMap[file.id] ?: "auto"
 
-                    var meta: TmdbMetadataEntity? = null
-                    if (file.isFolder) {
-                        val idFromName = detectMetadataIdInFolder(file)
-                        if (idFromName != null) {
-                            meta = tmdbRepository.fixMetadataById(file.id, idFromName, type)
+                                var meta: TmdbMetadataEntity? = null
+                                if (file.isFolder) {
+                                    val idFromName = detectMetadataIdInFolder(file)
+                                    if (idFromName != null) {
+                                        meta = tmdbRepository.fixMetadataById(file.id, idFromName, type)
+                                    }
+                                }
+
+                                if (meta == null) {
+                                    meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
+                                }
+
+                                if (meta != null) file.id to meta else null
+                            }
+                        }.awaitAll().filterNotNull()
+
+                        if (results.isNotEmpty()) {
+                            _uiState.update {
+                                it.copy(tmdbMetadata = it.tmdbMetadata + results.toMap())
+                            }
                         }
-                    }
-
-                    if (meta == null) {
-                        meta = tmdbRepository.fetchAndCacheMetadata(file.id, file.name, type)
-                    }
-
-                    meta?.let { m ->
-                        _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + (file.id to m)) }
                     }
                 }
                 
@@ -832,12 +858,14 @@ class CatalogViewModel @Inject constructor(
         return _uiState.value.sharedDrives.find { it.id == driveId }?.name ?: driveId
     }
 
-    /** Force-refresh home content, clearing folder cache timestamps and TMDB metadata */
     fun refreshHomeContent() {
         // Show the full home skeleton for explicit user refreshes.
-        _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = true, tmdbMetadata = emptyMap()) }
+        // Keep tmdbMetadata so cached posters remain visible while new data loads.
+        _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = true) }
         // Clear folder timestamp cache to force API refresh
         lastLoadedTimestamps.clear()
+        // Clear debounce so loadHomeContent always runs
+        lastHomeLoadTimestamp = 0L
         // Re-load home content from Drive API
         loadHomeContent(isRefresh = true)
     }
@@ -1102,5 +1130,6 @@ class CatalogViewModel @Inject constructor(
 
     private companion object {
         private const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
+        private const val HOME_CONTENT_DEBOUNCE_MS = 60_000L
     }
 }
