@@ -183,11 +183,18 @@ fun PlayerControlsOverlay(
         }
     }
 
-    LaunchedEffect(currentPosition, pendingSeekPosition) {
+    // Hold pendingSeekPosition until player actually catches up (with a minimum hold time)
+    LaunchedEffect(pendingSeekPosition) {
         val pending = pendingSeekPosition ?: return@LaunchedEffect
-        if (abs(currentPosition - pending) <= SEEK_POSITION_SETTLE_TOLERANCE_MS) {
-            pendingSeekPosition = null
+        // Give the player time to start seeking before checking
+        kotlinx.coroutines.delay(500)
+        // Then wait for the player position to settle near the target
+        kotlinx.coroutines.withTimeoutOrNull(5000) {
+            while (abs(currentPosition - pending) > SEEK_POSITION_SETTLE_TOLERANCE_MS) {
+                kotlinx.coroutines.delay(100)
+            }
         }
+        pendingSeekPosition = null
     }
 
     // Track when any panel is open and notify parent
@@ -427,18 +434,15 @@ fun PlayerControlsOverlay(
                 
                 // Seekbar Box to overlay markers on custom seekbar
                 Box(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    val displayFraction = if (isSeeking) seekFraction
-                        else if (duration > 0) displayPosition.toFloat() / duration.toFloat()
-                        else 0f
-
-                    val animatedFraction by animateFloatAsState(
-                        targetValue = displayFraction,
-                        animationSpec = androidx.compose.animation.core.tween(150),
-                        label = "seekbar"
-                    )
+                    // Direct fraction — no animation. Seekbar responds instantly.
+                    val seekbarFraction = when {
+                        isSeeking -> seekFraction
+                        pendingSeekPosition != null -> if (duration > 0) (pendingSeekPosition ?: 0L).toFloat() / duration.toFloat() else 0f
+                        else -> if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f
+                    }
 
                     CustomSeekbar(
-                        fraction = if (isSeeking) seekFraction else animatedFraction,
+                        fraction = seekbarFraction,
                         bufferedFraction = if (duration > 0) bufferedPercentage / 100f else 0f,
                         duration = duration,
                         chapters = chapters,
