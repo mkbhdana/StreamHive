@@ -20,9 +20,6 @@ import com.mkbhdana.streamhive.data.tmdb.TmdbRepository
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
 import com.mkbhdana.streamhive.settings.AppPreferences
-import com.mkbhdana.streamhive.update.AppUpdateInfo
-import com.mkbhdana.streamhive.update.AppUpdateRepository
-import com.mkbhdana.streamhive.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -85,13 +82,7 @@ data class CatalogUiState(
     val isSearchFolderLoading: Boolean = false,
 
     // Connectivity
-    val isOffline: Boolean = false,
-
-    // App updates
-    val availableUpdate: AppUpdateInfo? = null,
-    val isDownloadingUpdate: Boolean = false,
-    val updateDownloadProgress: Int = 0,
-    val updateStatusMessage: String? = null
+    val isOffline: Boolean = false
 )
 
 data class SearchFolderInfo(
@@ -112,7 +103,6 @@ class CatalogViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val appPreferences: AppPreferences,
     private val tmdbRepository: TmdbRepository,
-    private val appUpdateRepository: AppUpdateRepository,
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val mediaFileDao: MediaFileDao,
     @Suppress("unused") private val streamProxyServer: StreamProxyServer // ensures proxy starts early
@@ -126,6 +116,7 @@ class CatalogViewModel @Inject constructor(
     private var homeLoadJob: Job? = null
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var offlineDebounceJob: Job? = null
     private val continueMetadataFetchAttempted = mutableSetOf<String>()
     private var lastHomeLoadTimestamp = 0L
 
@@ -192,19 +183,32 @@ class CatalogViewModel @Inject constructor(
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                     capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             } == true
-        val isOffline = !isOnline
 
-        _uiState.update { it.copy(isOffline = isOffline) }
+        if (isOnline) {
+            // Going online: apply immediately, cancel any pending offline debounce
+            offlineDebounceJob?.cancel()
+            offlineDebounceJob = null
+            _uiState.update { it.copy(isOffline = false) }
 
-        if (wasOffline && isOnline) {
-            viewModelScope.launch {
-                if (_uiState.value.sharedDrives.isEmpty()) {
-                    loadSharedDrives()
-                } else {
-                    loadHomeContent(isRefresh = true)
-                    _uiState.value.selectedDrive?.let { drive ->
-                        loadFiles(drive.id, _uiState.value.folderStack.lastOrNull()?.id)
+            if (wasOffline) {
+                viewModelScope.launch {
+                    if (_uiState.value.sharedDrives.isEmpty()) {
+                        loadSharedDrives()
+                    } else {
+                        loadHomeContent(isRefresh = true)
+                        _uiState.value.selectedDrive?.let { drive ->
+                            loadFiles(drive.id, _uiState.value.folderStack.lastOrNull()?.id)
+                        }
                     }
+                }
+            }
+        } else {
+            // Going offline: debounce to avoid false positives during activity transitions
+            if (!wasOffline && offlineDebounceJob == null) {
+                offlineDebounceJob = viewModelScope.launch {
+                    delay(1500)
+                    _uiState.update { it.copy(isOffline = true) }
+                    offlineDebounceJob = null
                 }
             }
         }
@@ -504,7 +508,9 @@ class CatalogViewModel @Inject constructor(
     fun loadHomeContent(isRefresh: Boolean = false) {
         // Don't attempt to load home content if drives haven't been fetched yet.
         // loadSharedDrives() will call this again once drives are available.
-        if (_uiState.value.sharedDrives.isEmpty() && !isRefresh) return
+        val settingsChanged = lastHomeLoadTimestamp <= appPreferences.catalogSettingsLastChanged
+        val effectiveIsRefresh = isRefresh || settingsChanged
+        if (_uiState.value.sharedDrives.isEmpty() && !effectiveIsRefresh) return
 
         val movieFolders = appPreferences.tmdbMovieFolders
         val tvFolders = appPreferences.tmdbTvFolders
@@ -526,12 +532,27 @@ class CatalogViewModel @Inject constructor(
         // Debounce: skip reload if data was loaded recently and we already have content
         val hasContent = _uiState.value.homeSections.isNotEmpty() || _uiState.value.homeRecentlyAdded.isNotEmpty()
         val now = System.currentTimeMillis()
-        if (!isRefresh && hasContent && (now - lastHomeLoadTimestamp) < HOME_CONTENT_DEBOUNCE_MS) {
+        
+        if (!effectiveIsRefresh && hasContent && (now - lastHomeLoadTimestamp) < HOME_CONTENT_DEBOUNCE_MS) {
+            // Content is fresh, don't reload or show skeleton
+            _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             return
         }
 
-        // Set loading state synchronously to prevent flash of partial content
-        _uiState.update { it.copy(isHomeLoading = true) }
+        // Show skeleton if there's no content yet, or if settings changed (forcing a hard refresh)
+        if (!hasContent || settingsChanged) {
+            if (settingsChanged) {
+                lastLoadedTimestamps.clear()
+                lastHomeLoadTimestamp = 0L
+            }
+            _uiState.update { 
+                it.copy(
+                    isHomeLoading = true,
+                    homeSections = if (settingsChanged) emptyList() else it.homeSections,
+                    homeRecentlyAdded = if (settingsChanged) emptyList() else it.homeRecentlyAdded
+                ) 
+            }
+        }
 
         homeLoadJob?.cancel()
         homeLoadJob = viewModelScope.launch {
@@ -608,7 +629,9 @@ class CatalogViewModel @Inject constructor(
                 }
 
                 // Fetch uncached TMDB metadata in parallel batches
-                uncachedFiles.chunked(5).forEach { batch ->
+                // Add delay between batches to avoid TMDB rate limiting (429)
+                uncachedFiles.chunked(5).forEachIndexed { index, batch ->
+                    if (index > 0) delay(300)
                     coroutineScope {
                         val results = batch.map { file ->
                             async {
@@ -641,6 +664,7 @@ class CatalogViewModel @Inject constructor(
                 _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
             }
         }
@@ -663,6 +687,7 @@ class CatalogViewModel @Inject constructor(
         folderIds.forEach { folderId ->
             var found = false
             val localFolder = driveRepository.getFileById(folderId)
+            
             val driveIdToUse = localFolder?.driveId?.takeIf { it.isNotBlank() }
                 ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
                 ?: drives.firstOrNull()?.id
@@ -858,10 +883,18 @@ class CatalogViewModel @Inject constructor(
         return _uiState.value.sharedDrives.find { it.id == driveId }?.name ?: driveId
     }
 
-    fun refreshHomeContent() {
+    fun refreshHomeContent(fromSwipe: Boolean = false) {
         // Show the full home skeleton for explicit user refreshes.
         // Keep tmdbMetadata so cached posters remain visible while new data loads.
-        _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = true) }
+        if (fromSwipe) {
+            _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = true) }
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(100)
+                _uiState.update { it.copy(isHomeRefreshing = false) }
+            }
+        } else {
+            _uiState.update { it.copy(isHomeLoading = true, isHomeRefreshing = false) }
+        }
         // Clear folder timestamp cache to force API refresh
         lastLoadedTimestamps.clear()
         // Clear debounce so loadHomeContent always runs
@@ -972,109 +1005,11 @@ class CatalogViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 
-    fun checkForAppUpdate(force: Boolean = false) {
-        val now = System.currentTimeMillis()
-        val checkedRecently = now - appPreferences.lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS
-        if (!force && checkedRecently) return
-        if (!authRepository.isAuthenticated()) return
-        if (!NetworkUtils.isNetworkAvailable(context)) return
 
-        viewModelScope.launch {
-            delay(2_500)
-            if (!authRepository.isAuthenticated()) return@launch
-            if (!NetworkUtils.isNetworkAvailable(context)) return@launch
-
-            runCatching { appUpdateRepository.checkForUpdate() }
-                .getOrElse { error -> Result.failure<AppUpdateInfo?>(error) }
-                .fold(
-                    onSuccess = { update ->
-                        appPreferences.lastUpdateCheckAt = now
-                        if (update != null && appPreferences.dismissedUpdateTag != update.tagName) {
-                            _uiState.update { it.copy(availableUpdate = update) }
-                        }
-                    },
-                    onFailure = {
-                        // Ignore update check failures; playback/catalog should not be blocked by GitHub.
-                    }
-                )
-        }
-    }
-
-    fun dismissUpdatePrompt(suppressThisVersion: Boolean = false) {
-        val update = _uiState.value.availableUpdate
-        if (suppressThisVersion && update != null) {
-            appPreferences.dismissedUpdateTag = update.tagName
-        }
-        _uiState.update { it.copy(availableUpdate = null) }
-    }
-
-    fun downloadAndInstallUpdate() {
-        val update = _uiState.value.availableUpdate ?: return
-        if (_uiState.value.isDownloadingUpdate) return
-
-        if (!appUpdateRepository.canRequestPackageInstalls()) {
-            appUpdateRepository.openInstallPermissionSettings()
-            _uiState.update {
-                it.copy(
-                    updateStatusMessage = "Allow StreamHive to install unknown apps, then tap Download again."
-                )
-            }
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                isDownloadingUpdate = true,
-                updateDownloadProgress = 0,
-                updateStatusMessage = null
-            )
-        }
-
-        viewModelScope.launch {
-            appUpdateRepository.downloadUpdateApk(update) { progress ->
-                _uiState.update { it.copy(updateDownloadProgress = progress) }
-            }.fold(
-                onSuccess = { apkFile ->
-                    runCatching { appUpdateRepository.launchApkInstaller(apkFile) }
-                        .fold(
-                            onSuccess = {
-                                _uiState.update {
-                                    it.copy(
-                                        availableUpdate = null,
-                                        isDownloadingUpdate = false,
-                                        updateDownloadProgress = 100,
-                                        updateStatusMessage = "Opening installer"
-                                    )
-                                }
-                            },
-                            onFailure = { error ->
-                                _uiState.update {
-                                    it.copy(
-                                        isDownloadingUpdate = false,
-                                        updateStatusMessage = error.message ?: "Unable to open installer"
-                                    )
-                                }
-                            }
-                        )
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isDownloadingUpdate = false,
-                            updateStatusMessage = error.message ?: "Update download failed"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    fun clearUpdateStatusMessage() {
-        _uiState.update { it.copy(updateStatusMessage = null) }
-    }
 
     override fun onCleared() {
         super.onCleared()
+        offlineDebounceJob?.cancel()
         val callback = networkCallback ?: return
         runCatching { connectivityManager?.unregisterNetworkCallback(callback) }
         networkCallback = null
@@ -1129,7 +1064,6 @@ class CatalogViewModel @Inject constructor(
     }
 
     private companion object {
-        private const val UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
         private const val HOME_CONTENT_DEBOUNCE_MS = 60_000L
     }
 }

@@ -394,6 +394,24 @@ fun SearchTab(
                         }
                     }
                 }
+            } else {
+                // Initial Placeholder State
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.MovieFilter,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(80.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Search for your favorite content",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
             }
         } // closes Column
         } // closes else block

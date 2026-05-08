@@ -1,5 +1,6 @@
 package com.mkbhdana.streamhive.settings
 
+import coil.imageLoader
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -350,9 +351,14 @@ class SettingsViewModel @Inject constructor(
 
     // ──── TMDB ────
 
+    private fun touchCatalogSettings() {
+        prefs.catalogSettingsLastChanged = System.currentTimeMillis()
+    }
+
     fun setTmdbApiKey(key: String) {
         prefs.tmdbApiKey = key
         uiState = uiState.copy(tmdbApiKey = key)
+        touchCatalogSettings()
     }
 
     fun addMovieFolder(folderId: String) {
@@ -391,6 +397,41 @@ class SettingsViewModel @Inject constructor(
         uiState = uiState.copy(tmdbAnimeFolders = updated)
     }
 
+    fun addTmdbFolder(folderId: String, type: String) {
+        when (type) {
+            "movie" -> addMovieFolder(folderId)
+            "tv" -> addTvFolder(folderId)
+            "anime_movie", "anime_series", "anime" -> addAnimeFolder(folderId)
+        }
+        val ordered = getOrderedFolderIds().toMutableList()
+        if (folderId !in ordered) {
+            ordered.add(folderId)
+            prefs.tmdbFolderOrder = ordered
+            uiState = uiState.copy(tmdbFolderOrder = ordered)
+        }
+        touchCatalogSettings()
+    }
+
+    fun removeTmdbFolder(folderId: String) {
+        removeMovieFolder(folderId)
+        removeTvFolder(folderId)
+        removeAnimeFolder(folderId)
+        
+        val currentRecent = prefs.tmdbRecentFolders
+        if (currentRecent.contains(folderId)) {
+            val updatedRecent = currentRecent - folderId
+            prefs.tmdbRecentFolders = updatedRecent
+            uiState = uiState.copy(tmdbRecentFolders = updatedRecent)
+        }
+        
+        val ordered = getOrderedFolderIds().toMutableList()
+        if (ordered.remove(folderId)) {
+            prefs.tmdbFolderOrder = ordered
+            uiState = uiState.copy(tmdbFolderOrder = ordered)
+        }
+        touchCatalogSettings()
+    }
+
     fun toggleRecentFolder(folderId: String) {
         val current = prefs.tmdbRecentFolders
         val updated = if (current.contains(folderId)) {
@@ -400,6 +441,7 @@ class SettingsViewModel @Inject constructor(
         }
         prefs.tmdbRecentFolders = updated
         uiState = uiState.copy(tmdbRecentFolders = updated)
+        touchCatalogSettings()
     }
 
     // ──── Folder Ordering ────
@@ -422,6 +464,7 @@ class SettingsViewModel @Inject constructor(
             ordered.add(index - 1, folderId)
             prefs.tmdbFolderOrder = ordered
             uiState = uiState.copy(tmdbFolderOrder = ordered)
+            touchCatalogSettings()
         }
     }
 
@@ -433,6 +476,7 @@ class SettingsViewModel @Inject constructor(
             ordered.add(index + 1, folderId)
             prefs.tmdbFolderOrder = ordered
             uiState = uiState.copy(tmdbFolderOrder = ordered)
+            touchCatalogSettings()
         }
     }
 
@@ -545,7 +589,7 @@ class SettingsViewModel @Inject constructor(
 
     // ──── Data Management ────
 
-    fun exportSettings(uri: android.net.Uri, includeApiKey: Boolean, includeMetadata: Boolean) {
+    fun exportSettings(uri: android.net.Uri, includeApiKey: Boolean, includeMetadata: Boolean, onComplete: (Boolean, String?) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val settingsJson = prefs.exportToJson()
@@ -627,8 +671,10 @@ class SettingsViewModel @Inject constructor(
                 context.contentResolver.openOutputStream(uri)?.use {
                     it.write(rootObject.toString(2).toByteArray())
                 }
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(true, null) }
             } catch (e: Exception) {
                 e.printStackTrace()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false, e.message) }
             }
         }
     }
@@ -751,6 +797,7 @@ class SettingsViewModel @Inject constructor(
 
                     val success = prefs.importFromJson(jsonObject.toString())
                     if (success) {
+                        touchCatalogSettings()
                         uiState = loadState()
                     }
                     launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(success, null) }
@@ -760,6 +807,99 @@ class SettingsViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.printStackTrace()
                 launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(false, "Invalid file format") }
+            }
+        }
+    }
+
+    // ──── Storage & Cache ────
+
+    fun calculateCacheSizes(onResult: (imageSize: Long, dbSize: Long) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var imageSize = 0L
+            var dbSize = 0L
+            try {
+                val diskCache = context.imageLoader.diskCache
+                imageSize = diskCache?.size ?: 0L
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            try {
+                val dbFile = context.getDatabasePath("streamhive_database")
+                if (dbFile.exists()) {
+                    dbSize += dbFile.length()
+                    val walFile = java.io.File(dbFile.path + "-wal")
+                    if (walFile.exists()) dbSize += walFile.length()
+                    val shmFile = java.io.File(dbFile.path + "-shm")
+                    if (shmFile.exists()) dbSize += shmFile.length()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            launch(kotlinx.coroutines.Dispatchers.Main) { onResult(imageSize, dbSize) }
+        }
+    }
+
+    fun clearCacheAndData(onComplete: () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // Clear Image Cache
+                context.imageLoader.diskCache?.clear()
+                context.imageLoader.memoryCache?.clear()
+
+                // Clear Catalog DB
+                tmdbMetadataDao.deleteAll()
+                mediaFileDao.deleteAll()
+                playbackHistoryDao.deleteAll()
+                
+                // Clear TMDB settings
+                prefs.tmdbApiKey = ""
+                prefs.tmdbMovieFolders = emptySet()
+                prefs.tmdbTvFolders = emptySet()
+                prefs.tmdbAnimeFolders = emptySet()
+                prefs.tmdbRecentFolders = emptySet()
+                prefs.tmdbFolderOrder = emptyList()
+                touchCatalogSettings()
+
+                launch(kotlinx.coroutines.Dispatchers.Main) {
+                    uiState = loadState()
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete() }
+            }
+        }
+    }
+
+    fun resetPreferences(onComplete: () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // We keep the TMDB API key and catalog folders by storing and restoring them
+                val currentTmdbKey = prefs.tmdbApiKey
+                val movieFolders = prefs.tmdbMovieFolders
+                val tvFolders = prefs.tmdbTvFolders
+                val animeFolders = prefs.tmdbAnimeFolders
+                val recentFolders = prefs.tmdbRecentFolders
+                val folderOrder = prefs.tmdbFolderOrder
+                
+                prefs.clearAll()
+                
+                prefs.tmdbApiKey = currentTmdbKey
+                prefs.tmdbMovieFolders = movieFolders
+                prefs.tmdbTvFolders = tvFolders
+                prefs.tmdbAnimeFolders = animeFolders
+                prefs.tmdbRecentFolders = recentFolders
+                prefs.tmdbFolderOrder = folderOrder
+
+                launch(kotlinx.coroutines.Dispatchers.Main) {
+                    uiState = loadState()
+                    onComplete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete() }
             }
         }
     }

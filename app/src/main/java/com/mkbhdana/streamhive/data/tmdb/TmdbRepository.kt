@@ -20,11 +20,17 @@ class TmdbRepository @Inject constructor(
      */
     private fun cleanNameForSearch(name: String): String {
         return name
-            .replace(Regex("""\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|mts)$""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\[.*?]"""), "")
-            .replace(Regex("""\(.*?\)"""), "")
-            .replace(Regex("""(720p|1080p|2160p|4K|HDR|BluRay|BRRip|WEBRip|WEB-DL|DVDRip|x264|x265|HEVC|AAC|DTS|FLAC|REMUX)""", RegexOption.IGNORE_CASE), "")
+            // Remove file extensions
+            .replace(Regex("""\.(?:mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|mts|srt|sub|ass|ssa|idx)$""", RegexOption.IGNORE_CASE), "")
+            // Remove content in brackets [...]
+            .replace(Regex("""\[.*?]"""), " ")
+            // Remove content in parentheses (...)
+            .replace(Regex("""\(.*?\)"""), " ")
+            // Remove quality, codec, and release tags
+            .replace(Regex("""(?:720p|1080p|2160p|4K|UHD|HDR|HDR10|DV|DoVi|Dolby\.?Vision|BluRay|Blu-Ray|BRRip|BDRip|WEBRip|WEB-DL|WEB|DVDRip|HDTV|PDTV|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC|DTS|FLAC|AC3|EAC3|Atmos|TrueHD|REMUX|PROPER|REPACK|EXTENDED|UNRATED|DC|Directors\.?Cut|10bit|8bit|SDR|AMZN|NF|DSNP|HMAX|ATVP|PCOK)""", RegexOption.IGNORE_CASE), " ")
+            // Replace separators with spaces
             .replace(Regex("""[._-]+"""), " ")
+            // Collapse multiple spaces
             .replace(Regex("""\s{2,}"""), " ")
             .trim()
     }
@@ -53,7 +59,9 @@ class TmdbRepository @Inject constructor(
         try {
             val entity = when (mediaType) {
                 "movie" -> searchMovie(apiKey, query, driveFileId)
+                    ?: searchMulti(apiKey, query, driveFileId) // fallback to multi if typed search fails
                 "tv" -> searchTvShow(apiKey, query, driveFileId)
+                    ?: searchMulti(apiKey, query, driveFileId) // fallback to multi if typed search fails
                 else -> searchMulti(apiKey, query, driveFileId)
             }
 
@@ -66,9 +74,41 @@ class TmdbRepository @Inject constructor(
         }
     }
 
+    /**
+     * Pick the best matching result from a list of candidates.
+     * Prefers exact title match (case-insensitive), then containment, then first result.
+     */
+    private fun <T> bestMatch(
+        results: List<T>,
+        query: String,
+        titleExtractor: (T) -> String?
+    ): T? {
+        if (results.isEmpty()) return null
+        if (results.size == 1) return results.first()
+
+        val queryLower = query.lowercase().trim()
+
+        // 1. Exact match (case-insensitive)
+        results.firstOrNull { titleExtractor(it)?.lowercase()?.trim() == queryLower }
+            ?.let { return it }
+
+        // 2. Title contains the query
+        results.firstOrNull { titleExtractor(it)?.lowercase()?.contains(queryLower) == true }
+            ?.let { return it }
+
+        // 3. Query contains the title (for shorter TMDB titles)
+        results.firstOrNull {
+            val title = titleExtractor(it)?.lowercase()?.trim()
+            title != null && title.length > 2 && queryLower.contains(title)
+        }?.let { return it }
+
+        // 4. Fallback to first result
+        return results.first()
+    }
+
     private suspend fun searchMovie(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
         val response = tmdbApiService.searchMovies(apiKey, query)
-        val movie = response.results.firstOrNull() ?: return null
+        val movie = bestMatch(response.results, query) { it.title } ?: return null
         return TmdbMetadataEntity(
             driveFileId = driveFileId,
             tmdbId = movie.id,
@@ -85,7 +125,7 @@ class TmdbRepository @Inject constructor(
 
     private suspend fun searchTvShow(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
         val response = tmdbApiService.searchTvShows(apiKey, query)
-        val show = response.results.firstOrNull() ?: return null
+        val show = bestMatch(response.results, query) { it.name } ?: return null
         return TmdbMetadataEntity(
             driveFileId = driveFileId,
             tmdbId = show.id,
@@ -102,9 +142,10 @@ class TmdbRepository @Inject constructor(
 
     private suspend fun searchMulti(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
         val response = tmdbApiService.searchMulti(apiKey, query)
-        val result = response.results.firstOrNull {
+        val filtered = response.results.filter {
             it.mediaType == "movie" || it.mediaType == "tv"
-        } ?: return null
+        }
+        val result = bestMatch(filtered, query) { it.displayTitle } ?: return null
         return TmdbMetadataEntity(
             driveFileId = driveFileId,
             tmdbId = result.id,

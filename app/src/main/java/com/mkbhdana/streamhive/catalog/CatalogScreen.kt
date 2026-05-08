@@ -79,18 +79,12 @@ fun CatalogScreen(
     val surfaceColor = MaterialTheme.colorScheme.surface
     val appBarColor = surfaceColor.copy(alpha = appBarAlpha)
 
-    LaunchedEffect(uiState.updateStatusMessage) {
-        uiState.updateStatusMessage?.let { message ->
-            Toast.makeText(screenContext, message, Toast.LENGTH_LONG).show()
-            viewModel.clearUpdateStatusMessage()
-        }
-    }
 
-    // Load home content when Home tab is selected
+
+    // Refresh preferences when Home tab is selected
     LaunchedEffect(selectedTab) {
         if (selectedTab == 0) {
             viewModel.refreshPreferences()
-            viewModel.loadHomeContent()
         }
     }
 
@@ -101,7 +95,7 @@ fun CatalogScreen(
 
     DisposableEffect(lifecycleOwner, selectedTab) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && selectedTab == 0) {
+            if (event == Lifecycle.Event.ON_START && selectedTab == 0) {
                 viewModel.refreshPreferences()
                 viewModel.loadHomeContent()
             }
@@ -149,22 +143,25 @@ fun CatalogScreen(
                 actions = {
                     if (selectedTab == 0) {
                         // Animated refresh button for Home tab
-                        val isRefreshing = uiState.isHomeLoading || uiState.isHomeRefreshing
-                        val infiniteTransition = rememberInfiniteTransition(label = "refresh_transition")
-                        val rotation by infiniteTransition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = 360f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1000, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "refresh_spin"
-                        )
-                        IconButton(onClick = { viewModel.refreshHomeContent() }) {
+                        val scope = rememberCoroutineScope()
+                        val rotation = remember { androidx.compose.animation.core.Animatable(0f) }
+                        
+                        IconButton(onClick = { 
+                            if (!rotation.isRunning) {
+                                scope.launch {
+                                    rotation.snapTo(0f)
+                                    rotation.animateTo(
+                                        targetValue = 360f,
+                                        animationSpec = androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.LinearEasing)
+                                    )
+                                }
+                            }
+                            viewModel.refreshHomeContent(fromSwipe = false) 
+                        }) {
                             Icon(
                                 Icons.Default.Refresh, "Refresh",
                                 tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.rotate(if (isRefreshing) rotation else 0f)
+                                modifier = Modifier.rotate(rotation.value)
                             )
                         }
                     }
@@ -252,49 +249,7 @@ fun CatalogScreen(
             )
         }
 
-        uiState.availableUpdate?.let { update ->
-            AlertDialog(
-                onDismissRequest = {
-                    if (!uiState.isDownloadingUpdate) viewModel.dismissUpdatePrompt()
-                },
-                shape = RoundedCornerShape(16.dp),
-                title = { Text("Update Available") },
-                text = {
-                    Text(
-                        buildString {
-                            append("StreamHive v${update.versionName} is available.")
-                            if (update.targetAbi.isNotBlank()) {
-                                append("\nAPK: ${update.targetAbi}")
-                            }
-                        }
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = !uiState.isDownloadingUpdate,
-                        onClick = {
-                            viewModel.downloadAndInstallUpdate()
-                        }
-                    ) {
-                        Text(
-                            if (uiState.isDownloadingUpdate) {
-                                "Downloading ${uiState.updateDownloadProgress}%"
-                            } else {
-                                "Download & Install"
-                            }
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        enabled = !uiState.isDownloadingUpdate,
-                        onClick = { viewModel.dismissUpdatePrompt() }
-                    ) {
-                        Text("Later")
-                    }
-                }
-            )
-        }
+
 
         Column(
             modifier = Modifier
@@ -307,7 +262,7 @@ fun CatalogScreen(
                     // Only apply bottom padding (nav bar) so hero extends behind transparent app bar
                     PullToRefreshBox(
                         isRefreshing = uiState.isHomeRefreshing,
-                        onRefresh = { viewModel.refreshHomeContent() },
+                        onRefresh = { viewModel.refreshHomeContent(fromSwipe = true) },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = paddingValues.calculateBottomPadding())
