@@ -15,7 +15,8 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("query") query: String,
         @Query("page") page: Int = 1,
-        @Query("language") language: String = "en-US"
+        @Query("language") language: String = "en-US",
+        @Query("primary_release_year") year: String? = null
     ): TmdbSearchMovieResponse
 
     @GET("3/search/tv")
@@ -23,7 +24,8 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("query") query: String,
         @Query("page") page: Int = 1,
-        @Query("language") language: String = "en-US"
+        @Query("language") language: String = "en-US",
+        @Query("first_air_date_year") year: String? = null
     ): TmdbSearchTvResponse
 
     @GET("3/search/multi")

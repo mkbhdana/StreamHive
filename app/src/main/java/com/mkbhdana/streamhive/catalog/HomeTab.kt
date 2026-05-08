@@ -105,18 +105,13 @@ fun HomeTab(
         return
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        // Offline banner when there IS cached content
-        if (state.isOffline) {
-            item {
-                OfflineBanner()
-            }
-        }
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 80.dp), // Extra padding to avoid overlay
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
 
         // Recently added hero
         if (state.homeRecentlyAdded.isNotEmpty()) {
@@ -130,7 +125,9 @@ fun HomeTab(
             }
         }
 
-        if (hasContinuePlaying) {
+
+
+        if (hasContinuePlaying && state.homeSections.isNotEmpty()) {
             item {
                 ContinuePlayingSection(
                     items = state.continuePlayingItems,
@@ -179,6 +176,16 @@ fun HomeTab(
 
         item { Spacer(Modifier.height(16.dp)) }
     }
+
+    // Floating Offline Banner above the bottom navigation bar
+    if (state.isOffline) {
+        OfflineBanner(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+        )
+    }
+}
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1235,7 +1242,7 @@ private fun NoHomeContent(
 
 @Composable
 fun NoConnectivityMessage(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.fillMaxSize().statusBarsPadding(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1257,9 +1264,9 @@ fun NoConnectivityMessage(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun OfflineBanner() {
+fun OfflineBanner(modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -1407,7 +1414,7 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(12.dp))
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(4) {
+                    items(6) {
                         Card(
                             modifier = Modifier.width(130.dp),
                             shape = RoundedCornerShape(12.dp),

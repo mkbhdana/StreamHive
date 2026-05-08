@@ -186,6 +186,10 @@ class AppPreferences @Inject constructor(
         get() = prefs.getString(KEY_DISMISSED_UPDATE_TAG, "") ?: ""
         set(value) = prefs.edit().putString(KEY_DISMISSED_UPDATE_TAG, value).apply()
 
+    var catalogSettingsLastChanged: Long
+        get() = prefs.getLong(KEY_CATALOG_SETTINGS_LAST_CHANGED, 0L)
+        set(value) = prefs.edit().putLong(KEY_CATALOG_SETTINGS_LAST_CHANGED, value).apply()
+
     // ──── Helpers ────
 
     fun isMpvAvailable(): Boolean {
@@ -274,6 +278,8 @@ class AppPreferences @Inject constructor(
         private const val KEY_GESTURE_SENSITIVITY = "gesture_sensitivity"
 
         // Subtitles
+        const val KEY_APP_LANGUAGE = "app_language"
+        const val KEY_CATALOG_SETTINGS_LAST_CHANGED = "catalog_settings_last_changed"
         private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
         private const val KEY_SUBTITLE_FONT_SIZE = "subtitle_font_size"
         private const val KEY_SUBTITLE_COLOR = "subtitle_color"

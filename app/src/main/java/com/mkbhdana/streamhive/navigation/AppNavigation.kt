@@ -42,6 +42,11 @@ object Routes {
     const val PLAYER = "player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}&decoder={decoder}"
     const val MPV_PLAYER = "mpv_player/{fileId}/{fileName}?allowFallback={allowFallback}&handoff={handoff}&decoder={decoder}"
     const val SETTINGS = "settings"
+    const val SETTINGS_PLAYER = "settings/player"
+    const val SETTINGS_GESTURES = "settings/gestures"
+    const val SETTINGS_SUBTITLES = "settings/subtitles"
+    const val SETTINGS_TMDB = "settings/tmdb"
+    const val SETTINGS_STORAGE = "settings/storage"
     const val MEDIA_INFO = "media_info/{driveFileId}?mediaType={mediaType}"
     const val TMDB_SEE_ALL = "tmdb_see_all/{category}"
 
@@ -173,8 +178,46 @@ fun AppNavigation(isTv: Boolean = false) {
         }
 
         composable(Routes.SETTINGS) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             SettingsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigate = { route -> navController.navigate(route) },
+                viewModel = settingsVm
+            )
+        }
+        composable(Routes.SETTINGS_PLAYER) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
+            com.mkbhdana.streamhive.settings.PlayerSettingsScreen(
+                onBack = { navController.popBackStack() },
+                viewModel = settingsVm
+            )
+        }
+        composable(Routes.SETTINGS_GESTURES) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
+            com.mkbhdana.streamhive.settings.GesturesSettingsScreen(
+                onBack = { navController.popBackStack() },
+                viewModel = settingsVm
+            )
+        }
+        composable(Routes.SETTINGS_SUBTITLES) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
+            com.mkbhdana.streamhive.settings.SubtitleSettingsScreen(
+                onBack = { navController.popBackStack() },
+                viewModel = settingsVm
+            )
+        }
+        composable(Routes.SETTINGS_TMDB) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
+            com.mkbhdana.streamhive.settings.TmdbSettingsScreen(
+                onBack = { navController.popBackStack() },
+                viewModel = settingsVm
+            )
+        }
+        composable(Routes.SETTINGS_STORAGE) {
+            val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
+            com.mkbhdana.streamhive.settings.StorageSettingsScreen(
+                onBack = { navController.popBackStack() },
+                viewModel = settingsVm
             )
         }
 

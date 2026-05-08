@@ -198,6 +198,7 @@ class DriveRepository @Inject constructor(
 
             Result.success(allFiles)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -243,6 +244,7 @@ class DriveRepository @Inject constructor(
                 fileListResponse.files
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             emptyList()
         }
     }
@@ -277,6 +279,7 @@ class DriveRepository @Inject constructor(
                 }
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             null
         }
     }
@@ -311,6 +314,7 @@ class DriveRepository @Inject constructor(
                 Result.success(file)
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Result.failure(e)
         }
     }
