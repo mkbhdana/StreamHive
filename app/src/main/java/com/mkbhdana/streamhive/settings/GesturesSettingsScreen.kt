@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,7 +26,7 @@ fun GesturesSettingsScreen(
                 title = { Text("Gestures & Haptics") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -58,7 +59,7 @@ fun GesturesSettingsScreen(
                     SettingsSwitchItem(
                         "Volume Gestures",
                         "Swipe vertically on the right side",
-                        Icons.Default.VolumeUp,
+                        Icons.AutoMirrored.Filled.VolumeUp,
                         state.gestureVolumeEnabled,
                         viewModel::setGestureVolumeEnabled,
                         hapticsEnabled = state.hapticFeedbackEnabled
