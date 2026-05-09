@@ -57,14 +57,14 @@ the [Issues](https://github.com/mkbhdana/StreamHive/issues) section.**
 ## Showcase
 
 <div class="image-row" align="center">
-  <img src="https://github.com/user-attachments/assets/1bfe0e34-bdde-4210-9452-aa1f98698969" width="98%" />
+  <img src="https://github.com/user-attachments/assets/031ba7a3-c446-4761-940d-495469a9923e" width="98%" />
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
   <img src="https://github.com/user-attachments/assets/1b3746a0-25ab-4a51-806a-40e34d155dde" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/12a67155-5449-4b3f-beeb-aa9f6535e446" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/a41c1b4d-3f43-4860-a39b-f4903bec3da4" width="23.5%"/>
-   <img src="https://github.com/user-attachments/assets/2df4cd08-d860-449c-b534-acaa9e826a11" width="23.5%"/>
+   <img src="https://github.com/user-attachments/assets/8ae98084-c982-49c1-aed9-739557b4f670" width="23.5%"/>
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
@@ -72,17 +72,28 @@ the [Issues](https://github.com/mkbhdana/StreamHive/issues) section.**
   <img src="https://github.com/user-attachments/assets/7afb8faf-db5c-468c-b908-a154f829e750" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/a408d657-3d17-433f-9993-647e7dc07bfd" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/8ef6b333-d9ef-4c60-8cb3-c89f1bfe15fb" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/29de2d0d-39a5-4864-8231-3c4b72161b23" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/4b0240c0-3e65-4b0e-9021-3bd41cba5009" width="23.5%"/>
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
    
   <img src="https://github.com/user-attachments/assets/7382d7ec-f2e1-4354-afd7-073ac022d1ff" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/30813c5d-f1d5-4a22-8de4-6b88c26466be" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/8a94b36d-ed52-473a-b55e-89861a601243" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/74972d25-982c-442f-92e7-e4c84e9cdfee" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/9c427784-462a-4e2c-b330-90f1a481ce15" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/1120c701-46b7-4de9-8ed3-1845e862b8fe" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/12013dd3-3fe0-46ec-91f7-e3b8dea2cfec" width="23.5%"/>
   
 </div>
+
+<div class="image-row" align="center" justify-content="space-between">
+   
+  <img src="https://github.com/user-attachments/assets/975bd335-cd39-4aa1-b70e-b6a54d720057" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/f91e90ae-bddb-48ac-9cbe-effac63054bb" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/33ec76f2-a0b6-4e9f-a8d3-5df538405f29" width="23.5%"/>
+  
+</div>
+
+
+
 
 ## 📂 How to Create a Catalog
 
