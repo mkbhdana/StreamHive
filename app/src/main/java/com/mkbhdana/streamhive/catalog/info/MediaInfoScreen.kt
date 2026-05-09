@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -85,7 +86,7 @@ fun MediaInfoScreen(
                     onClick = onBack,
                     modifier = Modifier.statusBarsPadding().padding(8.dp)
                 ) {
-                    Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                 }
             }
         }
@@ -276,7 +277,7 @@ private fun SeasonHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+            if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
             null,
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp)
@@ -454,7 +455,7 @@ private fun MediaInfoSkeletonLoading(onBack: () -> Unit) {
                     onClick = onBack,
                     modifier = Modifier.statusBarsPadding().padding(8.dp)
                 ) {
-                    Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                 }
             }
         }

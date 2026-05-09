@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,9 +39,9 @@ fun GestureIndicatorOverlay(
                 .padding(start = 48.dp)
         ) {
             VerticalIndicator(
-                icon = if (gestureState.volumePercent > 0.5f) Icons.Default.VolumeUp
-                else if (gestureState.volumePercent > 0f) Icons.Default.VolumeDown
-                else Icons.Default.VolumeOff,
+                icon = if (gestureState.volumePercent > 0.5f) Icons.AutoMirrored.Filled.VolumeUp
+                else if (gestureState.volumePercent > 0f) Icons.AutoMirrored.Filled.VolumeDown
+                else Icons.AutoMirrored.Filled.VolumeOff,
                 label = "Volume",
                 percent = gestureState.volumePercent,
                 color = MaterialTheme.colorScheme.tertiary

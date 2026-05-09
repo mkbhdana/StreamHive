@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +36,7 @@ fun TmdbSettingsScreen(
                 title = { Text("TMDB Metadata") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -288,7 +289,7 @@ private fun CatalogFolderBrowserDialog(
                         onClick = { viewModel.browserGoBack(); selectedFolderId = null },
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Default.ArrowBack, "Back", modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", modifier = Modifier.size(20.dp))
                     }
                     Spacer(Modifier.width(4.dp))
                 }

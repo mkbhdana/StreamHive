@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -218,7 +219,7 @@ fun SearchTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { selectedSection = null }) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -235,7 +236,7 @@ fun SearchTab(
                     if (selectedSection != "tmdb") {
                         IconButton(onClick = { viewModel.toggleGridView() }) {
                             Icon(
-                                imageVector = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                imageVector = if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
                                 contentDescription = "Toggle View",
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -470,7 +471,7 @@ private fun HorizontalSearchResultSection(
                 TextButton(onClick = onSeeAll) {
                     Text("See All ($totalCount)")
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(16.dp))
                 }
             } else {
                 Text(
@@ -563,7 +564,7 @@ fun SearchResultItem(
                 }
             }
             Icon(
-                Icons.Default.KeyboardArrowRight,
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)

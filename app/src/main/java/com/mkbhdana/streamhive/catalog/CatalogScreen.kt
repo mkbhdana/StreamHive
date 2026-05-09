@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -169,7 +170,7 @@ fun CatalogScreen(
                         Icon(Icons.Default.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurface)
                     }
                     IconButton(onClick = { showLogoutDialog = true }) {
-                        Icon(Icons.Default.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -210,7 +211,7 @@ fun CatalogScreen(
         if (showExitDialog) {
             AlertDialog(
                 onDismissRequest = { showExitDialog = false },
-                icon = { Icon(Icons.Default.ExitToApp, null, tint = MaterialTheme.colorScheme.primary) },
+                icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.primary) },
                 title = { Text("Exit App") },
                 text = { Text("Are you sure you want to exit?") },
                 confirmButton = {
@@ -229,7 +230,7 @@ fun CatalogScreen(
         if (showLogoutDialog) {
             AlertDialog(
                 onDismissRequest = { showLogoutDialog = false },
-                icon = { Icon(Icons.Default.Logout, null, tint = MaterialTheme.colorScheme.primary) },
+                icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = MaterialTheme.colorScheme.primary) },
                 title = { Text("Logout") },
                 text = { Text("Are you sure you want to log out of StreamHive? You will need to sign in again.") },
                 confirmButton = {
@@ -392,7 +393,7 @@ private fun FoldersTab(
             AssistChip(
                 onClick = { viewModel.toggleGridView() },
                 label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
-                leadingIcon = { Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
+                leadingIcon = { Icon(if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
             )
         }
 

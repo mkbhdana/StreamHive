@@ -16,6 +16,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -987,7 +988,7 @@ fun TmdbHorizontalSection(
                 TextButton(onClick = onSeeAll) {
                     Text("See All ($totalCount)")
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(16.dp))
                 }
             } else {
                 Text(
@@ -1383,20 +1384,22 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(12.dp))
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(3) {
+                    items(10) {
                         Card(
-                            modifier = Modifier.width(200.dp),
+                            modifier = Modifier.width(330.dp).height(116.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                         ) {
-                            Column {
-                                ShimmerBox(Modifier.fillMaxWidth().height(110.dp))
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    ShimmerBox(Modifier.fillMaxWidth().height(14.dp))
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                ShimmerBox(Modifier.width(98.dp).fillMaxHeight())
+                                Column(modifier = Modifier.fillMaxHeight().weight(1f).padding(12.dp)) {
+                                    ShimmerBox(Modifier.fillMaxWidth(0.8f).height(18.dp))
+                                    Spacer(Modifier.height(8.dp))
+                                    ShimmerBox(Modifier.fillMaxWidth(0.5f).height(14.dp))
+                                    Spacer(Modifier.weight(1f))
+                                    ShimmerBox(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)))
                                     Spacer(Modifier.height(6.dp))
-                                    ShimmerBox(Modifier.fillMaxWidth(0.7f).height(10.dp))
-                                    Spacer(Modifier.height(6.dp))
-                                    ShimmerBox(Modifier.fillMaxWidth().height(3.dp))
+                                    ShimmerBox(Modifier.width(60.dp).height(10.dp))
                                 }
                             }
                         }
@@ -1414,7 +1417,7 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(12.dp))
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(6) {
+                    items(10) {
                         Card(
                             modifier = Modifier.width(130.dp),
                             shape = RoundedCornerShape(12.dp),
