@@ -36,7 +36,7 @@ enum class SearchMode { CURRENT_DRIVE, ALL_DRIVES }
 data class TmdbCatalogSection(
     val folderId: String,
     val folderName: String,
-    val typeLabel: String, // "Movie", "Series", "Anime"
+    val typeLabel: String, // "Movie" or "Series"
     val mediaType: String, // "movie", "tv"
     val items: List<MediaFileEntity>
 )
@@ -514,18 +514,41 @@ class CatalogViewModel @Inject constructor(
 
         val movieFolders = appPreferences.tmdbMovieFolders
         val tvFolders = appPreferences.tmdbTvFolders
-        val animeFolders = appPreferences.tmdbAnimeFolders
         val recentFolders = appPreferences.tmdbRecentFolders
         val hasTmdb = appPreferences.tmdbApiKey.isNotEmpty()
 
         _uiState.update { it.copy(hasTmdbSetup = hasTmdb) }
 
         if (!hasTmdb) {
-            _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
+            homeLoadJob?.cancel()
+            lastLoadedTimestamps.clear()
+            lastHomeLoadTimestamp = System.currentTimeMillis()
+            _uiState.update {
+                it.copy(
+                    homeSections = emptyList(),
+                    homeRecentlyAdded = emptyList(),
+                    isHomeLoading = false,
+                    isHomeRefreshing = false
+                )
+            }
             return
         }
-        if (movieFolders.isEmpty() && tvFolders.isEmpty() && animeFolders.isEmpty() && recentFolders.isEmpty()) {
-            _uiState.update { it.copy(isHomeLoading = false, isHomeRefreshing = false) }
+        if (
+            movieFolders.isEmpty() &&
+            tvFolders.isEmpty() &&
+            recentFolders.isEmpty()
+        ) {
+            homeLoadJob?.cancel()
+            lastLoadedTimestamps.clear()
+            lastHomeLoadTimestamp = System.currentTimeMillis()
+            _uiState.update {
+                it.copy(
+                    homeSections = emptyList(),
+                    homeRecentlyAdded = emptyList(),
+                    isHomeLoading = false,
+                    isHomeRefreshing = false
+                )
+            }
             return
         }
 
@@ -567,7 +590,6 @@ class CatalogViewModel @Inject constructor(
                 val folderTypeMap = mutableMapOf<String, Pair<String, String>>() // folderId -> (typeLabel, mediaType)
                 movieFolders.forEach { folderTypeMap[it] = "Movie" to "movie" }
                 tvFolders.forEach { folderTypeMap[it] = "Series" to "tv" }
-                animeFolders.forEach { folderTypeMap[it] = "Anime" to "tv" }
 
                 // Use saved display order, appending any new folders not yet in order
                 val savedOrder = appPreferences.tmdbFolderOrder
@@ -741,14 +763,12 @@ class CatalogViewModel @Inject constructor(
         viewModelScope.launch {
             val movieFolders = appPreferences.tmdbMovieFolders
             val tvFolders = appPreferences.tmdbTvFolders
-            val animeFolders = appPreferences.tmdbAnimeFolders
             val currentParent = _uiState.value.folderStack.lastOrNull()?.id
                 ?: _uiState.value.selectedDrive?.id ?: return@launch
 
             val mediaType = when (currentParent) {
                 in movieFolders -> "movie"
                 in tvFolders -> "tv"
-                in animeFolders -> "tv"
                 else -> "auto"
             }
 
@@ -987,7 +1007,6 @@ class CatalogViewModel @Inject constructor(
         return when {
             parentId != null && parentId in appPreferences.tmdbMovieFolders -> "movie"
             parentId != null && parentId in appPreferences.tmdbTvFolders -> "tv"
-            parentId != null && parentId in appPreferences.tmdbAnimeFolders -> "tv"
             else -> "auto"
         }
     }
@@ -1055,12 +1074,30 @@ class CatalogViewModel @Inject constructor(
     private fun detectMetadataIdInFolder(folder: MediaFileEntity): String? {
         if (!folder.isFolder) return null
 
-        // Look for ID in the folder name, e.g. "Movie Name [tt1234567]" or "Movie Name [12345]"
-        val idMatch = Regex("""\[(tt\d+|\d+)\]""", RegexOption.IGNORE_CASE).find(folder.name)
-        if (idMatch != null) {
-            return idMatch.groupValues[1]
-        }
-        return null
+        val bracketed = Regex("""\[\s*(tt\d{5,}|\d+)\s*]""", RegexOption.IGNORE_CASE)
+            .find(folder.name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (bracketed != null) return bracketed
+
+        val explicitTmdb = Regex("""\btmdb(?:\s*[-_ ]?\s*id)?\s*[-_:# ]\s*(\d+)\b""", RegexOption.IGNORE_CASE)
+            .find(folder.name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (explicitTmdb != null) return explicitTmdb
+
+        val explicitImdb = Regex("""\bimdb(?:\s*[-_ ]?\s*id)?\s*[-_:# ]\s*(tt\d{5,})\b""", RegexOption.IGNORE_CASE)
+            .find(folder.name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (explicitImdb != null) return explicitImdb
+
+        return Regex("""\btt\d{5,}\b""", RegexOption.IGNORE_CASE)
+            .find(folder.name)
+            ?.value
     }
 
     private companion object {

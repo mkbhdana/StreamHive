@@ -46,12 +46,15 @@ class TmdbRepository @Inject constructor(
         name: String,
         mediaType: String = "auto"
     ): TmdbMetadataEntity? = withContext(Dispatchers.IO) {
+        val requestStartedAt = System.currentTimeMillis()
         val apiKey = prefs.tmdbApiKey
         if (apiKey.isBlank()) return@withContext null
 
         // Check cache first
         val cached = tmdbMetadataDao.getByDriveFileId(driveFileId)
-        if (cached != null && !cached.isStale() && !cached.originalLanguage.isNullOrBlank()) return@withContext cached
+        if (cached != null && !cached.isStale() && !cached.originalLanguage.isNullOrBlank() && !cached.isIncomplete) {
+            return@withContext cached
+        }
 
         val query = cleanNameForSearch(name)
         if (query.isBlank()) return@withContext null
@@ -66,6 +69,10 @@ class TmdbRepository @Inject constructor(
             }
 
             if (entity != null) {
+                val latest = tmdbMetadataDao.getByDriveFileId(driveFileId)
+                if (latest != null && latest.cachedAt >= requestStartedAt) {
+                    return@withContext latest
+                }
                 tmdbMetadataDao.insert(entity)
             }
             entity
@@ -108,36 +115,14 @@ class TmdbRepository @Inject constructor(
 
     private suspend fun searchMovie(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
         val response = tmdbApiService.searchMovies(apiKey, query)
-        val movie = bestMatch(response.results, query) { it.title } ?: return null
-        return TmdbMetadataEntity(
-            driveFileId = driveFileId,
-            tmdbId = movie.id,
-            title = movie.title ?: "",
-            overview = movie.overview,
-            posterPath = movie.fullPosterUrl,
-            backdropPath = movie.fullBackdropUrl,
-            rating = movie.voteAverage,
-            year = movie.year,
-            originalLanguage = movie.originalLanguage,
-            mediaType = "movie"
-        )
+        val movie = bestMatch(response.results, query) { it.displayTitle } ?: return null
+        return movie.toMetadataEntity(driveFileId)
     }
 
     private suspend fun searchTvShow(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
         val response = tmdbApiService.searchTvShows(apiKey, query)
-        val show = bestMatch(response.results, query) { it.name } ?: return null
-        return TmdbMetadataEntity(
-            driveFileId = driveFileId,
-            tmdbId = show.id,
-            title = show.name ?: "",
-            overview = show.overview,
-            posterPath = show.fullPosterUrl,
-            backdropPath = show.fullBackdropUrl,
-            rating = show.voteAverage,
-            year = show.year,
-            originalLanguage = show.originalLanguage,
-            mediaType = "tv"
-        )
+        val show = bestMatch(response.results, query) { it.displayTitle } ?: return null
+        return show.toMetadataEntity(driveFileId)
     }
 
     private suspend fun searchMulti(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
@@ -150,7 +135,7 @@ class TmdbRepository @Inject constructor(
             driveFileId = driveFileId,
             tmdbId = result.id,
             title = result.displayTitle,
-            overview = result.overview,
+            overview = result.displayOverview,
             posterPath = result.fullPosterUrl,
             backdropPath = result.fullBackdropUrl,
             rating = result.voteAverage,
@@ -170,11 +155,53 @@ class TmdbRepository @Inject constructor(
 
     fun isConfigured(): Boolean = prefs.tmdbApiKey.isNotBlank()
 
+    suspend fun repairMetadataIfIncomplete(
+        metadata: TmdbMetadataEntity,
+        mediaTypeHint: String = "auto"
+    ): TmdbMetadataEntity? = withContext(Dispatchers.IO) {
+        val requestStartedAt = System.currentTimeMillis()
+        if (!metadata.needsDisplayRepair) return@withContext metadata
+
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return@withContext metadata
+
+        val preferredType = mediaTypeHint
+            .takeIf { it == "movie" || it == "tv" }
+            ?: metadata.mediaType.takeIf { it == "movie" || it == "tv" }
+            ?: "auto"
+
+        val repaired = lookupByTmdbId(
+            apiKey = apiKey,
+            tmdbId = metadata.tmdbId,
+            driveFileId = metadata.driveFileId,
+            mediaTypeHint = preferredType
+        ) ?: return@withContext metadata
+
+        val shouldReplace = repaired.title.isNotBlank() && (
+            metadata.title.isBlank() ||
+                metadata.titleLooksLocalized ||
+                metadata.overview.isNullOrBlank() ||
+                repaired.overview != metadata.overview
+            )
+
+        if (shouldReplace) {
+            val latest = tmdbMetadataDao.getByDriveFileId(metadata.driveFileId)
+            if (latest != null && latest.cachedAt >= requestStartedAt) {
+                return@withContext latest
+            }
+            tmdbMetadataDao.deleteByDriveFileId(metadata.driveFileId)
+            tmdbMetadataDao.insert(repaired)
+            repaired
+        } else {
+            metadata
+        }
+    }
+
     suspend fun getFullMovieDetails(tmdbId: Int): TmdbMovie? {
         val apiKey = prefs.tmdbApiKey
         if (apiKey.isBlank()) return null
         return try {
-            tmdbApiService.getMovieDetails(tmdbId, apiKey)
+            getMovieDetailsWithTextFallback(apiKey, tmdbId)
         } catch (e: Exception) { null }
     }
 
@@ -182,7 +209,7 @@ class TmdbRepository @Inject constructor(
         val apiKey = prefs.tmdbApiKey
         if (apiKey.isBlank()) return null
         return try {
-            tmdbApiService.getTvDetails(tmdbId, apiKey)
+            getTvDetailsWithTextFallback(apiKey, tmdbId)
         } catch (e: Exception) { null }
     }
 
@@ -198,8 +225,8 @@ class TmdbRepository @Inject constructor(
 
     /**
      * Fix metadata by manually providing a TMDB or IMDB ID.
-     * - Numeric input → treated as TMDB ID, tries movie first then TV
-     * - "tt..." input → treated as IMDB ID, uses /find endpoint
+     * - Numeric input → treated as TMDB ID and uses /movie/{id} or /tv/{id}
+     * - "tt..." input → treated as IMDB ID and uses /find/{external_id}
      */
     suspend fun fixMetadataById(
         driveFileId: String,
@@ -212,7 +239,7 @@ class TmdbRepository @Inject constructor(
         try {
             val entity = if (idInput.startsWith("tt", ignoreCase = true)) {
                 // IMDB ID
-                lookupByImdbId(apiKey, idInput, driveFileId)
+                lookupByImdbId(apiKey, idInput, driveFileId, mediaTypeHint)
             } else {
                 // TMDB ID
                 val tmdbId = idInput.toIntOrNull() ?: return@withContext null
@@ -236,41 +263,17 @@ class TmdbRepository @Inject constructor(
         driveFileId: String,
         mediaTypeHint: String
     ): TmdbMetadataEntity? {
-        // Try movie first (or as specified)
-        if (mediaTypeHint != "tv") {
+        if (mediaTypeHint == "movie" || mediaTypeHint == "auto") {
             try {
-                val movie = tmdbApiService.getMovieDetails(tmdbId, apiKey)
-                return TmdbMetadataEntity(
-                    driveFileId = driveFileId,
-                    tmdbId = movie.id,
-                    title = movie.title ?: "",
-                    overview = movie.overview,
-                    posterPath = movie.fullPosterUrl,
-                    backdropPath = movie.fullBackdropUrl,
-                    rating = movie.voteAverage,
-                    year = movie.year,
-                    originalLanguage = movie.originalLanguage,
-                    mediaType = "movie"
-                )
+                return getMovieDetailsWithTextFallback(apiKey, tmdbId).toMetadataEntity(driveFileId)
             } catch (_: Exception) {}
         }
 
-        // Try TV
-        try {
-            val show = tmdbApiService.getTvDetails(tmdbId, apiKey)
-            return TmdbMetadataEntity(
-                driveFileId = driveFileId,
-                tmdbId = show.id,
-                title = show.name ?: "",
-                overview = show.overview,
-                posterPath = show.fullPosterUrl,
-                backdropPath = show.fullBackdropUrl,
-                rating = show.voteAverage,
-                year = show.year,
-                originalLanguage = show.originalLanguage,
-                mediaType = "tv"
-            )
-        } catch (_: Exception) {}
+        if (mediaTypeHint == "tv" || mediaTypeHint == "auto") {
+            try {
+                return getTvDetailsWithTextFallback(apiKey, tmdbId).toMetadataEntity(driveFileId)
+            } catch (_: Exception) {}
+        }
 
         return null
     }
@@ -278,42 +281,103 @@ class TmdbRepository @Inject constructor(
     private suspend fun lookupByImdbId(
         apiKey: String,
         imdbId: String,
-        driveFileId: String
+        driveFileId: String,
+        mediaTypeHint: String = "auto"
     ): TmdbMetadataEntity? {
         val findResponse = tmdbApiService.findByExternalId(imdbId, apiKey)
 
-        // Check movie results first
-        findResponse.movieResults.firstOrNull()?.let { movie ->
-            return TmdbMetadataEntity(
-                driveFileId = driveFileId,
-                tmdbId = movie.id,
-                title = movie.title ?: "",
-                overview = movie.overview,
-                posterPath = movie.fullPosterUrl,
-                backdropPath = movie.fullBackdropUrl,
-                rating = movie.voteAverage,
-                year = movie.year,
-                originalLanguage = movie.originalLanguage,
-                mediaType = "movie"
-            )
+        if (mediaTypeHint != "tv") {
+            findResponse.movieResults.firstOrNull()?.let { movie ->
+                return movie.toMetadataEntity(driveFileId)
+            }
         }
 
-        // Check TV results
-        findResponse.tvResults.firstOrNull()?.let { show ->
-            return TmdbMetadataEntity(
-                driveFileId = driveFileId,
-                tmdbId = show.id,
-                title = show.name ?: "",
-                overview = show.overview,
-                posterPath = show.fullPosterUrl,
-                backdropPath = show.fullBackdropUrl,
-                rating = show.voteAverage,
-                year = show.year,
-                originalLanguage = show.originalLanguage,
-                mediaType = "tv"
-            )
+        if (mediaTypeHint != "movie") {
+            findResponse.tvResults.firstOrNull()?.let { show ->
+                return show.toMetadataEntity(driveFileId)
+            }
         }
 
         return null
+    }
+
+    private suspend fun getMovieDetailsWithTextFallback(apiKey: String, tmdbId: Int): TmdbMovie {
+        val primary = tmdbApiService.getMovieDetails(tmdbId, apiKey)
+        val fallbackLanguage = primary.originalLanguage
+            ?.takeIf { it.isNotBlank() && it != "en" }
+            ?: return primary
+        if (primary.displayTitle.isNotBlank() && !primary.displayOverview.isNullOrBlank()) return primary
+
+        val fallback = runCatching {
+            tmdbApiService.getMovieDetails(tmdbId, apiKey, language = fallbackLanguage)
+        }.getOrNull() ?: return primary
+
+        return primary.copy(
+            title = primary.title.takeUnlessBlank()
+                ?: fallback.title.takeUnlessBlank()
+                ?: primary.originalTitle.takeUnlessBlank()
+                ?: fallback.originalTitle.takeUnlessBlank(),
+            originalTitle = primary.originalTitle.takeUnlessBlank()
+                ?: fallback.originalTitle.takeUnlessBlank(),
+            overview = primary.overview.takeUnlessBlank()
+                ?: fallback.overview.takeUnlessBlank()
+        )
+    }
+
+    private suspend fun getTvDetailsWithTextFallback(apiKey: String, tmdbId: Int): TmdbTvShow {
+        val primary = tmdbApiService.getTvDetails(tmdbId, apiKey)
+        val fallbackLanguage = primary.originalLanguage
+            ?.takeIf { it.isNotBlank() && it != "en" }
+            ?: return primary
+        if (primary.displayTitle.isNotBlank() && !primary.displayOverview.isNullOrBlank()) return primary
+
+        val fallback = runCatching {
+            tmdbApiService.getTvDetails(tmdbId, apiKey, language = fallbackLanguage)
+        }.getOrNull() ?: return primary
+
+        return primary.copy(
+            name = primary.name.takeUnlessBlank()
+                ?: fallback.name.takeUnlessBlank()
+                ?: primary.originalName.takeUnlessBlank()
+                ?: fallback.originalName.takeUnlessBlank(),
+            originalName = primary.originalName.takeUnlessBlank()
+                ?: fallback.originalName.takeUnlessBlank(),
+            overview = primary.overview.takeUnlessBlank()
+                ?: fallback.overview.takeUnlessBlank()
+        )
+    }
+
+    private fun TmdbMovie.toMetadataEntity(driveFileId: String): TmdbMetadataEntity {
+        return TmdbMetadataEntity(
+            driveFileId = driveFileId,
+            tmdbId = id,
+            title = displayTitle,
+            overview = displayOverview,
+            posterPath = fullPosterUrl,
+            backdropPath = fullBackdropUrl,
+            rating = voteAverage,
+            year = year,
+            originalLanguage = originalLanguage,
+            mediaType = "movie"
+        )
+    }
+
+    private fun TmdbTvShow.toMetadataEntity(driveFileId: String): TmdbMetadataEntity {
+        return TmdbMetadataEntity(
+            driveFileId = driveFileId,
+            tmdbId = id,
+            title = displayTitle,
+            overview = displayOverview,
+            posterPath = fullPosterUrl,
+            backdropPath = fullBackdropUrl,
+            rating = voteAverage,
+            year = year,
+            originalLanguage = originalLanguage,
+            mediaType = "tv"
+        )
+    }
+
+    private fun String?.takeUnlessBlank(): String? {
+        return this?.takeIf { it.isNotBlank() }
     }
 }

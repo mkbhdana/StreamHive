@@ -106,6 +106,11 @@ fun HomeTab(
         return
     }
 
+    if (!hasAnyContent && !hasContinuePlaying && state.hasTmdbSetup) {
+        TmdbSetupPrompt(onNavigateToSettings = onNavigateToSettings, modifier = modifier)
+        return
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -144,17 +149,10 @@ fun HomeTab(
         // ──── Dynamic Catalog Sections ────
         state.homeSections.forEach { section ->
             item(key = "section_${section.folderId}") {
-                val sectionIcon = when (section.typeLabel) {
-                    "Movie" -> Icons.Default.Movie
-                    "Series" -> Icons.Default.Tv
-                    "Anime" -> Icons.Default.Animation
-                    else -> Icons.Default.Movie
-                }
-                val seeAllCategory = when (section.typeLabel) {
-                    "Movie" -> "movies"
-                    "Series" -> "tv"
-                    "Anime" -> "anime"
-                    else -> "movies"
+                val sectionIcon = if (section.typeLabel == "Series") {
+                    Icons.Default.Tv
+                } else {
+                    Icons.Default.Movie
                 }
                 TmdbHorizontalSection(
                     title = "${section.folderName} - ${section.typeLabel}",
@@ -164,14 +162,8 @@ fun HomeTab(
                     tmdbMetadata = state.tmdbMetadata,
                     mediaType = section.mediaType,
                     onNavigateToInfo = onNavigateToInfo,
-                    onSeeAll = { onNavigateToSeeAll(seeAllCategory) }
+                    onSeeAll = { onNavigateToSeeAll(section.folderId) }
                 )
-            }
-        }
-
-        if (!hasAnyContent && !hasContinuePlaying && state.hasTmdbSetup) {
-            item {
-                NoHomeContent(onNavigateToSettings = onNavigateToSettings)
             }
         }
 
@@ -1188,7 +1180,7 @@ private fun TmdbSetupPrompt(
                 Icon(Icons.Default.Movie, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
                 Text("Set Up Your Catalog", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    "Add your TMDB API key and map folders to Movies, TV Shows, or Anime to see beautiful metadata here.\n\nOr start watching videos — they'll appear in Continue Playing!",
+                    "Add your TMDB API key and map folders to Movies or Series to see beautiful metadata here.\n\nOr start watching videos — they'll appear in Continue Playing!",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 8.dp)

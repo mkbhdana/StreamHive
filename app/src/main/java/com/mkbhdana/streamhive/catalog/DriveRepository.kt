@@ -208,48 +208,6 @@ class DriveRepository @Inject constructor(
     }
 
     /**
-     * Fetch only .txt files from a folder via Drive API.
-     * Used to detect metadata hint files (e.g. "tt1234567.txt").
-     * Lightweight call — no caching, no pagination (expect very few txt files).
-     */
-    suspend fun listTextFilesInFolder(
-        driveId: String,
-        folderId: String
-    ): List<DriveFile> = withContext(Dispatchers.IO) {
-        try {
-            val token = authRepository.getValidAccessToken() ?: return@withContext emptyList()
-
-            val query = "'$folderId' in parents and mimeType = 'text/plain' and trashed = false"
-            val url = StringBuilder("${Constants.DRIVE_FILES_URL}?")
-                .append("corpora=drive")
-                .append("&driveId=$driveId")
-                .append("&includeItemsFromAllDrives=true")
-                .append("&supportsAllDrives=true")
-                .append("&q=${java.net.URLEncoder.encode(query, "UTF-8")}")
-                .append("&fields=${java.net.URLEncoder.encode("files(id,name,mimeType)", "UTF-8")}")
-                .append("&pageSize=10")
-                .toString()
-
-            val request = Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $token")
-                .get()
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val body = response.body ?: return@withContext emptyList()
-
-                val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
-                fileListResponse.files
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            emptyList()
-        }
-    }
-
-    /**
      * Get the modifiedTime of a specific folder from the Drive API.
      */
     suspend fun getFolderModifiedTime(fileId: String, driveId: String): String? = withContext(Dispatchers.IO) {

@@ -26,6 +26,7 @@ data class TmdbMultiSearchResponse(
 data class TmdbMovie(
     val id: Int,
     val title: String? = null,
+    @SerializedName("original_title") val originalTitle: String? = null,
     val overview: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
@@ -35,6 +36,14 @@ data class TmdbMovie(
     val popularity: Float? = null,
     @SerializedName("original_language") val originalLanguage: String? = null
 ) {
+    val displayTitle: String
+        get() = title?.takeIf { it.isNotBlank() }
+            ?: originalTitle?.takeIf { it.isNotBlank() }
+            ?: ""
+
+    val displayOverview: String?
+        get() = overview?.takeIf { it.isNotBlank() }
+
     val year: String?
         get() = releaseDate?.take(4)
 
@@ -50,6 +59,7 @@ data class TmdbMovie(
 data class TmdbTvShow(
     val id: Int,
     val name: String? = null,
+    @SerializedName("original_name") val originalName: String? = null,
     val overview: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
@@ -60,6 +70,14 @@ data class TmdbTvShow(
     @SerializedName("original_language") val originalLanguage: String? = null,
     @SerializedName("number_of_seasons") val numberOfSeasons: Int? = null
 ) {
+    val displayTitle: String
+        get() = name?.takeIf { it.isNotBlank() }
+            ?: originalName?.takeIf { it.isNotBlank() }
+            ?: ""
+
+    val displayOverview: String?
+        get() = overview?.takeIf { it.isNotBlank() }
+
     val year: String?
         get() = firstAirDate?.take(4)
 
@@ -104,7 +122,9 @@ data class TmdbMultiResult(
     val id: Int,
     @SerializedName("media_type") val mediaType: String? = null,
     val title: String? = null,
+    @SerializedName("original_title") val originalTitle: String? = null,
     val name: String? = null,
+    @SerializedName("original_name") val originalName: String? = null,
     val overview: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
@@ -114,7 +134,14 @@ data class TmdbMultiResult(
     @SerializedName("original_language") val originalLanguage: String? = null
 ) {
     val displayTitle: String
-        get() = title ?: name ?: ""
+        get() = title?.takeIf { it.isNotBlank() }
+            ?: name?.takeIf { it.isNotBlank() }
+            ?: originalTitle?.takeIf { it.isNotBlank() }
+            ?: originalName?.takeIf { it.isNotBlank() }
+            ?: ""
+
+    val displayOverview: String?
+        get() = overview?.takeIf { it.isNotBlank() }
 
     val year: String?
         get() = (releaseDate ?: firstAirDate)?.take(4)

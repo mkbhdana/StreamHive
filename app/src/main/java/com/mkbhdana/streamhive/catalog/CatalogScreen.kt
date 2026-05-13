@@ -56,7 +56,7 @@ fun CatalogScreen(
     onLogout: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToInfo: (driveFileId: String, mediaType: String) -> Unit = { _, _ -> },
-    onNavigateToSeeAll: (category: String) -> Unit = {},
+    onNavigateToSeeAll: (folderId: String) -> Unit = {},
     viewModel: CatalogViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()

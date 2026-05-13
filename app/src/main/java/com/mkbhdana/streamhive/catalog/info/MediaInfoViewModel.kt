@@ -11,6 +11,8 @@ import com.mkbhdana.streamhive.data.model.DriveFile
 import com.mkbhdana.streamhive.data.tmdb.TmdbRepository
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.settings.AppPreferences
+import com.mkbhdana.streamhive.settings.SourcePriorityFilter
+import com.mkbhdana.streamhive.settings.SourcePriorityResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,14 +37,21 @@ data class MediaInfoUiState(
     val metadata: TmdbMetadataEntity? = null,
 
     // All video files associated with this item (direct + nested)
+    val allDriveFiles: List<MediaFileEntity> = emptyList(),
     val driveFiles: List<MediaFileEntity> = emptyList(),
 
     // For TV shows: files grouped by season extracted from filename
     val fileSeasons: List<FileSeason> = emptyList(),
     val expandedSeason: Int? = null,
 
+    val sourcePriorityConfigured: Boolean = false,
+    val sourcePriorityTemporarilyDisabled: Boolean = false,
+    val sourcePriorityFiltered: Boolean = false,
+    val sourcePrioritySummary: String? = null,
+
     // Preferred engine from settings
-    val preferredEngine: PlayerEngine = PlayerEngine.EXO_PLAYER
+    val preferredEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
+    val requestedMediaType: String = "auto"
 )
 
 @HiltViewModel
@@ -59,9 +68,13 @@ class MediaInfoViewModel @Inject constructor(
     /** Catalog type hint from navigation: "movie", "tv", or "auto" */
     private val mediaTypeHint: String = savedStateHandle.get<String>("mediaType") ?: "auto"
 
+    private var sourcePriorityFilteringEnabled = false
+    private var metadataRevision = 0
+
     private val _uiState = MutableStateFlow(
         MediaInfoUiState(
-            preferredEngine = appPreferences.preferredEngine
+            preferredEngine = appPreferences.preferredEngine,
+            requestedMediaType = mediaTypeHint
         )
     )
     val uiState: StateFlow<MediaInfoUiState> = _uiState.asStateFlow()
@@ -72,6 +85,7 @@ class MediaInfoViewModel @Inject constructor(
 
     private fun loadMediaInfo() {
         viewModelScope.launch {
+            val loadRevision = metadataRevision
             _uiState.update { it.copy(isLoading = true) }
 
             try {
@@ -85,7 +99,7 @@ class MediaInfoViewModel @Inject constructor(
                 }
 
                 // 2. Fetch folder children from Drive API
-                //    This gives us video files, season sub-folders, and any .txt hint files
+                //    This gives us video files and season sub-folders.
                 val folderChildren = if (driveFile != null && driveFile.isFolder) {
                     val result = driveRepository.listFilesInDrive(
                         driveId = driveFile.driveId,
@@ -96,25 +110,18 @@ class MediaInfoViewModel @Inject constructor(
                     emptyList()
                 }
 
-                // 3. Check for .txt file with TMDB/IMDB ID as filename
-                //    Uses a separate API call since the main query only returns video files
-                //    txt file is at: series folder → [S01/, S02/, tt1234567.txt]
-                //    or: movie folder → [movie.mkv, 12345.txt]
-                val metadataIdFromFile = if (driveFile != null && driveFile.isFolder) {
-                    val txtFiles = driveRepository.listTextFilesInFolder(
-                        driveId = driveFile.driveId,
-                        folderId = driveFile.id
-                    )
-                    detectMetadataIdFile(txtFiles)
-                } else null
+                val metadataIdFromFolderName = driveFile?.name?.let(::detectMetadataIdInName)
 
-                // 4. Get metadata — priority: cache → text file ID → name search
+                // 3. Get metadata: cache, folder-name ID, then name search.
                 var metadata = tmdbRepository.getMetadataForFile(driveFileId)
+                if (metadata != null && metadata.needsDisplayRepair) {
+                    metadata = tmdbRepository.repairMetadataIfIncomplete(metadata, mediaTypeHint)
+                }
 
-                if (metadata == null && metadataIdFromFile != null) {
-                    // Auto-fix using text file hint
+                if (metadata == null && metadataIdFromFolderName != null) {
+                    // Auto-fix using folder-name ID hint
                     metadata = tmdbRepository.fixMetadataById(
-                        driveFileId, metadataIdFromFile, mediaTypeHint
+                        driveFileId, metadataIdFromFolderName, mediaTypeHint
                     )
                 }
 
@@ -127,94 +134,100 @@ class MediaInfoViewModel @Inject constructor(
                     )
                 }
 
-                // If cached metadata exists but text file provides a different ID,
-                // re-fetch to update (in case user added/changed the text file)
-                if (metadata != null && metadataIdFromFile != null) {
+                // If cached metadata exists but the folder name provides a different ID,
+                // re-fetch to update in case the user renamed the folder.
+                if (metadata != null && metadataIdFromFolderName != null) {
                     val currentIdStr = metadata.tmdbId.toString()
-                    val isImdb = metadataIdFromFile.startsWith("tt", ignoreCase = true)
-                    if (isImdb || currentIdStr != metadataIdFromFile) {
+                    val isImdb = metadataIdFromFolderName.startsWith("tt", ignoreCase = true)
+                    if (isImdb || currentIdStr != metadataIdFromFolderName) {
                         val updated = tmdbRepository.fixMetadataById(
-                            driveFileId, metadataIdFromFile, mediaTypeHint
+                            driveFileId, metadataIdFromFolderName, mediaTypeHint
                         )
                         if (updated != null) metadata = updated
                     }
                 }
 
-                // 5. Collect video files (skip .txt and other non-video files)
+                // 4. Collect video files.
                 val allFiles = collectVideoFiles(driveFile, folderChildren)
 
-                // 6. Determine if we should show season grouping:
+                // 5. Determine if we should show season grouping:
                 //    - TMDB confirms it's TV → always group
                 //    - No TMDB data but catalog hint is "tv" → group by season
                 //    - Otherwise → flat file list
                 val isTv = metadata?.mediaType == "tv" || (metadata == null && mediaTypeHint == "tv")
-                val seasons = if (isTv) {
-                    groupFilesBySeason(allFiles)
-                } else {
-                    emptyList()
-                }
+                val display = buildFileDisplay(allFiles, isTv, _uiState.value.expandedSeason)
 
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        metadata = metadata,
-                        driveFiles = allFiles,
-                        fileSeasons = seasons,
-                        expandedSeason = seasons.firstOrNull()?.seasonNumber
-                    )
+                if (loadRevision == metadataRevision) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            metadata = metadata,
+                            allDriveFiles = allFiles,
+                            driveFiles = display.files,
+                            fileSeasons = display.seasons,
+                            expandedSeason = display.expandedSeason,
+                            sourcePriorityConfigured = display.sourcePriorityConfigured,
+                            sourcePriorityFiltered = display.sourcePriorityFiltered,
+                            sourcePrioritySummary = display.sourcePrioritySummary
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "Failed to load info: ${e.message}"
-                    )
+                if (loadRevision == metadataRevision) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Failed to load info: ${e.message}"
+                        )
+                    }
                 }
             }
         }
     }
 
     /**
-     * Detect a .txt file in the folder whose filename is a TMDB or IMDB ID.
+     * Detect a TMDB or IMDB ID embedded in the folder name.
      * Supported patterns:
-     *   - "12345.txt" → TMDB ID
-     *   - "tt1234567.txt" → IMDB ID
-     *   - "tmdb-12345.txt" → TMDB ID
-     *   - "imdb-tt1234567.txt" → IMDB ID
+     *   - "Movie Name [12345]"
+     *   - "Movie Name [tmdb-12345]"
+     *   - "Movie Name [tmdb:12345]"
+     *   - "Movie Name [tt1234567]"
+     *   - "Movie Name [imdb-tt1234567]"
+     *
+     * Plain numbers outside square brackets are ignored so years like "(1998)"
+     * do not get treated as TMDB IDs.
      */
-    private fun detectMetadataIdFile(children: List<DriveFile>): String? {
-        val txtFiles = children.filter {
-            !it.isFolder && it.name.endsWith(".txt", ignoreCase = true)
-        }
+    private fun detectMetadataIdInName(name: String): String? {
+        val bracketed = Regex("""\[\s*(tt\d{5,}|\d+)\s*]""", RegexOption.IGNORE_CASE)
+            .find(name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (bracketed != null) return bracketed
 
-        for (txt in txtFiles) {
-            val nameWithoutExt = txt.name.substringBeforeLast(".")
+        val explicitTmdb = Regex("""\btmdb(?:\s*[-_ ]?\s*id)?\s*[-_:# ]\s*(\d+)\b""", RegexOption.IGNORE_CASE)
+            .find(name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (explicitTmdb != null) return explicitTmdb
 
-            // Direct IMDB ID: tt1234567
-            if (nameWithoutExt.matches(Regex("""tt\d{5,}""", RegexOption.IGNORE_CASE))) {
-                return nameWithoutExt
-            }
+        val explicitImdb = Regex("""\bimdb(?:\s*[-_ ]?\s*id)?\s*[-_:# ]\s*(tt\d{5,})\b""", RegexOption.IGNORE_CASE)
+            .find(name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        if (explicitImdb != null) return explicitImdb
 
-            // Direct TMDB numeric ID: 12345
-            if (nameWithoutExt.matches(Regex("""\d+"""))) {
-                return nameWithoutExt
-            }
-
-            // Prefixed: tmdb-12345 or imdb-tt1234567
-            val prefixed = Regex("""(?:tmdb|imdb)[- _](.+)""", RegexOption.IGNORE_CASE)
-                .find(nameWithoutExt)
-            if (prefixed != null) {
-                return prefixed.groupValues[1].trim()
-            }
-        }
-
-        return null
+        return Regex("""\btt\d{5,}\b""", RegexOption.IGNORE_CASE)
+            .find(name)
+            ?.value
     }
 
     /**
      * Collect video files from folder children.
      * Recurses into sub-folders (season folders).
-     * Filters out non-video files (like .txt metadata hints).
+     * Filters out non-video files.
      */
     private suspend fun collectVideoFiles(
         driveFile: MediaFileEntity?,
@@ -244,7 +257,7 @@ class MediaInfoViewModel @Inject constructor(
             } else if (isVideoFile(child)) {
                 videos.add(driveFileToEntity(child, driveFile.id, driveFile.driveId))
             }
-            // Non-video files (.txt, .nfo, etc.) are silently skipped
+            // Non-video files are silently skipped.
         }
 
         return videos.sortedBy { it.name }
@@ -339,16 +352,30 @@ class MediaInfoViewModel @Inject constructor(
 
     fun fixMetadata(idInput: String) {
         viewModelScope.launch {
+            metadataRevision += 1
             _uiState.update { it.copy(isLoading = true) }
-            val result = tmdbRepository.fixMetadataById(driveFileId, idInput, mediaTypeHint)
+            val lookupType = mediaTypeHint
+                .takeIf { it == "movie" || it == "tv" }
+                ?: _uiState.value.metadata?.mediaType
+                    ?.takeIf { it == "movie" || it == "tv" }
+                ?: "auto"
+            val result = tmdbRepository.fixMetadataById(driveFileId, idInput, lookupType)
             if (result != null) {
-                val isTv = result.mediaType == "tv" || mediaTypeHint == "tv"
+                val isTv = result.mediaType == "tv"
+                val allFiles = _uiState.value.allDriveFiles.ifEmpty { _uiState.value.driveFiles }
+                val display = buildFileDisplay(allFiles, isTv, _uiState.value.expandedSeason)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         metadata = result,
                         error = null,
-                        fileSeasons = if (isTv) groupFilesBySeason(it.driveFiles) else emptyList()
+                        allDriveFiles = allFiles,
+                        driveFiles = display.files,
+                        fileSeasons = display.seasons,
+                        expandedSeason = display.expandedSeason,
+                        sourcePriorityConfigured = display.sourcePriorityConfigured,
+                        sourcePriorityFiltered = display.sourcePriorityFiltered,
+                        sourcePrioritySummary = display.sourcePrioritySummary
                     )
                 }
             } else {
@@ -373,12 +400,17 @@ class MediaInfoViewModel @Inject constructor(
                     val folderChildren = result.getOrNull() ?: emptyList()
                     val allFiles = collectVideoFiles(driveFile, folderChildren)
                     val isTv = _uiState.value.metadata?.mediaType == "tv" || mediaTypeHint == "tv"
-                    val seasons = if (isTv) groupFilesBySeason(allFiles) else emptyList()
+                    val display = buildFileDisplay(allFiles, isTv, _uiState.value.expandedSeason)
                     _uiState.update {
                         it.copy(
                             isRefreshing = false,
-                            driveFiles = allFiles,
-                            fileSeasons = seasons
+                            allDriveFiles = allFiles,
+                            driveFiles = display.files,
+                            fileSeasons = display.seasons,
+                            expandedSeason = display.expandedSeason,
+                            sourcePriorityConfigured = display.sourcePriorityConfigured,
+                            sourcePriorityFiltered = display.sourcePriorityFiltered,
+                            sourcePrioritySummary = display.sourcePrioritySummary
                         )
                     }
                 } else {
@@ -387,6 +419,107 @@ class MediaInfoViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.update { it.copy(isRefreshing = false, error = "Refresh failed: ${e.message}") }
             }
+        }
+    }
+
+    fun setSourcePriorityFilteringEnabled(enabled: Boolean) {
+        if (sourcePriorityFilteringEnabled == enabled) return
+        sourcePriorityFilteringEnabled = enabled
+        reapplySourcePriority()
+    }
+
+    fun setSourcePriorityTemporarilyDisabled(disabled: Boolean) {
+        _uiState.update { it.copy(sourcePriorityTemporarilyDisabled = disabled) }
+        reapplySourcePriority()
+    }
+
+    private fun reapplySourcePriority() {
+        val state = _uiState.value
+        val allFiles = state.allDriveFiles.ifEmpty { state.driveFiles }
+        if (allFiles.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    sourcePriorityConfigured = sourcePriorityFilteringEnabled && appPreferences.sourcePriorityConfig.hasAnyPriority,
+                    sourcePriorityFiltered = false,
+                    sourcePrioritySummary = null
+                )
+            }
+            return
+        }
+
+        val isTv = state.metadata?.mediaType == "tv" || (state.metadata == null && mediaTypeHint == "tv")
+        val display = buildFileDisplay(allFiles, isTv, state.expandedSeason)
+        _uiState.update {
+            it.copy(
+                allDriveFiles = allFiles,
+                driveFiles = display.files,
+                fileSeasons = display.seasons,
+                expandedSeason = display.expandedSeason,
+                sourcePriorityConfigured = display.sourcePriorityConfigured,
+                sourcePriorityFiltered = display.sourcePriorityFiltered,
+                sourcePrioritySummary = display.sourcePrioritySummary
+            )
+        }
+    }
+
+    private data class FileDisplayState(
+        val files: List<MediaFileEntity>,
+        val seasons: List<FileSeason>,
+        val expandedSeason: Int?,
+        val sourcePriorityConfigured: Boolean,
+        val sourcePriorityFiltered: Boolean,
+        val sourcePrioritySummary: String?
+    )
+
+    private fun buildFileDisplay(
+        allFiles: List<MediaFileEntity>,
+        isTv: Boolean,
+        preferredExpandedSeason: Int?
+    ): FileDisplayState {
+        val config = appPreferences.sourcePriorityConfig
+        val isConfigured = sourcePriorityFilteringEnabled && config.hasAnyPriority
+        val priorityResult = if (isConfigured && !_uiState.value.sourcePriorityTemporarilyDisabled) {
+            SourcePriorityFilter.filter(allFiles, config)
+        } else {
+            SourcePriorityResult(
+                files = allFiles,
+                totalFiles = allFiles.size,
+                isConfigured = isConfigured
+            )
+        }
+        val displayFiles = priorityResult.files
+        val seasons = if (isTv) groupFilesBySeason(displayFiles) else emptyList()
+        val expandedSeason = when {
+            seasons.isEmpty() -> null
+            preferredExpandedSeason != null && seasons.any { it.seasonNumber == preferredExpandedSeason } -> preferredExpandedSeason
+            else -> seasons.firstOrNull()?.seasonNumber
+        }
+
+        return FileDisplayState(
+            files = displayFiles,
+            seasons = seasons,
+            expandedSeason = expandedSeason,
+            sourcePriorityConfigured = isConfigured,
+            sourcePriorityFiltered = isConfigured &&
+                !_uiState.value.sourcePriorityTemporarilyDisabled &&
+                priorityResult.isFiltered,
+            sourcePrioritySummary = sourcePrioritySummary(priorityResult)
+        )
+    }
+
+    private fun sourcePrioritySummary(result: SourcePriorityResult): String? {
+        if (!sourcePriorityFilteringEnabled || !appPreferences.sourcePriorityConfig.hasAnyPriority) return null
+        if (_uiState.value.sourcePriorityTemporarilyDisabled) {
+            return "Source priority off. Showing all ${result.totalFiles} files."
+        }
+
+        val applied = result.applied.joinToString(" · ") {
+            "${it.categoryLabel}: ${it.valueLabel}"
+        }
+        return if (result.isFiltered) {
+            "Showing ${result.files.size} of ${result.totalFiles}${applied.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
+        } else {
+            "Priority on. Showing all ${result.totalFiles} files."
         }
     }
 

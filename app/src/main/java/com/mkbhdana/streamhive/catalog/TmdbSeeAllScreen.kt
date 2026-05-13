@@ -27,19 +27,14 @@ import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TmdbSeeAllScreen(
-    category: String,
+    title: String,
+    defaultMediaType: String,
     files: List<MediaFileEntity>,
+    fileMediaTypes: Map<String, String> = emptyMap(),
     tmdbMetadata: Map<String, TmdbMetadataEntity>,
     onBack: () -> Unit,
     onNavigateToInfo: (String, String) -> Unit
 ) {
-    val title = when (category) {
-        "movies" -> "All Movies"
-        "tv" -> "All TV Shows"
-        "anime" -> "All Anime"
-        else -> "All Items"
-    }
-
     val sorted = files.sortedByDescending { it.modifiedTime ?: "" }
 
     Scaffold(
@@ -108,11 +103,9 @@ fun TmdbSeeAllScreen(
                     file = file,
                     metadata = tmdbMetadata[file.id],
                     onClick = {
-                        val mediaType = when (category) {
-                            "movies" -> "movie"
-                            "tv", "anime" -> "tv"
-                            else -> "auto"
-                        }
+                        val mediaType = fileMediaTypes[file.id]
+                            ?: tmdbMetadata[file.id]?.mediaType
+                            ?: defaultMediaType
                         onNavigateToInfo(file.id, mediaType)
                     }
                 )

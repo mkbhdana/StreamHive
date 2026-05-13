@@ -92,7 +92,6 @@ fun TmdbSettingsScreen(
                         viewModel = viewModel,
                         movieFolders = state.tmdbMovieFolders,
                         tvFolders = state.tmdbTvFolders,
-                        animeFolders = state.tmdbAnimeFolders,
                         recentFolders = state.tmdbRecentFolders,
                         allFolders = viewModel.availableFolders.collectAsState().value,
                         onAddFolder = viewModel::addTmdbFolder,
@@ -112,7 +111,6 @@ private fun CatalogFoldersSection(
     viewModel: SettingsViewModel,
     movieFolders: Set<String>,
     tvFolders: Set<String>,
-    animeFolders: Set<String>,
     recentFolders: Set<String>,
     allFolders: List<MediaFileEntity>,
     onAddFolder: (folderId: String, type: String) -> Unit,
@@ -126,11 +124,15 @@ private fun CatalogFoldersSection(
     
     val orderedIds = viewModel.getOrderedFolderIds()
     
-    val mappedList = remember(movieFolders, tvFolders, animeFolders, allFolders, orderedIds) {
+    val mappedList = remember(
+        movieFolders,
+        tvFolders,
+        allFolders,
+        orderedIds
+    ) {
         val folderTypeMap = mutableMapOf<String, String>()
         movieFolders.forEach { folderTypeMap[it] = "movie" }
         tvFolders.forEach { folderTypeMap[it] = "tv" }
-        animeFolders.forEach { folderTypeMap[it] = "anime" }
         
         orderedIds.mapNotNull { id ->
             val type = folderTypeMap[id] ?: return@mapNotNull null
@@ -219,11 +221,10 @@ private fun CatalogFoldersSection(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.width(8.dp))
-                val (badgeText, badgeColor) = when (folder.type) {
-                    "movie" -> "Movie" to Color(0xFFE91E63)
-                    "tv" -> "Series" to Color(0xFF2196F3)
-                    "anime" -> "Anime" to Color(0xFF9C27B0)
-                    else -> "Other" to Color.Gray
+                val (badgeText, badgeColor) = if (folder.type == "movie") {
+                    "Movie" to Color(0xFFE91E63)
+                } else {
+                    "Series" to Color(0xFF2196F3)
                 }
                 Box(
                     modifier = Modifier
@@ -253,7 +254,7 @@ private fun CatalogFoldersSection(
     }
 
     if (showPicker) {
-        val alreadyMapped = (movieFolders + tvFolders + animeFolders)
+        val alreadyMapped = (movieFolders + tvFolders)
         CatalogFolderBrowserDialog(
             viewModel = viewModel,
             alreadyMapped = alreadyMapped,
@@ -324,18 +325,6 @@ private fun CatalogFolderBrowserDialog(
                             selected = selectedType == "tv",
                             onClick = { selectedType = "tv" },
                             label = { Text("Series", style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(
-                            selected = selectedType == "anime_movie",
-                            onClick = { selectedType = "anime_movie" },
-                            label = { Text("Anime Movies", style = MaterialTheme.typography.labelSmall) }
-                        )
-                        FilterChip(
-                            selected = selectedType == "anime_series",
-                            onClick = { selectedType = "anime_series" },
-                            label = { Text("Anime Series", style = MaterialTheme.typography.labelSmall) }
                         )
                     }
                 }
