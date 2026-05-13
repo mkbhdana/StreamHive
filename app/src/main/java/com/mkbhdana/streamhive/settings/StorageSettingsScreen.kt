@@ -30,6 +30,7 @@ fun StorageSettingsScreen(
     var isCalculatingCache by remember { mutableStateOf(true) }
 
     var showClearDataDialog by remember { mutableStateOf(false) }
+    var showClearPlaybackDialog by remember { mutableStateOf(false) }
     var showResetSettingsDialog by remember { mutableStateOf(false) }
     
     // Backup state
@@ -107,6 +108,23 @@ fun StorageSettingsScreen(
 
             item {
                 SettingsCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showClearPlaybackDialog = true }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Clear Playback Cache/Data", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text("Deletes progress, history, Continue Watching, and playback selections", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -208,6 +226,25 @@ fun StorageSettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDataDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showClearPlaybackDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearPlaybackDialog = false },
+            title = { Text("Clear Playback Cache/Data?") },
+            text = { Text("This will remove playback progress, playback history, Continue Watching items, and saved player engine/decoder selections for played files.\n\nCatalog metadata, posters, folder mappings, API keys, and app settings will not be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearPlaybackDialog = false
+                    viewModel.clearPlaybackCacheAndData {
+                        Toast.makeText(context, "Playback cache and data cleared", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Clear", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearPlaybackDialog = false }) { Text("Cancel") }
             }
         )
     }

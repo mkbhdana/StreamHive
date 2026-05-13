@@ -1,7 +1,11 @@
 package com.mkbhdana.streamhive.navigation
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import android.widget.Toast
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -11,11 +15,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
-import androidx.navigation.NavType
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,18 +28,15 @@ import androidx.navigation.navArgument
 import com.mkbhdana.streamhive.auth.AuthScreen
 import com.mkbhdana.streamhive.catalog.CatalogScreen
 import com.mkbhdana.streamhive.catalog.TmdbSeeAllScreen
-import com.mkbhdana.streamhive.catalog.TvCatalogScreen
 import com.mkbhdana.streamhive.catalog.info.MediaInfoScreen
 import com.mkbhdana.streamhive.player.ExternalPlayerLauncher
 import com.mkbhdana.streamhive.player.PlayerScreen
-import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
-import com.mkbhdana.streamhive.player.proxy.StreamProxyService
 import com.mkbhdana.streamhive.player.mpv.MpvPlayerScreen
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
+import com.mkbhdana.streamhive.player.proxy.StreamProxyServer
+import com.mkbhdana.streamhive.player.proxy.StreamProxyService
 import com.mkbhdana.streamhive.settings.SettingsScreen
 import com.mkbhdana.streamhive.update.AppUpdateViewModel
-import android.widget.Toast
-import androidx.compose.ui.unit.dp
 
 object Routes {
     const val AUTH = "auth"
@@ -48,15 +50,12 @@ object Routes {
     const val SETTINGS_TMDB = "settings/tmdb"
     const val SETTINGS_STORAGE = "settings/storage"
     const val MEDIA_INFO = "media_info/{driveFileId}?mediaType={mediaType}"
-    const val TMDB_SEE_ALL = "tmdb_see_all/{category}"
-
-    // TV routes
-    const val TV_CATALOG = "tv_catalog"
+    const val TMDB_SEE_ALL = "tmdb_see_all/{folderId}"
 }
 
 @UnstableApi
 @Composable
-fun AppNavigation(isTv: Boolean = false) {
+fun AppNavigation() {
     val navController = rememberNavController()
     val updateViewModel: AppUpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.uiState.collectAsState()
@@ -89,9 +88,7 @@ fun AppNavigation(isTv: Boolean = false) {
             confirmButton = {
                 TextButton(
                     enabled = !updateState.isDownloadingUpdate,
-                    onClick = {
-                        updateViewModel.downloadAndInstallUpdate()
-                    }
+                    onClick = updateViewModel::downloadAndInstallUpdate
                 ) {
                     Text(
                         if (updateState.isDownloadingUpdate) {
@@ -105,7 +102,7 @@ fun AppNavigation(isTv: Boolean = false) {
             dismissButton = {
                 TextButton(
                     enabled = !updateState.isDownloadingUpdate,
-                    onClick = { updateViewModel.dismissUpdatePrompt() }
+                    onClick = updateViewModel::dismissUpdatePrompt
                 ) {
                     Text("Later")
                 }
@@ -124,9 +121,7 @@ fun AppNavigation(isTv: Boolean = false) {
         composable(Routes.AUTH) {
             AuthScreen(
                 onAuthSuccess = {
-                    navController.navigate(
-                        if (isTv) Routes.TV_CATALOG else Routes.CATALOG
-                    ) {
+                    navController.navigate(Routes.CATALOG) {
                         popUpTo(Routes.AUTH) { inclusive = true }
                     }
                 }
@@ -144,7 +139,6 @@ fun AppNavigation(isTv: Boolean = false) {
                         navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName, decoderMode = decoderMode))
                     }
                     PlayerEngine.EXTERNAL -> {
-                        // Start foreground service to keep proxy alive while external player runs
                         StreamProxyService.start(ctx)
                         val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
                         if (proxyUrl != null) {
@@ -155,6 +149,7 @@ fun AppNavigation(isTv: Boolean = false) {
                     }
                 }
             }
+
             CatalogScreen(
                 onPlayFile = { fileId, fileName, engine ->
                     launchPlayback(fileId, fileName, engine, null)
@@ -171,8 +166,8 @@ fun AppNavigation(isTv: Boolean = false) {
                 onNavigateToInfo = { driveFileId, mediaType ->
                     navController.navigate("media_info/$driveFileId?mediaType=$mediaType")
                 },
-                onNavigateToSeeAll = { category ->
-                    navController.navigate("tmdb_see_all/$category")
+                onNavigateToSeeAll = { folderId ->
+                    navController.navigate("tmdb_see_all/${encodeRouteValue(folderId)}")
                 }
             )
         }
@@ -185,6 +180,7 @@ fun AppNavigation(isTv: Boolean = false) {
                 viewModel = settingsVm
             )
         }
+
         composable(Routes.SETTINGS_PLAYER) {
             val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             com.mkbhdana.streamhive.settings.PlayerSettingsScreen(
@@ -192,6 +188,7 @@ fun AppNavigation(isTv: Boolean = false) {
                 viewModel = settingsVm
             )
         }
+
         composable(Routes.SETTINGS_GESTURES) {
             val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             com.mkbhdana.streamhive.settings.GesturesSettingsScreen(
@@ -199,6 +196,7 @@ fun AppNavigation(isTv: Boolean = false) {
                 viewModel = settingsVm
             )
         }
+
         composable(Routes.SETTINGS_SUBTITLES) {
             val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             com.mkbhdana.streamhive.settings.SubtitleSettingsScreen(
@@ -206,6 +204,7 @@ fun AppNavigation(isTv: Boolean = false) {
                 viewModel = settingsVm
             )
         }
+
         composable(Routes.SETTINGS_TMDB) {
             val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             com.mkbhdana.streamhive.settings.TmdbSettingsScreen(
@@ -213,6 +212,7 @@ fun AppNavigation(isTv: Boolean = false) {
                 viewModel = settingsVm
             )
         }
+
         composable(Routes.SETTINGS_STORAGE) {
             val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
             com.mkbhdana.streamhive.settings.StorageSettingsScreen(
@@ -223,28 +223,12 @@ fun AppNavigation(isTv: Boolean = false) {
 
         composable(
             route = Routes.PLAYER,
-            arguments = listOf(
-                navArgument("fileId") { type = NavType.StringType },
-                navArgument("fileName") { type = NavType.StringType },
-                navArgument("allowFallback") {
-                    type = NavType.BoolType
-                    defaultValue = true
-                },
-                navArgument("handoff") {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-                navArgument("decoder") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                }
-            ),
+            arguments = playbackArguments(),
             enterTransition = { fadeIn(animationSpec = tween(140)) },
             exitTransition = { fadeOut(animationSpec = tween(140)) },
             popEnterTransition = { fadeIn(animationSpec = tween(140)) },
             popExitTransition = { fadeOut(animationSpec = tween(140)) }
         ) { backStackEntry ->
-            val ctx = LocalContext.current
             val fileId = backStackEntry.arguments?.getString("fileId").orEmpty()
             val fileName = decodeRouteValue(backStackEntry.arguments?.getString("fileName").orEmpty())
             val allowFallback = backStackEntry.arguments?.getBoolean("allowFallback") ?: true
@@ -271,28 +255,12 @@ fun AppNavigation(isTv: Boolean = false) {
 
         composable(
             route = Routes.MPV_PLAYER,
-            arguments = listOf(
-                navArgument("fileId") { type = NavType.StringType },
-                navArgument("fileName") { type = NavType.StringType },
-                navArgument("allowFallback") {
-                    type = NavType.BoolType
-                    defaultValue = true
-                },
-                navArgument("handoff") {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-                navArgument("decoder") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                }
-            ),
+            arguments = playbackArguments(),
             enterTransition = { fadeIn(animationSpec = tween(140)) },
             exitTransition = { fadeOut(animationSpec = tween(140)) },
             popEnterTransition = { fadeIn(animationSpec = tween(140)) },
             popExitTransition = { fadeOut(animationSpec = tween(140)) }
         ) { backStackEntry ->
-            val ctx = LocalContext.current
             val fileId = backStackEntry.arguments?.getString("fileId").orEmpty()
             val fileName = decodeRouteValue(backStackEntry.arguments?.getString("fileName").orEmpty())
             val allowFallback = backStackEntry.arguments?.getBoolean("allowFallback") ?: true
@@ -336,67 +304,38 @@ fun AppNavigation(isTv: Boolean = false) {
                         PlayerEngine.EXO_PLAYER -> navController.navigateToPlayback(playerRoute(fileId, fileName))
                         PlayerEngine.MPV -> navController.navigateToPlayback(mpvPlayerRoute(fileId, fileName))
                         PlayerEngine.EXTERNAL -> {
-                            // Start foreground service to keep proxy alive while external player runs
                             StreamProxyService.start(ctx)
                             val proxyUrl = StreamProxyServer.instanceUrl?.let { base -> "$base/stream/$fileId" }
-                            if (proxyUrl != null) ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
+                            if (proxyUrl != null) {
+                                ExternalPlayerLauncher.launch(ctx, proxyUrl, fileName)
+                            }
                         }
                     }
                 }
             )
         }
 
-        // TV Catalog — uses the TV-optimized D-pad-friendly screen
-        composable(Routes.TV_CATALOG) {
-            val ctx = LocalContext.current
-            TvCatalogScreen(
-                onPlayFile = { fileId, fileName ->
-                    // TV always uses ExoPlayer with the TV player UI
-                    navController.navigateToPlayback(playerRoute(fileId, fileName))
-                },
-                onLogout = {
-                    navController.navigate(Routes.AUTH) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                }
-            )
-        }
-
-        // TMDB See All — vertical grid for a category
         composable(
             route = Routes.TMDB_SEE_ALL,
-            arguments = listOf(
-                navArgument("category") { type = NavType.StringType }
-            )
+            arguments = listOf(navArgument("folderId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val category = backStackEntry.arguments?.getString("category") ?: ""
-            // Get catalog ViewModel from the parent catalog route
+            val folderId = decodeRouteValue(backStackEntry.arguments?.getString("folderId") ?: "")
             val catalogEntry = remember(backStackEntry) {
                 navController.getBackStackEntry(Routes.CATALOG)
             }
-            val catalogVm: com.mkbhdana.streamhive.catalog.CatalogViewModel =
-                androidx.hilt.navigation.compose.hiltViewModel(catalogEntry)
+            val catalogVm: com.mkbhdana.streamhive.catalog.CatalogViewModel = hiltViewModel(catalogEntry)
             val catalogState by catalogVm.uiState.collectAsState()
 
-            val files = when (category) {
-                "movies" -> catalogState.homeSections
-                    .filter { it.typeLabel == "Movie" }
-                    .flatMap { it.items }
-                    .distinctBy { it.id }
-                "tv" -> catalogState.homeSections
-                    .filter { it.typeLabel == "Series" }
-                    .flatMap { it.items }
-                    .distinctBy { it.id }
-                "anime" -> catalogState.homeSections
-                    .filter { it.typeLabel == "Anime" }
-                    .flatMap { it.items }
-                    .distinctBy { it.id }
-                else -> emptyList()
-            }
+            val section = catalogState.homeSections.firstOrNull { it.folderId == folderId }
+            val files = section?.items.orEmpty().distinctBy { it.id }
+            val defaultMediaType = section?.mediaType ?: "auto"
+            val fileMediaTypes = files.associate { file -> file.id to defaultMediaType }
 
             TmdbSeeAllScreen(
-                category = category,
+                title = section?.folderName ?: "Catalog",
+                defaultMediaType = defaultMediaType,
                 files = files,
+                fileMediaTypes = fileMediaTypes,
                 tmdbMetadata = catalogState.tmdbMetadata,
                 onBack = { navController.popBackStack() },
                 onNavigateToInfo = { driveFileId, mediaType ->
@@ -406,6 +345,23 @@ fun AppNavigation(isTv: Boolean = false) {
         }
     }
 }
+
+private fun playbackArguments() = listOf(
+    navArgument("fileId") { type = NavType.StringType },
+    navArgument("fileName") { type = NavType.StringType },
+    navArgument("allowFallback") {
+        type = NavType.BoolType
+        defaultValue = true
+    },
+    navArgument("handoff") {
+        type = NavType.BoolType
+        defaultValue = false
+    },
+    navArgument("decoder") {
+        type = NavType.StringType
+        defaultValue = ""
+    }
+)
 
 private fun playerRoute(
     fileId: String,

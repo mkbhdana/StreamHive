@@ -18,6 +18,21 @@ data class TmdbMetadataEntity(
     val mediaType: String = "movie", // "movie" or "tv"
     val cachedAt: Long = System.currentTimeMillis()
 ) {
+    val hasUsableTitle: Boolean
+        get() = title.isNotBlank()
+
+    val hasUsableOverview: Boolean
+        get() = !overview.isNullOrBlank()
+
+    val isIncomplete: Boolean
+        get() = !hasUsableTitle || !hasUsableOverview
+
+    val titleLooksLocalized: Boolean
+        get() = title.any { it.code > 127 }
+
+    val needsDisplayRepair: Boolean
+        get() = isIncomplete || titleLooksLocalized
+
     /** Consider metadata stale after 7 days */
     fun isStale(): Boolean {
         val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L

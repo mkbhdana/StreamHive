@@ -1,5 +1,6 @@
 package com.mkbhdana.streamhive.settings
 
+import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +33,10 @@ data class SettingsUiState(
     val tunneledPlaybackEnabled: Boolean = false,
     val defaultResizeMode: String = "fit",
     val isMpvAvailable: Boolean = false,
+    val sourcePriorityResolutions: List<String> = emptyList(),
+    val sourcePriorityVideoFormats: List<String> = emptyList(),
+    val sourcePriorityDecoders: List<String> = emptyList(),
+    val sourcePriorityContainers: List<String> = emptyList(),
 
     // Gestures
     val gestureVolumeEnabled: Boolean = true,
@@ -62,7 +67,6 @@ data class SettingsUiState(
     val tmdbApiKey: String = "",
     val tmdbMovieFolders: Set<String> = emptySet(),
     val tmdbTvFolders: Set<String> = emptySet(),
-    val tmdbAnimeFolders: Set<String> = emptySet(),
     val tmdbRecentFolders: Set<String> = emptySet(),
     val tmdbFolderOrder: List<String> = emptyList(),
 
@@ -101,6 +105,10 @@ class SettingsViewModel @Inject constructor(
         tunneledPlaybackEnabled = prefs.tunneledPlaybackEnabled,
         defaultResizeMode = prefs.defaultResizeMode,
         isMpvAvailable = prefs.isMpvAvailable(),
+        sourcePriorityResolutions = prefs.sourcePriorityResolutions,
+        sourcePriorityVideoFormats = prefs.sourcePriorityVideoFormats,
+        sourcePriorityDecoders = prefs.sourcePriorityDecoders,
+        sourcePriorityContainers = prefs.sourcePriorityContainers,
         gestureVolumeEnabled = prefs.gestureVolumeEnabled,
         gestureBrightnessEnabled = prefs.gestureBrightnessEnabled,
         gestureSeekEnabled = prefs.gestureSeekEnabled,
@@ -124,7 +132,6 @@ class SettingsViewModel @Inject constructor(
         tmdbApiKey = prefs.tmdbApiKey,
         tmdbMovieFolders = prefs.tmdbMovieFolders,
         tmdbTvFolders = prefs.tmdbTvFolders,
-        tmdbAnimeFolders = prefs.tmdbAnimeFolders,
         tmdbRecentFolders = prefs.tmdbRecentFolders,
         tmdbFolderOrder = prefs.tmdbFolderOrder,
         lastUpdateCheckAt = prefs.lastUpdateCheckAt
@@ -155,6 +162,26 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultResizeMode(mode: String) {
         prefs.defaultResizeMode = mode
         uiState = uiState.copy(defaultResizeMode = mode)
+    }
+
+    fun setSourcePriorityResolutions(order: List<String>) {
+        prefs.sourcePriorityResolutions = order
+        uiState = uiState.copy(sourcePriorityResolutions = prefs.sourcePriorityResolutions)
+    }
+
+    fun setSourcePriorityVideoFormats(order: List<String>) {
+        prefs.sourcePriorityVideoFormats = order
+        uiState = uiState.copy(sourcePriorityVideoFormats = prefs.sourcePriorityVideoFormats)
+    }
+
+    fun setSourcePriorityDecoders(order: List<String>) {
+        prefs.sourcePriorityDecoders = order
+        uiState = uiState.copy(sourcePriorityDecoders = prefs.sourcePriorityDecoders)
+    }
+
+    fun setSourcePriorityContainers(order: List<String>) {
+        prefs.sourcePriorityContainers = order
+        uiState = uiState.copy(sourcePriorityContainers = prefs.sourcePriorityContainers)
     }
 
     // ──── Gestures ────
@@ -361,74 +388,82 @@ class SettingsViewModel @Inject constructor(
         touchCatalogSettings()
     }
 
+    private fun removeFolderFromCatalogTypes(folderId: String) {
+        prefs.tmdbMovieFolders = prefs.tmdbMovieFolders - folderId
+        prefs.tmdbTvFolders = prefs.tmdbTvFolders - folderId
+    }
+
+    private fun syncCatalogFoldersState() {
+        uiState = uiState.copy(
+            tmdbMovieFolders = prefs.tmdbMovieFolders,
+            tmdbTvFolders = prefs.tmdbTvFolders,
+            tmdbRecentFolders = prefs.tmdbRecentFolders,
+            tmdbFolderOrder = prefs.tmdbFolderOrder
+        )
+    }
+
     fun addMovieFolder(folderId: String) {
+        removeFolderFromCatalogTypes(folderId)
         val updated = prefs.tmdbMovieFolders + folderId
         prefs.tmdbMovieFolders = updated
-        uiState = uiState.copy(tmdbMovieFolders = updated)
+        syncCatalogFoldersState()
     }
 
     fun removeMovieFolder(folderId: String) {
         val updated = prefs.tmdbMovieFolders - folderId
         prefs.tmdbMovieFolders = updated
-        uiState = uiState.copy(tmdbMovieFolders = updated)
+        syncCatalogFoldersState()
     }
 
     fun addTvFolder(folderId: String) {
+        removeFolderFromCatalogTypes(folderId)
         val updated = prefs.tmdbTvFolders + folderId
         prefs.tmdbTvFolders = updated
-        uiState = uiState.copy(tmdbTvFolders = updated)
+        syncCatalogFoldersState()
     }
 
     fun removeTvFolder(folderId: String) {
         val updated = prefs.tmdbTvFolders - folderId
         prefs.tmdbTvFolders = updated
-        uiState = uiState.copy(tmdbTvFolders = updated)
-    }
-
-    fun addAnimeFolder(folderId: String) {
-        val updated = prefs.tmdbAnimeFolders + folderId
-        prefs.tmdbAnimeFolders = updated
-        uiState = uiState.copy(tmdbAnimeFolders = updated)
-    }
-
-    fun removeAnimeFolder(folderId: String) {
-        val updated = prefs.tmdbAnimeFolders - folderId
-        prefs.tmdbAnimeFolders = updated
-        uiState = uiState.copy(tmdbAnimeFolders = updated)
+        syncCatalogFoldersState()
     }
 
     fun addTmdbFolder(folderId: String, type: String) {
-        when (type) {
-            "movie" -> addMovieFolder(folderId)
-            "tv" -> addTvFolder(folderId)
-            "anime_movie", "anime_series", "anime" -> addAnimeFolder(folderId)
+        val added = when (type) {
+            "movie" -> {
+                addMovieFolder(folderId)
+                true
+            }
+            "tv" -> {
+                addTvFolder(folderId)
+                true
+            }
+            else -> false
         }
+        if (!added) return
         val ordered = getOrderedFolderIds().toMutableList()
         if (folderId !in ordered) {
             ordered.add(folderId)
             prefs.tmdbFolderOrder = ordered
-            uiState = uiState.copy(tmdbFolderOrder = ordered)
+            syncCatalogFoldersState()
         }
         touchCatalogSettings()
     }
 
     fun removeTmdbFolder(folderId: String) {
-        removeMovieFolder(folderId)
-        removeTvFolder(folderId)
-        removeAnimeFolder(folderId)
+        removeFolderFromCatalogTypes(folderId)
         
         val currentRecent = prefs.tmdbRecentFolders
         if (currentRecent.contains(folderId)) {
             val updatedRecent = currentRecent - folderId
             prefs.tmdbRecentFolders = updatedRecent
-            uiState = uiState.copy(tmdbRecentFolders = updatedRecent)
         }
         
-        val ordered = getOrderedFolderIds().toMutableList()
+        val ordered = prefs.tmdbFolderOrder.toMutableList()
         if (ordered.remove(folderId)) {
             prefs.tmdbFolderOrder = ordered
-            uiState = uiState.copy(tmdbFolderOrder = ordered)
         }
+        syncCatalogFoldersState()
         touchCatalogSettings()
     }
 
@@ -448,7 +483,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Get the ordered list of all mapped folder IDs, synced with current folder sets */
     fun getOrderedFolderIds(): List<String> {
-        val allFolderIds = (uiState.tmdbMovieFolders + uiState.tmdbTvFolders + uiState.tmdbAnimeFolders).toList()
+        val allFolderIds = (uiState.tmdbMovieFolders + uiState.tmdbTvFolders).toList()
         val currentOrder = uiState.tmdbFolderOrder
         // Start with items that are in the saved order, then append any new ones
         val ordered = currentOrder.filter { it in allFolderIds }.toMutableList()
@@ -625,7 +660,7 @@ class SettingsViewModel @Inject constructor(
                 }
 
                 // Export mapped folder names to avoid weird IDs on import
-                val allMappedFolders = prefs.tmdbMovieFolders + prefs.tmdbTvFolders + prefs.tmdbAnimeFolders
+                val allMappedFolders = prefs.tmdbMovieFolders + prefs.tmdbTvFolders
                 if (allMappedFolders.isNotEmpty()) {
                     val foldersArray = org.json.JSONArray()
                     val allFoldersFromDb = mediaFileDao.getAllFolders().first()
@@ -691,7 +726,6 @@ class SettingsViewModel @Inject constructor(
                         "tmdb_api_key",
                         "tmdb_movie_folders",
                         "tmdb_tv_folders",
-                        "tmdb_anime_folders",
                         "player_engine",
                         "selected_drive_id"
                     ).any { jsonObject.has(it) }
@@ -813,6 +847,7 @@ class SettingsViewModel @Inject constructor(
 
     // ──── Storage & Cache ────
 
+    @OptIn(ExperimentalCoilApi::class)
     fun calculateCacheSizes(onResult: (imageSize: Long, dbSize: Long) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var imageSize = 0L
@@ -841,6 +876,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalCoilApi::class)
     fun clearCacheAndData(onComplete: () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -857,7 +893,6 @@ class SettingsViewModel @Inject constructor(
                 prefs.tmdbApiKey = ""
                 prefs.tmdbMovieFolders = emptySet()
                 prefs.tmdbTvFolders = emptySet()
-                prefs.tmdbAnimeFolders = emptySet()
                 prefs.tmdbRecentFolders = emptySet()
                 prefs.tmdbFolderOrder = emptyList()
                 touchCatalogSettings()
@@ -873,6 +908,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun clearPlaybackCacheAndData(onComplete: () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                playbackHistoryDao.deleteAll()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete() }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                launch(kotlinx.coroutines.Dispatchers.Main) { onComplete() }
+            }
+        }
+    }
+
     fun resetPreferences(onComplete: () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -880,7 +927,6 @@ class SettingsViewModel @Inject constructor(
                 val currentTmdbKey = prefs.tmdbApiKey
                 val movieFolders = prefs.tmdbMovieFolders
                 val tvFolders = prefs.tmdbTvFolders
-                val animeFolders = prefs.tmdbAnimeFolders
                 val recentFolders = prefs.tmdbRecentFolders
                 val folderOrder = prefs.tmdbFolderOrder
                 
@@ -889,7 +935,6 @@ class SettingsViewModel @Inject constructor(
                 prefs.tmdbApiKey = currentTmdbKey
                 prefs.tmdbMovieFolders = movieFolders
                 prefs.tmdbTvFolders = tvFolders
-                prefs.tmdbAnimeFolders = animeFolders
                 prefs.tmdbRecentFolders = recentFolders
                 prefs.tmdbFolderOrder = folderOrder
 

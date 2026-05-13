@@ -44,6 +44,10 @@ fun MediaInfoScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showFixMetadataDialog by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        viewModel.setSourcePriorityFilteringEnabled(true)
+    }
+
     if (uiState.isLoading) {
         MediaInfoSkeletonLoading(onBack = onBack)
         return
@@ -114,7 +118,11 @@ fun MediaInfoScreen(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            meta.title,
+                            meta.title.ifBlank {
+                                uiState.allDriveFiles.firstOrNull()?.name
+                                    ?: uiState.driveFiles.firstOrNull()?.name
+                                    ?: "Details"
+                            },
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
@@ -144,7 +152,7 @@ fun MediaInfoScreen(
                                 }
                             }
                             Text(
-                                if (meta.mediaType == "tv") "TV Show" else "Movie",
+                                if (meta.mediaType == "tv") "Series" else "Movie",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -165,15 +173,13 @@ fun MediaInfoScreen(
             }
 
             // ──── Overview ────
-            if (meta.overview != null) {
-                item {
-                    Text(
-                        meta.overview!!,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp).offset(y = (-24).dp)
-                    )
-                }
+            item {
+                Text(
+                    meta.overview?.takeIf { it.isNotBlank() } ?: "No description available.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp).offset(y = (-24).dp)
+                )
             }
         } else {
             // ──── No metadata header ────
@@ -202,6 +208,18 @@ fun MediaInfoScreen(
                         )
                     }
                 }
+            }
+        }
+
+        if (uiState.sourcePriorityConfigured) {
+            item {
+                SourcePriorityStatusRow(
+                    summary = uiState.sourcePrioritySummary.orEmpty(),
+                    enabled = !uiState.sourcePriorityTemporarilyDisabled,
+                    onEnabledChange = { enabled ->
+                        viewModel.setSourcePriorityTemporarilyDisabled(!enabled)
+                    }
+                )
             }
         }
 
@@ -258,6 +276,54 @@ fun MediaInfoScreen(
                 showFixMetadataDialog = false
             }
         )
+    }
+}
+
+@Composable
+private fun SourcePriorityStatusRow(
+    summary: String,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Tune,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Source Priority",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = summary.ifBlank {
+                        if (enabled) "Priority on" else "Priority off. Showing all files."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
     }
 }
 

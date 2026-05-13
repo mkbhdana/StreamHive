@@ -62,6 +62,30 @@ class AppPreferences @Inject constructor(
         get() = prefs.getBoolean(KEY_KEEP_SERVER_RUNNING, true)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SERVER_RUNNING, value).apply()
 
+    var sourcePriorityResolutions: List<String>
+        get() = getSourcePriorityOrder(KEY_SOURCE_PRIORITY_RESOLUTIONS, SourcePriorityOptions.resolutions)
+        set(value) = setSourcePriorityOrder(KEY_SOURCE_PRIORITY_RESOLUTIONS, value, SourcePriorityOptions.resolutions)
+
+    var sourcePriorityVideoFormats: List<String>
+        get() = getSourcePriorityOrder(KEY_SOURCE_PRIORITY_VIDEO_FORMATS, SourcePriorityOptions.videoFormats)
+        set(value) = setSourcePriorityOrder(KEY_SOURCE_PRIORITY_VIDEO_FORMATS, value, SourcePriorityOptions.videoFormats)
+
+    var sourcePriorityDecoders: List<String>
+        get() = getSourcePriorityOrder(KEY_SOURCE_PRIORITY_DECODERS, SourcePriorityOptions.decoders)
+        set(value) = setSourcePriorityOrder(KEY_SOURCE_PRIORITY_DECODERS, value, SourcePriorityOptions.decoders)
+
+    var sourcePriorityContainers: List<String>
+        get() = getSourcePriorityOrder(KEY_SOURCE_PRIORITY_CONTAINERS, SourcePriorityOptions.containers)
+        set(value) = setSourcePriorityOrder(KEY_SOURCE_PRIORITY_CONTAINERS, value, SourcePriorityOptions.containers)
+
+    val sourcePriorityConfig: SourcePriorityConfig
+        get() = SourcePriorityConfig(
+            resolutionOrder = sourcePriorityResolutions,
+            videoFormatOrder = sourcePriorityVideoFormats,
+            decoderOrder = sourcePriorityDecoders,
+            containerOrder = sourcePriorityContainers
+        )
+
     // ──── Gesture Settings ────
 
     var gestureVolumeEnabled: Boolean
@@ -162,10 +186,6 @@ class AppPreferences @Inject constructor(
         get() = HashSet(prefs.getStringSet(KEY_TMDB_TV_FOLDERS, emptySet()) ?: emptySet())
         set(value) = prefs.edit().putStringSet(KEY_TMDB_TV_FOLDERS, HashSet(value)).apply()
 
-    var tmdbAnimeFolders: Set<String>
-        get() = HashSet(prefs.getStringSet(KEY_TMDB_ANIME_FOLDERS, emptySet()) ?: emptySet())
-        set(value) = prefs.edit().putStringSet(KEY_TMDB_ANIME_FOLDERS, HashSet(value)).apply()
-
     var tmdbRecentFolders: Set<String>
         get() = HashSet(prefs.getStringSet(KEY_TMDB_RECENT_FOLDERS, emptySet()) ?: emptySet())
         set(value) = prefs.edit().putStringSet(KEY_TMDB_RECENT_FOLDERS, HashSet(value)).apply()
@@ -199,6 +219,25 @@ class AppPreferences @Inject constructor(
         } catch (_: ClassNotFoundException) {
             false
         }
+    }
+
+    private fun getSourcePriorityOrder(
+        key: String,
+        options: List<SourcePriorityOption>
+    ): List<String> {
+        val stored = prefs.getString(key, "") ?: ""
+        if (stored.isBlank()) return emptyList()
+        return SourcePriorityOptions.sanitizeOrder(stored.split("|"), options)
+    }
+
+    private fun setSourcePriorityOrder(
+        key: String,
+        value: List<String>,
+        options: List<SourcePriorityOption>
+    ) {
+        prefs.edit()
+            .putString(key, SourcePriorityOptions.sanitizeOrder(value, options).joinToString("|"))
+            .apply()
     }
 
     fun clearAll() {
@@ -266,6 +305,10 @@ class AppPreferences @Inject constructor(
         private const val KEY_TUNNELED_PLAYBACK = "tunneled_playback"
         private const val KEY_RESIZE_MODE = "default_resize_mode"
         private const val KEY_KEEP_SERVER_RUNNING = "keep_server_running"
+        private const val KEY_SOURCE_PRIORITY_RESOLUTIONS = "source_priority_resolutions"
+        private const val KEY_SOURCE_PRIORITY_VIDEO_FORMATS = "source_priority_video_formats"
+        private const val KEY_SOURCE_PRIORITY_DECODERS = "source_priority_decoders"
+        private const val KEY_SOURCE_PRIORITY_CONTAINERS = "source_priority_containers"
 
         // Gestures
         private const val KEY_GESTURE_VOLUME = "gesture_volume_enabled"
@@ -298,7 +341,6 @@ class AppPreferences @Inject constructor(
         private const val KEY_TMDB_API_KEY = "tmdb_api_key"
         private const val KEY_TMDB_MOVIE_FOLDERS = "tmdb_movie_folders"
         private const val KEY_TMDB_TV_FOLDERS = "tmdb_tv_folders"
-        private const val KEY_TMDB_ANIME_FOLDERS = "tmdb_anime_folders"
         private const val KEY_TMDB_RECENT_FOLDERS = "tmdb_recent_folders"
         private const val KEY_TMDB_FOLDER_ORDER = "tmdb_folder_order"
         private const val KEY_IS_GRID_VIEW = "is_grid_view"
