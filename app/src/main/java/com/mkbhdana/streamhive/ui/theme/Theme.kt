@@ -61,7 +61,6 @@ private val FallbackLightColorScheme = lightColorScheme(
 
 @Composable
 fun StreamHiveTheme(
-    isTv: Boolean = false,
     darkTheme: Boolean = true,
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
@@ -78,7 +77,7 @@ fun StreamHiveTheme(
         else -> FallbackLightColorScheme
     }
 
-    val typography = if (isTv) TvTypography else AppTypography
+    val typography =  AppTypography
 
     val view = LocalView.current
     if (!view.isInEditMode) {

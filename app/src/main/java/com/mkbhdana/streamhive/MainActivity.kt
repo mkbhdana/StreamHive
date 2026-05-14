@@ -32,12 +32,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val isTv = DeviceUtils.isTvDevice(this)
-
         setContent {
-            StreamHiveTheme(isTv = isTv) {
+            StreamHiveTheme() {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AppNavigation(isTv = isTv)
+                    AppNavigation()
                 }
             }
         }
