@@ -32,6 +32,7 @@ data class GestureState(
     val showBrightnessIndicator: Boolean = false,
     val showSeekIndicator: Boolean = false,
     val showZoomIndicator: Boolean = false,
+    val showSpeedIndicator: Boolean = false,
     val volumePercent: Float = 0f,
     val brightnessPercent: Float = 0f,
     val seekDeltaSeconds: Int = 0,
@@ -51,6 +52,8 @@ fun PlayerGestureHandler(
     onSeekTo: (Long) -> Unit,
     onVolumeChange: (Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
+    onSpeedHoldStart: () -> Unit = {},
+    onSpeedHoldEnd: () -> Unit = {},
     modifier: Modifier = Modifier,
     gestureState: MutableState<GestureState> = remember { mutableStateOf(GestureState()) },
     isLocked: Boolean = false,
@@ -60,6 +63,7 @@ fun PlayerGestureHandler(
     brightnessEnabled: Boolean = true,
     doubleTapEnabled: Boolean = true,
     zoomEnabled: Boolean = true,
+    speedPressEnabled: Boolean = true,
     hapticFeedbackEnabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
@@ -80,6 +84,8 @@ fun PlayerGestureHandler(
     // Use rememberUpdatedState so currentPosition is read inside the gesture
     // without being part of the pointerInput key (which would restart the coroutine)
     val updatedPosition by rememberUpdatedState(currentPosition)
+    val updatedOnSpeedHoldStart by rememberUpdatedState(onSpeedHoldStart)
+    val updatedOnSpeedHoldEnd by rememberUpdatedState(onSpeedHoldEnd)
 
     // Auto-hide gesture indicators
     var hideJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -93,7 +99,8 @@ fun PlayerGestureHandler(
                 showVolumeIndicator = false,
                 showBrightnessIndicator = false,
                 showSeekIndicator = false,
-                showZoomIndicator = false
+                showZoomIndicator = false,
+                showSpeedIndicator = false
             )
         }
     }
@@ -144,6 +151,7 @@ fun PlayerGestureHandler(
                 brightnessEnabled,
                 doubleTapEnabled,
                 zoomEnabled,
+                speedPressEnabled,
                 hapticFeedbackEnabled
             ) {
                 coroutineScope {
@@ -161,6 +169,9 @@ fun PlayerGestureHandler(
                         var currentZoom = gestureState.value.zoomLevel.coerceIn(0.5f, 3f)
                         var lastSeekFeedbackStep = (updatedPosition / SEEK_HAPTIC_INTERVAL_MS).toInt()
                         var lastZoomFeedbackStep = (currentZoom * ZOOM_HAPTIC_STEPS).toInt()
+                        var consumed = false
+                        var isSpeedPressActive = false
+                        var speedPressJob: kotlinx.coroutines.Job? = null
 
                         var ignoreGesture = false
                         val edgeMarginX = screenWidthPx * 0.08f
@@ -188,13 +199,41 @@ fun PlayerGestureHandler(
                         }
                         var lastBrightnessFeedbackStep = (initialBrightness * BRIGHTNESS_HAPTIC_STEPS).toInt()
 
-                        var consumed = false
+                        if (speedPressEnabled && downPos.x >= screenWidthPx * SPEED_PRESS_ZONE_START_FRACTION && !ignoreGesture) {
+                            speedPressJob = launch {
+                                delay(SPEED_LONG_PRESS_MS)
+                                if (!isDragging && !isPinching && !consumed) {
+                                    isSpeedPressActive = true
+                                    consumed = true
+                                    hideJob?.cancel()
+                                    if (hapticFeedbackEnabled) {
+                                        hapticView.performPlayerHaptic(HapticFeedbackConstants.LONG_PRESS)
+                                    }
+                                    gestureState.value = gestureState.value.copy(
+                                        showSpeedIndicator = true,
+                                        showVolumeIndicator = false,
+                                        showBrightnessIndicator = false,
+                                        showSeekIndicator = false,
+                                        showZoomIndicator = false
+                                    )
+                                    updatedOnSpeedHoldStart()
+                                }
+                            }
+                        }
 
                         while (true) {
                             val event = awaitPointerEvent()
                             val changes = event.changes
 
                             if (changes.all { !it.pressed }) {
+                                speedPressJob?.cancel()
+                                if (isSpeedPressActive) {
+                                    isSpeedPressActive = false
+                                    updatedOnSpeedHoldEnd()
+                                    gestureState.value = gestureState.value.copy(
+                                        showSpeedIndicator = false
+                                    )
+                                }
                                 // All pointers up
                                 if (isDragging && gestureDir == GestureDir.HORIZONTAL && seekEnabled) {
                                     onSeekTo(gestureState.value.seekToPosition)
@@ -236,6 +275,14 @@ fun PlayerGestureHandler(
                             }
 
                             val activePointers = changes.filter { it.pressed }
+                            if (activePointers.size >= 2) {
+                                speedPressJob?.cancel()
+                            }
+
+                            if (isSpeedPressActive) {
+                                changes.fastForEach { it.consume() }
+                                continue
+                            }
 
                             if (activePointers.size >= 2 && !isDragging && zoomEnabled && !ignoreGesture) {
                                 // Pinch gesture
@@ -260,6 +307,7 @@ fun PlayerGestureHandler(
                                         showVolumeIndicator = false,
                                         showBrightnessIndicator = false,
                                         showSeekIndicator = false,
+                                        showSpeedIndicator = false,
                                         zoomLevel = currentZoom
                                     )
                                     onZoomChange?.invoke(currentZoom)
@@ -278,6 +326,7 @@ fun PlayerGestureHandler(
                                     val absX = abs(totalDragX)
                                     val absY = abs(totalDragY)
                                     if (absX > dragThreshold || absY > dragThreshold) {
+                                        speedPressJob?.cancel()
                                         isDragging = true
                                         consumed = true
                                         gestureDir = if (absX > absY) {
@@ -312,6 +361,7 @@ fun PlayerGestureHandler(
                                                     showVolumeIndicator = false,
                                                     showBrightnessIndicator = false,
                                                     showZoomIndicator = false,
+                                                    showSpeedIndicator = false,
                                                     seekDeltaSeconds = (seekDelta / 1000).toInt(),
                                                     seekToPosition = newPos,
                                                     showSeekTimestamp = true
@@ -338,6 +388,7 @@ fun PlayerGestureHandler(
                                                     showBrightnessIndicator = false,
                                                     showSeekIndicator = false,
                                                     showZoomIndicator = false,
+                                                    showSpeedIndicator = false,
                                                     volumePercent = pct
                                                 )
                                             }
@@ -365,6 +416,7 @@ fun PlayerGestureHandler(
                                                     showVolumeIndicator = false,
                                                     showSeekIndicator = false,
                                                     showZoomIndicator = false,
+                                                    showSpeedIndicator = false,
                                                     brightnessPercent = newBright
                                                 )
                                             }
@@ -398,6 +450,8 @@ private fun View.performPlayerHaptic(effect: Int) {
 
 private const val BRIGHTNESS_HAPTIC_STEPS = 20
 private const val SEEK_HAPTIC_INTERVAL_MS = 10_000L
+private const val SPEED_LONG_PRESS_MS = 450L
+private const val SPEED_PRESS_ZONE_START_FRACTION = 0.5f
 private const val ZOOM_HAPTIC_STEPS = 10
 
 private enum class GestureDir {

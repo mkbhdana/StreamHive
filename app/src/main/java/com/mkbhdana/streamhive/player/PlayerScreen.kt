@@ -54,10 +54,12 @@ fun PlayerScreen(
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
     var seekPillSignal by remember { mutableIntStateOf(0) }
+    var speedHoldRestoreSpeed by remember { mutableStateOf<Float?>(null) }
     var engineFallbackRequested by remember { mutableStateOf(false) }
     var keepWindowModeForHandoff by remember { mutableStateOf(false) }
     var isSwitchingPlayer by remember(switchingMessage) { mutableStateOf(switchingMessage != null) }
     var activeSwitchingMessage by remember(switchingMessage) { mutableStateOf(switchingMessage) }
+    val latestPlaybackSpeed by rememberUpdatedState(uiState.playbackSpeed)
     val canFallbackToMpv = remember(allowEngineFallback, onFallbackToMpv, viewModel) {
         allowEngineFallback && onFallbackToMpv != null && viewModel.isMpvAvailable()
     }
@@ -83,6 +85,7 @@ fun PlayerScreen(
             showVolumeIndicator = false,
             showBrightnessIndicator = false,
             showZoomIndicator = false,
+            showSpeedIndicator = false,
             seekDeltaSeconds = (deltaMs / 1000L).toInt(),
             seekToPosition = targetPosition,
             showSeekTimestamp = false
@@ -100,6 +103,25 @@ fun PlayerScreen(
         val seekMs = uiState.tapSeekDuration * 1000L
         showQuickSeekPill(-seekMs)
         viewModel.seekBackward(seekMs)
+    }
+
+    fun startSpeedHold() {
+        if (speedHoldRestoreSpeed == null) {
+            speedHoldRestoreSpeed = latestPlaybackSpeed
+            viewModel.setPlaybackSpeed(2.0f)
+        }
+    }
+
+    fun stopSpeedHold() {
+        val restoreSpeed = speedHoldRestoreSpeed ?: return
+        speedHoldRestoreSpeed = null
+        viewModel.setPlaybackSpeed(restoreSpeed)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            speedHoldRestoreSpeed?.let { viewModel.setPlaybackSpeed(it) }
+        }
     }
 
     LaunchedEffect(seekPillSignal) {
@@ -175,7 +197,10 @@ fun PlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE,
-                Lifecycle.Event.ON_STOP -> viewModel.player?.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    stopSpeedHold()
+                    viewModel.player?.pause()
+                }
                 Lifecycle.Event.ON_RESUME -> viewModel.cancelExternalPlayerCleanup()
                 else -> Unit
             }
@@ -333,6 +358,8 @@ fun PlayerScreen(
             onSeekTo = { viewModel.seekTo(it) },
             onVolumeChange = { },
             onBrightnessChange = { },
+            onSpeedHoldStart = { startSpeedHold() },
+            onSpeedHoldEnd = { stopSpeedHold() },
             gestureState = gestureState,
             isLocked = uiState.isLocked,
             seekEnabled = uiState.gestureSeekEnabled,
@@ -340,6 +367,7 @@ fun PlayerScreen(
             brightnessEnabled = uiState.gestureBrightnessEnabled,
             doubleTapEnabled = uiState.gestureDoubleTapEnabled,
             zoomEnabled = uiState.gestureZoomEnabled,
+            speedPressEnabled = uiState.gestureSpeedPressEnabled,
             hapticFeedbackEnabled = uiState.hapticFeedbackEnabled
         ) {
         }

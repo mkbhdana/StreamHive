@@ -76,6 +76,7 @@ data class PlayerUiState(
     val gestureBrightnessEnabled: Boolean = true,
     val gestureDoubleTapEnabled: Boolean = true,
     val gestureZoomEnabled: Boolean = true,
+    val gestureSpeedPressEnabled: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
 
     // Subtitle Style Settings
@@ -130,6 +131,7 @@ class PlayerViewModel @Inject constructor(
             gestureBrightnessEnabled = appPreferences.gestureBrightnessEnabled,
             gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
             gestureZoomEnabled = appPreferences.gestureZoomEnabled,
+            gestureSpeedPressEnabled = appPreferences.gestureSpeedPressEnabled,
             hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
             subtitleFontSize = appPreferences.subtitleFontSize,
             subtitleColor = appPreferences.subtitleColor,

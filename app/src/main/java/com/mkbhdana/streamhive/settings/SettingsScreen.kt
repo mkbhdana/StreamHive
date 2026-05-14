@@ -62,7 +62,7 @@ fun SettingsScreen(
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsMenuRow(
                         title = "Gestures & Haptics",
-                        subtitle = "Volume, Brightness, Double Tap",
+                        subtitle = "Volume, Brightness, Speed Hold",
                         icon = Icons.Default.TouchApp,
                         onClick = { onNavigate(Routes.SETTINGS_GESTURES) }
                     )

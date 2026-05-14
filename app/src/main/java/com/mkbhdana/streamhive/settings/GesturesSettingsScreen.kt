@@ -101,6 +101,17 @@ fun GesturesSettingsScreen(
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     
                     SettingsSwitchItem(
+                        "Long Press 2x Speed",
+                        "Hold the right side to temporarily play at 2x",
+                        Icons.Default.Speed,
+                        state.gestureSpeedPressEnabled,
+                        viewModel::setGestureSpeedPressEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+                    
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    
+                    SettingsSwitchItem(
                         "Double Tap to Seek",
                         "Double tap edges to seek forward/backward",
                         Icons.Default.TouchApp,

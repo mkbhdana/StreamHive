@@ -112,6 +112,10 @@ class AppPreferences @Inject constructor(
         get() = prefs.getBoolean(KEY_GESTURE_ZOOM, true)
         set(value) = prefs.edit().putBoolean(KEY_GESTURE_ZOOM, value).apply()
 
+    var gestureSpeedPressEnabled: Boolean
+        get() = prefs.getBoolean(KEY_GESTURE_SPEED_PRESS, true)
+        set(value) = prefs.edit().putBoolean(KEY_GESTURE_SPEED_PRESS, value).apply()
+
     var hapticFeedbackEnabled: Boolean
         get() = prefs.getBoolean(KEY_HAPTIC_FEEDBACK, true)
         set(value) = prefs.edit().putBoolean(KEY_HAPTIC_FEEDBACK, value).apply()
@@ -317,6 +321,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_double_tap_enabled"
         private const val KEY_TAP_SEEK_DURATION = "tap_seek_duration"
         private const val KEY_GESTURE_ZOOM = "gesture_zoom_enabled"
+        private const val KEY_GESTURE_SPEED_PRESS = "gesture_speed_press_enabled"
         private const val KEY_HAPTIC_FEEDBACK = "haptic_feedback_enabled"
         private const val KEY_GESTURE_SENSITIVITY = "gesture_sensitivity"
 

@@ -152,6 +152,41 @@ fun GestureIndicatorOverlay(
                 }
             }
         }
+
+        AnimatedVisibility(
+            visible = gestureState.showSpeedIndicator,
+            enter = fadeIn(tween(100)) + slideInVertically(initialOffsetY = { -20 }),
+            exit = fadeOut(tween(180)) + slideOutVertically(targetOffsetY = { -20 }),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 56.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(50),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.Black.copy(alpha = 0.78f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "2x",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
     }
 }
 
