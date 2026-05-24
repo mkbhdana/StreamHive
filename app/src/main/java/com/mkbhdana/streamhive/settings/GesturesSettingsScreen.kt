@@ -112,6 +112,17 @@ fun GesturesSettingsScreen(
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     
                     SettingsSwitchItem(
+                        "Long Press Lock/Unlock",
+                        "Hold the left side to lock/unlock controls",
+                        Icons.Default.Lock,
+                        state.gestureLockEnabled,
+                        viewModel::setGestureLockEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+                    
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    
+                    SettingsSwitchItem(
                         "Double Tap to Seek",
                         "Double tap edges to seek forward/backward",
                         Icons.Default.TouchApp,

@@ -34,4 +34,30 @@ interface PlaybackHistoryDao {
 
     @Query("DELETE FROM playback_history")
     suspend fun deleteAll()
+
+    @Query("""UPDATE playback_history SET 
+        lastPosition = :lastPosition, 
+        duration = :duration, 
+        lastPlayedAt = :lastPlayedAt, 
+        posterPath = :posterPath, 
+        thumbnailUrl = :thumbnailUrl, 
+        lastPlayerEngine = :lastPlayerEngine, 
+        lastDecoderMode = :lastDecoderMode 
+        WHERE fileId = :fileId""")
+    suspend fun updatePosition(
+        fileId: String,
+        lastPosition: Long,
+        duration: Long,
+        lastPlayedAt: Long,
+        posterPath: String?,
+        thumbnailUrl: String?,
+        lastPlayerEngine: String?,
+        lastDecoderMode: String?
+    )
+
+    @Query("UPDATE playback_history SET savedPlayerSettings = :settingsJson WHERE fileId = :fileId")
+    suspend fun updateFileSettings(fileId: String, settingsJson: String?)
+
+    @Query("UPDATE playback_history SET savedPlayerSettings = NULL WHERE fileId = :fileId")
+    suspend fun clearFileSettings(fileId: String)
 }

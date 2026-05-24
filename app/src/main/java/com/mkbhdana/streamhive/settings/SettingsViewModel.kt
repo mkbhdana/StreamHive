@@ -45,6 +45,7 @@ data class SettingsUiState(
     val gestureDoubleTapEnabled: Boolean = true,
     val gestureZoomEnabled: Boolean = true,
     val gestureSpeedPressEnabled: Boolean = true,
+    val gestureLockEnabled: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
     val gestureSensitivity: Float = 1.0f,
 
@@ -116,6 +117,7 @@ class SettingsViewModel @Inject constructor(
         gestureDoubleTapEnabled = prefs.gestureDoubleTapEnabled,
         gestureZoomEnabled = prefs.gestureZoomEnabled,
         gestureSpeedPressEnabled = prefs.gestureSpeedPressEnabled,
+        gestureLockEnabled = prefs.gestureLockEnabled,
         hapticFeedbackEnabled = prefs.hapticFeedbackEnabled,
         gestureSensitivity = prefs.gestureSensitivity,
         tapSeekDuration = prefs.tapSeekDuration,
@@ -216,6 +218,11 @@ class SettingsViewModel @Inject constructor(
     fun setGestureSpeedPressEnabled(enabled: Boolean) {
         prefs.gestureSpeedPressEnabled = enabled
         uiState = uiState.copy(gestureSpeedPressEnabled = enabled)
+    }
+
+    fun setGestureLockEnabled(enabled: Boolean) {
+        prefs.gestureLockEnabled = enabled
+        uiState = uiState.copy(gestureLockEnabled = enabled)
     }
 
     fun setHapticFeedbackEnabled(enabled: Boolean) {

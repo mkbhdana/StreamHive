@@ -33,12 +33,15 @@ data class GestureState(
     val showSeekIndicator: Boolean = false,
     val showZoomIndicator: Boolean = false,
     val showSpeedIndicator: Boolean = false,
+    val showLockIndicator: Boolean = false,
     val volumePercent: Float = 0f,
     val brightnessPercent: Float = 0f,
     val seekDeltaSeconds: Int = 0,
     val seekToPosition: Long = 0L,
     val showSeekTimestamp: Boolean = false,
-    val zoomLevel: Float = 1f
+    val zoomLevel: Float = 1f,
+    val tapChainCount: Int = 0,
+    val isLockActive: Boolean = false
 )
 
 @Composable
@@ -54,6 +57,8 @@ fun PlayerGestureHandler(
     onBrightnessChange: (Float) -> Unit,
     onSpeedHoldStart: () -> Unit = {},
     onSpeedHoldEnd: () -> Unit = {},
+    onLockToggle: () -> Unit = {},
+    onProgressiveTapSeek: ((isForward: Boolean, tapCount: Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
     gestureState: MutableState<GestureState> = remember { mutableStateOf(GestureState()) },
     isLocked: Boolean = false,
@@ -64,7 +69,10 @@ fun PlayerGestureHandler(
     doubleTapEnabled: Boolean = true,
     zoomEnabled: Boolean = true,
     speedPressEnabled: Boolean = true,
+    lockPressEnabled: Boolean = true,
     hapticFeedbackEnabled: Boolean = true,
+    gestureSensitivity: Float = 1.0f,
+    tapSeekDuration: Int = 10,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -79,7 +87,12 @@ fun PlayerGestureHandler(
     val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val dragThreshold = with(density) { 20.dp.toPx() }
+
+    // Apply sensitivity: lower sensitivity = higher threshold = fewer accidental triggers
+    val sensitivityInverse = (1f / gestureSensitivity.coerceIn(0.5f, 2.0f))
+    val dragThreshold = with(density) { (24.dp * sensitivityInverse).toPx() }
+    val tapMaxMovement = with(density) { (12.dp).toPx() }
+    val doubleTapProximity = with(density) { (60.dp).toPx() }
 
     // Use rememberUpdatedState so currentPosition is read inside the gesture
     // without being part of the pointerInput key (which would restart the coroutine)
@@ -105,11 +118,19 @@ fun PlayerGestureHandler(
         }
     }
 
+    fun scheduleLockIndicatorHide() {
+        coroutineScope.launch {
+            delay(1000)
+            gestureState.value = gestureState.value.copy(showLockIndicator = false)
+        }
+    }
+
     fun isCenterTap(position: androidx.compose.ui.geometry.Offset): Boolean {
         val centerStartX = screenWidthPx * 0.35f
         val centerEndX = screenWidthPx * 0.65f
-        val centerStartY = screenHeightPx * 0.25f
-        val centerEndY = screenHeightPx * 0.75f
+        // Tightened vertical zone: 38%-62% instead of 25%-75%
+        val centerStartY = screenHeightPx * 0.38f
+        val centerEndY = screenHeightPx * 0.62f
         return position.x in centerStartX..centerEndX && position.y in centerStartY..centerEndY
     }
 
@@ -121,17 +142,48 @@ fun PlayerGestureHandler(
         }
     }
 
-    // Locked mode: tap only
+    // Locked mode: tap to show controls, long-press left side to unlock
     if (isLocked) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(lockPressEnabled) {
                     awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        val up = waitForUpOrCancellation()
-                        if (up != null) {
-                            onToggleControls()
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val downPos = down.position
+                        val isLeftSide = lockPressEnabled && downPos.x < size.width * LOCK_PRESS_ZONE_END_FRACTION
+
+                        if (!isLeftSide) {
+                            // Not in unlock zone — just handle tap for controls
+                            val up = waitForUpOrCancellation()
+                            if (up != null) onToggleControls()
+                        } else {
+                            // Left side: race between long-press (unlock) and release (tap)
+                            var unlocked = false
+                            val longPressJob = coroutineScope.launch {
+                                delay(LOCK_LONG_PRESS_MS)
+                                unlocked = true
+                                if (hapticFeedbackEnabled) {
+                                    hapticView.performPlayerHaptic(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                }
+                                gestureState.value = gestureState.value.copy(
+                                    showLockIndicator = true,
+                                    isLockActive = false,
+                                    showVolumeIndicator = false,
+                                    showBrightnessIndicator = false,
+                                    showSeekIndicator = false,
+                                    showZoomIndicator = false,
+                                    showSpeedIndicator = false
+                                )
+                                onLockToggle()
+                                delay(1000)
+                                gestureState.value = gestureState.value.copy(showLockIndicator = false)
+                            }
+                            val up = waitForUpOrCancellation()
+                            longPressJob.cancel()
+                            if (up != null && !unlocked) {
+                                onToggleControls()
+                            }
                         }
                     }
                 }
@@ -152,7 +204,9 @@ fun PlayerGestureHandler(
                 doubleTapEnabled,
                 zoomEnabled,
                 speedPressEnabled,
-                hapticFeedbackEnabled
+                hapticFeedbackEnabled,
+                gestureSensitivity,
+                tapSeekDuration
             ) {
                 coroutineScope {
                     awaitEachGesture {
@@ -172,10 +226,13 @@ fun PlayerGestureHandler(
                         var consumed = false
                         var isSpeedPressActive = false
                         var speedPressJob: kotlinx.coroutines.Job? = null
+                        var isLockPressActive = false
+                        var lockPressJob: kotlinx.coroutines.Job? = null
 
+                        // Edge exclusion: 10% on sides, 12% on top/bottom
                         var ignoreGesture = false
-                        val edgeMarginX = screenWidthPx * 0.08f
-                        val edgeMarginY = screenHeightPx * 0.08f
+                        val edgeMarginX = screenWidthPx * 0.10f
+                        val edgeMarginY = screenHeightPx * 0.12f
                         if (downPos.x < edgeMarginX || downPos.x > screenWidthPx - edgeMarginX ||
                             downPos.y < edgeMarginY || downPos.y > screenHeightPx - edgeMarginY) {
                             ignoreGesture = true
@@ -199,6 +256,7 @@ fun PlayerGestureHandler(
                         }
                         var lastBrightnessFeedbackStep = (initialBrightness * BRIGHTNESS_HAPTIC_STEPS).toInt()
 
+                        // Speed hold: right half of screen
                         if (speedPressEnabled && downPos.x >= screenWidthPx * SPEED_PRESS_ZONE_START_FRACTION && !ignoreGesture) {
                             speedPressJob = launch {
                                 delay(SPEED_LONG_PRESS_MS)
@@ -214,9 +272,37 @@ fun PlayerGestureHandler(
                                         showVolumeIndicator = false,
                                         showBrightnessIndicator = false,
                                         showSeekIndicator = false,
-                                        showZoomIndicator = false
+                                        showZoomIndicator = false,
+                                        showLockIndicator = false
                                     )
                                     updatedOnSpeedHoldStart()
+                                }
+                            }
+                        }
+
+                        // Lock gesture: left half of screen
+                        if (lockPressEnabled && downPos.x < screenWidthPx * LOCK_PRESS_ZONE_END_FRACTION && !ignoreGesture) {
+                            lockPressJob = launch {
+                                delay(LOCK_LONG_PRESS_MS)
+                                if (!isDragging && !isPinching && !consumed && !isSpeedPressActive) {
+                                    isLockPressActive = true
+                                    consumed = true
+                                    if (hapticFeedbackEnabled) {
+                                        hapticView.performPlayerHaptic(HapticFeedbackConstants.LONG_PRESS)
+                                    }
+                                    // Show lock indicator briefly, then toggle
+                                    val willBeLocked = !gestureState.value.isLockActive
+                                    gestureState.value = gestureState.value.copy(
+                                        showLockIndicator = true,
+                                        isLockActive = willBeLocked,
+                                        showVolumeIndicator = false,
+                                        showBrightnessIndicator = false,
+                                        showSeekIndicator = false,
+                                        showZoomIndicator = false,
+                                        showSpeedIndicator = false
+                                    )
+                                    onLockToggle()
+                                    scheduleLockIndicatorHide()
                                 }
                             }
                         }
@@ -227,6 +313,7 @@ fun PlayerGestureHandler(
 
                             if (changes.all { !it.pressed }) {
                                 speedPressJob?.cancel()
+                                lockPressJob?.cancel()
                                 if (isSpeedPressActive) {
                                     isSpeedPressActive = false
                                     updatedOnSpeedHoldEnd()
@@ -245,28 +332,76 @@ fun PlayerGestureHandler(
                                     scheduleHide()
                                 }
                                 if (!isDragging && !isPinching && !consumed) {
-                                    // It was a tap — check for double-tap
+                                    // It was a tap — compute tap metrics
                                     val upTime = System.currentTimeMillis()
                                     val tapDuration = upTime - downTime
-                                    if (tapDuration < 300 && doubleTapEnabled) {
-                                        // Try to detect double-tap
-                                        val secondDown = withTimeoutOrNull(300) {
+
+                                    // Compute movement during this tap
+                                    val lastChange = changes.firstOrNull()
+                                    val tapMovement = if (lastChange != null) {
+                                        sqrt(
+                                            (lastChange.position.x - downPos.x).pow(2) +
+                                                (lastChange.position.y - downPos.y).pow(2)
+                                        )
+                                    } else 0f
+
+                                    // Tap duration guard: 30ms-250ms, motion filter: <12dp movement
+                                    val isValidTap = tapDuration in TAP_MIN_DURATION_MS..TAP_MAX_DURATION_MS
+                                        && tapMovement < tapMaxMovement
+
+                                    if (isValidTap && doubleTapEnabled) {
+                                        // Try to detect double-tap (progressive tap chain)
+                                        val secondDown = withTimeoutOrNull(TAP_CHAIN_WINDOW_MS) {
                                             awaitFirstDown(requireUnconsumed = false)
                                         }
                                         if (secondDown != null) {
-                                            // Double-tap detected
+                                            // Check proximity: second tap must be near first tap
+                                            val tapDist = sqrt(
+                                                (secondDown.position.x - downPos.x).pow(2) +
+                                                    (secondDown.position.y - downPos.y).pow(2)
+                                            )
                                             val secondUp = waitForUpOrCancellation()
-                                            if (secondUp != null) {
-                                                if (secondDown.position.x < screenWidthPx / 2) {
-                                                    onSeekBackward()
+                                            if (secondUp != null && tapDist < doubleTapProximity) {
+                                                // Double-tap detected — start progressive tap chain
+                                                val tapSide = secondDown.position.x > screenWidthPx / 2
+                                                var totalTapCount = 1 // first seek action
+
+                                                // Execute first seek
+                                                if (onProgressiveTapSeek != null) {
+                                                    onProgressiveTapSeek(tapSide, totalTapCount)
                                                 } else {
-                                                    onSeekForward()
+                                                    if (tapSide) onSeekForward() else onSeekBackward()
                                                 }
+
+                                                // Keep looking for more taps in the chain
+                                                while (true) {
+                                                    val nextDown = withTimeoutOrNull(TAP_CHAIN_WINDOW_MS) {
+                                                        awaitFirstDown(requireUnconsumed = false)
+                                                    } ?: break
+
+                                                    // Must be same side
+                                                    val nextSide = nextDown.position.x > screenWidthPx / 2
+                                                    if (nextSide != tapSide) break
+
+                                                    val nextUp = waitForUpOrCancellation() ?: break
+
+                                                    totalTapCount++
+                                                    if (onProgressiveTapSeek != null) {
+                                                        onProgressiveTapSeek(tapSide, totalTapCount)
+                                                    } else {
+                                                        if (tapSide) onSeekForward() else onSeekBackward()
+                                                    }
+                                                }
+                                            } else {
+                                                // Second tap too far away or cancelled — single tap
+                                                handleSingleTap(downPos)
                                             }
                                         } else {
-                                            // Single tap
+                                            // Single tap (no second tap within window)
                                             handleSingleTap(downPos)
                                         }
+                                    } else if (!isValidTap && tapDuration < TAP_MIN_DURATION_MS) {
+                                        // Too short — likely accidental screen brush, ignore
                                     } else {
                                         handleSingleTap(downPos)
                                     }
@@ -277,9 +412,10 @@ fun PlayerGestureHandler(
                             val activePointers = changes.filter { it.pressed }
                             if (activePointers.size >= 2) {
                                 speedPressJob?.cancel()
+                                lockPressJob?.cancel()
                             }
 
-                            if (isSpeedPressActive) {
+                            if (isSpeedPressActive || isLockPressActive) {
                                 changes.fastForEach { it.consume() }
                                 continue
                             }
@@ -308,6 +444,7 @@ fun PlayerGestureHandler(
                                         showBrightnessIndicator = false,
                                         showSeekIndicator = false,
                                         showSpeedIndicator = false,
+                                        showLockIndicator = false,
                                         zoomLevel = currentZoom
                                     )
                                     onZoomChange?.invoke(currentZoom)
@@ -327,6 +464,7 @@ fun PlayerGestureHandler(
                                     val absY = abs(totalDragY)
                                     if (absX > dragThreshold || absY > dragThreshold) {
                                         speedPressJob?.cancel()
+                                        lockPressJob?.cancel()
                                         isDragging = true
                                         consumed = true
                                         gestureDir = if (absX > absY) {
@@ -345,9 +483,10 @@ fun PlayerGestureHandler(
                                     when (gestureDir) {
                                         GestureDir.HORIZONTAL -> {
                                             if (seekEnabled) {
+                                                val seekSensitivity = 0.5f * gestureSensitivity
                                                 val norm = totalDragX / (screenWidthPx * 0.8f)
                                                 val eased = norm.sign() * abs(norm).pow(1.5f)
-                                                val seekDelta = (eased * duration * 0.5f).toLong()
+                                                val seekDelta = (eased * duration * seekSensitivity).toLong()
                                                 val newPos = (updatedPosition + seekDelta).coerceIn(0, duration)
                                                 val seekFeedbackStep = (newPos / SEEK_HAPTIC_INTERVAL_MS).toInt()
                                                 if (hapticFeedbackEnabled && seekFeedbackStep != lastSeekFeedbackStep) {
@@ -362,9 +501,11 @@ fun PlayerGestureHandler(
                                                     showBrightnessIndicator = false,
                                                     showZoomIndicator = false,
                                                     showSpeedIndicator = false,
+                                                    showLockIndicator = false,
                                                     seekDeltaSeconds = (seekDelta / 1000).toInt(),
                                                     seekToPosition = newPos,
-                                                    showSeekTimestamp = true
+                                                    showSeekTimestamp = true,
+                                                    tapChainCount = 0
                                                 )
                                             }
                                         }
@@ -389,6 +530,7 @@ fun PlayerGestureHandler(
                                                     showSeekIndicator = false,
                                                     showZoomIndicator = false,
                                                     showSpeedIndicator = false,
+                                                    showLockIndicator = false,
                                                     volumePercent = pct
                                                 )
                                             }
@@ -417,6 +559,7 @@ fun PlayerGestureHandler(
                                                     showSeekIndicator = false,
                                                     showZoomIndicator = false,
                                                     showSpeedIndicator = false,
+                                                    showLockIndicator = false,
                                                     brightnessPercent = newBright
                                                 )
                                             }
@@ -452,7 +595,12 @@ private const val BRIGHTNESS_HAPTIC_STEPS = 20
 private const val SEEK_HAPTIC_INTERVAL_MS = 10_000L
 private const val SPEED_LONG_PRESS_MS = 450L
 private const val SPEED_PRESS_ZONE_START_FRACTION = 0.5f
+private const val LOCK_LONG_PRESS_MS = 600L
+private const val LOCK_PRESS_ZONE_END_FRACTION = 0.5f
 private const val ZOOM_HAPTIC_STEPS = 10
+private const val TAP_CHAIN_WINDOW_MS = 350L
+private const val TAP_MIN_DURATION_MS = 30L
+private const val TAP_MAX_DURATION_MS = 250L
 
 private enum class GestureDir {
     HORIZONTAL, VERT_LEFT, VERT_RIGHT
