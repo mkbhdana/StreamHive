@@ -14,7 +14,8 @@ data class PlaybackHistoryEntity(
     val posterPath: String? = null,
     val thumbnailUrl: String? = null,
     val lastPlayerEngine: String? = null,
-    val lastDecoderMode: String? = null
+    val lastDecoderMode: String? = null,
+    val savedPlayerSettings: String? = null  // JSON-serialized PerFilePlayerSettings
 ) {
     val progressPercent: Float
         get() = if (duration > 0) (lastPosition.toFloat() / duration.toFloat()) else 0f

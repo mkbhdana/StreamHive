@@ -96,15 +96,28 @@ fun GestureIndicatorOverlay(
                         modifier = Modifier.size(24.dp)
                     )
                     Column {
-                        Text(
-                            text = buildString {
-                                if (gestureState.seekDeltaSeconds >= 0) append("+")
-                                append("${gestureState.seekDeltaSeconds}s")
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = buildString {
+                                    if (gestureState.seekDeltaSeconds >= 0) append("+")
+                                    append("${gestureState.seekDeltaSeconds}s")
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            if (gestureState.tapChainCount > 1) {
+                                Text(
+                                    text = "${gestureState.tapChainCount}\u00d7",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                                )
+                            }
+                        }
                         if (gestureState.showSeekTimestamp) {
                             Text(
                                 text = FileUtils.formatDuration(gestureState.seekToPosition),
@@ -180,6 +193,40 @@ fun GestureIndicatorOverlay(
                     )
                     Text(
                         text = "2x",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        // Lock/Unlock indicator — center
+        AnimatedVisibility(
+            visible = gestureState.showLockIndicator,
+            enter = fadeIn(tween(100)) + scaleIn(tween(150)),
+            exit = fadeOut(tween(400)) + scaleOut(tween(400)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Card(
+                shape = RoundedCornerShape(50),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.Black.copy(alpha = 0.78f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (gestureState.isLockActive) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = null,
+                        tint = if (gestureState.isLockActive) Color(0xFFFF9800) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = if (gestureState.isLockActive) "Locked" else "Unlocked",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.White

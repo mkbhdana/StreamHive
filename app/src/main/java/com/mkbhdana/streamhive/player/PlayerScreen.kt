@@ -77,7 +77,7 @@ fun PlayerScreen(
         ?.coerceIn(0L, uiState.duration)
     val controlsCurrentPosition = gesturePreviewPosition ?: uiState.currentPosition
 
-    fun showQuickSeekPill(deltaMs: Long) {
+    fun showQuickSeekPill(deltaMs: Long, tapCount: Int = 0) {
         val basePosition = viewModel.player?.currentPosition ?: uiState.currentPosition
         val targetPosition = (basePosition + deltaMs).coerceIn(0L, uiState.duration.coerceAtLeast(0L))
         gestureState.value = gestureState.value.copy(
@@ -86,9 +86,11 @@ fun PlayerScreen(
             showBrightnessIndicator = false,
             showZoomIndicator = false,
             showSpeedIndicator = false,
+            showLockIndicator = false,
             seekDeltaSeconds = (deltaMs / 1000L).toInt(),
             seekToPosition = targetPosition,
-            showSeekTimestamp = false
+            showSeekTimestamp = false,
+            tapChainCount = tapCount
         )
         seekPillSignal++
     }
@@ -129,6 +131,12 @@ fun PlayerScreen(
             delay(800)
             gestureState.value = gestureState.value.copy(showSeekIndicator = false)
         }
+    }
+
+    // Keep gesture lock state in sync with the ViewModel's lock state
+    // (so manual lock/unlock via controls keeps gesture handler in sync)
+    LaunchedEffect(uiState.isLocked) {
+        gestureState.value = gestureState.value.copy(isLockActive = uiState.isLocked)
     }
 
     LaunchedEffect(uiState.error, canFallbackToMpv) {
@@ -360,6 +368,16 @@ fun PlayerScreen(
             onBrightnessChange = { },
             onSpeedHoldStart = { startSpeedHold() },
             onSpeedHoldEnd = { stopSpeedHold() },
+            onLockToggle = { viewModel.toggleLock() },
+            onProgressiveTapSeek = { isForward, tapCount ->
+                val seekMs = uiState.tapSeekDuration * 1000L
+                if (isForward) viewModel.seekForward(seekMs) else viewModel.seekBackward(seekMs)
+                val cumulativeSec = tapCount * uiState.tapSeekDuration
+                showQuickSeekPill(
+                    deltaMs = if (isForward) cumulativeSec * 1000L else -cumulativeSec * 1000L,
+                    tapCount = tapCount
+                )
+            },
             gestureState = gestureState,
             isLocked = uiState.isLocked,
             seekEnabled = uiState.gestureSeekEnabled,
@@ -368,7 +386,10 @@ fun PlayerScreen(
             doubleTapEnabled = uiState.gestureDoubleTapEnabled,
             zoomEnabled = uiState.gestureZoomEnabled,
             speedPressEnabled = uiState.gestureSpeedPressEnabled,
-            hapticFeedbackEnabled = uiState.hapticFeedbackEnabled
+            lockPressEnabled = uiState.gestureLockEnabled,
+            hapticFeedbackEnabled = uiState.hapticFeedbackEnabled,
+            gestureSensitivity = uiState.gestureSensitivity,
+            tapSeekDuration = uiState.tapSeekDuration
         ) {
         }
 
@@ -444,7 +465,11 @@ fun PlayerScreen(
                 onSeekBackward = { quickSeekBackward() },
                 onSeekTo = viewModel::seekTo,
                 onLockToggle = viewModel::toggleLock,
-                onResizeModeChange = viewModel::setResizeMode,
+                onResizeModeChange = { mode ->
+                    viewModel.setResizeMode(mode)
+                    // Reset pinch zoom when resize mode is changed
+                    gestureState.value = gestureState.value.copy(zoomLevel = 1f)
+                },
                 onDecoderModeChange = viewModel::setDecoderMode,
                 onAudioTrackSelect = { track ->
                     viewModel.selectAudioTrack(track.index, track.trackIndex)

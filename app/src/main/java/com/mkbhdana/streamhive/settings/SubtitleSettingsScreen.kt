@@ -118,7 +118,7 @@ fun SubtitleSettingsScreen(
                         Column(Modifier.weight(1f)) {
                             Text("Excluded Languages", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text(
-                                if (state.subtitleExcludeLanguages.isEmpty()) "None" else "${state.subtitleExcludeLanguages.size} languages excluded",
+                                if (state.subtitleExcludeLanguages.isEmpty()) "None" else state.subtitleExcludeLanguages.joinToString(", ") + " excluded",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

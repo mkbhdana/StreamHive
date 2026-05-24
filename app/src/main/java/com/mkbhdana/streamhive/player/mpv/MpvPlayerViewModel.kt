@@ -61,7 +61,9 @@ class MpvPlayerViewModel @Inject constructor(
             gestureDoubleTapEnabled = appPreferences.gestureDoubleTapEnabled,
             gestureZoomEnabled = appPreferences.gestureZoomEnabled,
             gestureSpeedPressEnabled = appPreferences.gestureSpeedPressEnabled,
+            gestureLockEnabled = appPreferences.gestureLockEnabled,
             hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
+            gestureSensitivity = appPreferences.gestureSensitivity,
             subtitleFontSize = appPreferences.subtitleFontSize,
             subtitleColor = appPreferences.subtitleColor,
             subtitleBgOpacity = appPreferences.subtitleBgOpacity,
@@ -93,6 +95,12 @@ class MpvPlayerViewModel @Inject constructor(
     private var preferredTracksApplied = false
     private var pendingExternalSubtitleTrackRefresh = false
     private var tmdbOriginalAudioLanguage: String? = null
+
+    // Per-file / session-level track overrides (from saved settings or series carryover)
+    private var sessionAudioLanguage: String? = null
+    private var sessionAudioLabel: String? = null
+    private var sessionSubtitleLanguage: String? = null
+    private var sessionSubtitleLabel: String? = null
     private val baseSubtitleScale: Double
         get() = (_uiState.value.subtitleFontSize.coerceIn(10, 48) / 18.0).coerceIn(0.55, 2.7)
 
@@ -331,6 +339,7 @@ class MpvPlayerViewModel @Inject constructor(
                 applySubtitleStyle()
 
                 val history = playbackHistoryDao.getByFileId(currentFileId)
+                restorePerFileSettings(history)
                 val startPosMs = if (history != null && history.isResumeEligible && history.lastPosition > 0) history.lastPosition else 0L
                 if (startPosMs > 0) {
                     pendingSeekMs = startPosMs
@@ -447,6 +456,23 @@ class MpvPlayerViewModel @Inject constructor(
 
     private fun maybeApplyPreferredAudioTrack(audioTracks: List<TrackInfo>): TrackInfo? {
         if (preferredTracksApplied || audioTracks.isEmpty()) return null
+
+        // Session overrides (from per-file settings) take priority
+        if (sessionAudioLanguage != null) {
+            // Try label match first for precise selection
+            val labelMatch = if (sessionAudioLabel != null) {
+                audioTracks.firstOrNull { it.name == sessionAudioLabel }
+            } else null
+            val langMatch = labelMatch ?: audioTracks.firstOrNull {
+                languageMatches(it.language, sessionAudioLanguage!!)
+            }
+            preferredTracksApplied = true
+            if (langMatch != null && !langMatch.isSelected) {
+                mpvPlayer.setAudioTrack(langMatch.index)
+                return langMatch
+            }
+            return null
+        }
 
         val preferredAudioLanguage = appPreferences.preferredAudioLanguage
         val targetAudioLanguage = if (preferredAudioLanguage == "original") {
@@ -625,6 +651,7 @@ class MpvPlayerViewModel @Inject constructor(
         preferredTracksApplied = true
         mpvPlayer.setAudioTrack(trackId)
         updateTrackInfo()
+        debounceSaveFileSettings()
     }
 
     fun selectSubtitleTrack(trackId: Int) {
@@ -635,6 +662,7 @@ class MpvPlayerViewModel @Inject constructor(
             mpvPlayer.setSubtitleTrack(trackId)
         }
         updateTrackInfo()
+        debounceSaveFileSettings()
     }
 
     fun removeExternalSubtitle(track: TrackInfo) {
@@ -651,42 +679,50 @@ class MpvPlayerViewModel @Inject constructor(
     fun setSubtitleDelay(delayMs: Long) {
         _uiState.update { it.copy(subtitleDelay = delayMs) }
         mpvPlayer.setSubtitleDelay(delayMs / 1000.0)
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleFontSize(fontSize: Int) {
         _uiState.update { it.copy(subtitleFontSize = fontSize.coerceIn(10, 48)) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleColor(color: Long) {
         _uiState.update { it.copy(subtitleColor = color) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitlePosition(position: Int) {
         _uiState.update { it.copy(subtitlePosition = position.coerceIn(0, 100)) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleOutlineColor(color: Long) {
         _uiState.update { it.copy(subtitleOutlineColor = color) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleBgOpacity(opacity: Float) {
         _uiState.update { it.copy(subtitleBgOpacity = opacity.coerceIn(0f, 1f)) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleEdgeSize(edgeSize: Int) {
         _uiState.update { it.copy(subtitleEdgeSize = edgeSize.coerceIn(0, 20)) }
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setOverrideAssSubtitleStyles(enabled: Boolean) {
         _uiState.update { it.copy(overrideAssSubtitleStyles = enabled) }
         mpvPlayer.setAssStyleOverride(enabled)
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun setSubtitleSpeed(speed: Float) {
@@ -710,6 +746,7 @@ class MpvPlayerViewModel @Inject constructor(
         }
         mpvPlayer.setAssStyleOverride(appPreferences.overrideAssSubtitleStyles)
         applySubtitleStyle()
+        debounceSaveFileSettings()
     }
 
     fun applySubtitleZoomCompensation(zoomLevel: Float) {
@@ -854,7 +891,9 @@ class MpvPlayerViewModel @Inject constructor(
         super.onCleared()
         externalPlayerCleanupJob?.cancel()
         positionSaveJob?.cancel()
+        fileSettingsSaveJob?.cancel()
         savePlaybackPosition()
+        saveCurrentFileSettingsBlocking()
         mpvPlayer.destroy()
     }
 
@@ -878,19 +917,134 @@ class MpvPlayerViewModel @Inject constructor(
         if (pos <= 0 || dur <= 0) return
         viewModelScope.launch {
             val fileEntity = mediaFileDao.getFileById(currentFileId)
-            playbackHistoryDao.upsert(
-                PlaybackHistoryEntity(
-                    fileId = currentFileId,
-                    fileName = currentFileName,
-                    driveId = fileEntity?.driveId ?: "",
-                    lastPosition = pos,
-                    duration = dur,
-                    lastPlayedAt = System.currentTimeMillis(),
-                    thumbnailUrl = fileEntity?.thumbnailLink,
-                    lastPlayerEngine = historyPlayerEngineName(),
-                    lastDecoderMode = sessionDecoderMode
-                )
+            val thumbnailUrl = fileEntity?.thumbnailLink
+            val engineName = historyPlayerEngineName()
+
+            // Try UPDATE first (preserves savedPlayerSettings)
+            playbackHistoryDao.updatePosition(
+                fileId = currentFileId,
+                lastPosition = pos,
+                duration = dur,
+                lastPlayedAt = System.currentTimeMillis(),
+                posterPath = null,
+                thumbnailUrl = thumbnailUrl,
+                lastPlayerEngine = engineName,
+                lastDecoderMode = sessionDecoderMode
             )
+
+            // If the row doesn't exist yet, INSERT it
+            val existing = playbackHistoryDao.getByFileId(currentFileId)
+            if (existing == null) {
+                playbackHistoryDao.upsert(
+                    PlaybackHistoryEntity(
+                        fileId = currentFileId,
+                        fileName = currentFileName,
+                        driveId = fileEntity?.driveId ?: "",
+                        lastPosition = pos,
+                        duration = dur,
+                        lastPlayedAt = System.currentTimeMillis(),
+                        thumbnailUrl = thumbnailUrl,
+                        lastPlayerEngine = engineName,
+                        lastDecoderMode = sessionDecoderMode
+                    )
+                )
+            }
+        }
+    }
+
+    // ──── Per-file settings persistence ────
+
+    private var fileSettingsSaveJob: kotlinx.coroutines.Job? = null
+
+    private fun debounceSaveFileSettings() {
+        fileSettingsSaveJob?.cancel()
+        fileSettingsSaveJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(2_000)
+            saveCurrentFileSettings()
+        }
+    }
+
+    private fun buildCurrentFileSettingsJson(): String? {
+        val state = _uiState.value
+        val audioTracks = state.audioTracks
+        val subtitleTracks = state.subtitleTracks
+        val selectedAudio = audioTracks.firstOrNull { it.isSelected }
+        val selectedSubtitle = subtitleTracks.firstOrNull { it.isSelected }
+
+        val settings = com.mkbhdana.streamhive.data.db.PerFilePlayerSettings(
+            audioTrackLanguage = selectedAudio?.language,
+            audioTrackLabel = selectedAudio?.name,
+            subtitleTrackLanguage = selectedSubtitle?.language,
+            subtitleTrackLabel = selectedSubtitle?.name,
+            subtitleDelay = state.subtitleDelay.takeIf { it != 0L },
+            subtitleFontSize = state.subtitleFontSize.takeIf { it != appPreferences.subtitleFontSize },
+            subtitleColor = state.subtitleColor.takeIf { it != appPreferences.subtitleColor },
+            subtitleBgOpacity = state.subtitleBgOpacity.takeIf { it != appPreferences.subtitleBgOpacity },
+            subtitlePosition = state.subtitlePosition.takeIf { it != appPreferences.subtitlePosition },
+            subtitleEdgeType = state.subtitleEdgeType.takeIf { it != appPreferences.subtitleEdgeType },
+            subtitleEdgeSize = state.subtitleEdgeSize.takeIf { it != appPreferences.subtitleEdgeSize },
+            subtitleOutlineColor = state.subtitleOutlineColor.takeIf { it != appPreferences.subtitleOutlineColor },
+            overrideAssSubtitleStyles = state.overrideAssSubtitleStyles.takeIf { it != appPreferences.overrideAssSubtitleStyles }
+        )
+
+        return try {
+            kotlinx.serialization.json.Json.encodeToString(
+                com.mkbhdana.streamhive.data.db.PerFilePlayerSettings.serializer(), settings
+            )
+        } catch (_: Exception) { null }
+    }
+
+    private fun saveCurrentFileSettings() {
+        val json = buildCurrentFileSettingsJson() ?: return
+        viewModelScope.launch {
+            playbackHistoryDao.updateFileSettings(currentFileId, json)
+        }
+    }
+
+    private fun saveCurrentFileSettingsBlocking() {
+        val json = buildCurrentFileSettingsJson() ?: return
+        val fileId = currentFileId
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            playbackHistoryDao.updateFileSettings(fileId, json)
+        }
+    }
+
+    private fun restorePerFileSettings(history: PlaybackHistoryEntity?) {
+        val json = history?.savedPlayerSettings ?: return
+        val settings = try {
+            kotlinx.serialization.json.Json.decodeFromString(
+                com.mkbhdana.streamhive.data.db.PerFilePlayerSettings.serializer(), json
+            )
+        } catch (_: Exception) { return }
+
+        _uiState.update { state ->
+            state.copy(
+                subtitleDelay = settings.subtitleDelay ?: state.subtitleDelay,
+                subtitleFontSize = settings.subtitleFontSize ?: state.subtitleFontSize,
+                subtitleColor = settings.subtitleColor ?: state.subtitleColor,
+                subtitleBgOpacity = settings.subtitleBgOpacity ?: state.subtitleBgOpacity,
+                subtitlePosition = settings.subtitlePosition ?: state.subtitlePosition,
+                subtitleEdgeType = settings.subtitleEdgeType ?: state.subtitleEdgeType,
+                subtitleEdgeSize = settings.subtitleEdgeSize ?: state.subtitleEdgeSize,
+                subtitleOutlineColor = settings.subtitleOutlineColor ?: state.subtitleOutlineColor,
+                overrideAssSubtitleStyles = settings.overrideAssSubtitleStyles ?: state.overrideAssSubtitleStyles
+            )
+        }
+        // Apply restored subtitle styles to MPV
+        applySubtitleStyle()
+        // Apply subtitle delay to MPV if restored
+        if (settings.subtitleDelay != null && settings.subtitleDelay != 0L) {
+            mpvPlayer.setSubtitleDelay(settings.subtitleDelay / 1000.0)
+        }
+
+        // Set session language overrides so track selection uses them
+        if (sessionAudioLanguage == null && settings.audioTrackLanguage != null) {
+            sessionAudioLanguage = settings.audioTrackLanguage
+            sessionAudioLabel = settings.audioTrackLabel
+        }
+        if (sessionSubtitleLanguage == null && settings.subtitleTrackLanguage != null) {
+            sessionSubtitleLanguage = settings.subtitleTrackLanguage
+            sessionSubtitleLabel = settings.subtitleTrackLabel
         }
     }
 
