@@ -39,7 +39,10 @@ import com.mkbhdana.streamhive.util.FileUtils
 fun MediaInfoScreen(
     onBack: () -> Unit,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
-    viewModel: MediaInfoViewModel = hiltViewModel()
+    navKey: com.mkbhdana.streamhive.navigation.MediaInfoRoute = com.mkbhdana.streamhive.navigation.MediaInfoRoute(""),
+    viewModel: MediaInfoViewModel = hiltViewModel<MediaInfoViewModel, MediaInfoViewModel.Factory>(
+        creationCallback = { factory -> factory.create(navKey) }
+    )
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showFixMetadataDialog by remember { mutableStateOf(false) }

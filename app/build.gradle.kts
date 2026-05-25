@@ -131,9 +131,16 @@ dependencies {
     implementation(libs.compose.animation)
     debugImplementation(libs.compose.ui.tooling)
 
-    // Activity & Navigation
+    // Activity
     implementation(libs.activity.compose)
-    implementation(libs.navigation.compose)
+
+    // Navigation 3
+    implementation(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
+    implementation(libs.lifecycle.viewmodel.navigation3)
+
+    // Adaptive Navigation
+    implementation(libs.material3.adaptive.navigation.suite)
 
     // Lifecycle
     implementation(libs.lifecycle.runtime.ktx)

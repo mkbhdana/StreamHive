@@ -6,7 +6,10 @@ import android.provider.OpenableColumns
 import android.view.Surface
 import android.view.SurfaceView
 import android.widget.Toast
-import androidx.lifecycle.SavedStateHandle
+import com.mkbhdana.streamhive.navigation.MpvPlayerRoute
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mkbhdana.streamhive.catalog.DriveRepository
@@ -30,8 +33,8 @@ import java.io.File
 import java.util.Locale
 import javax.inject.Inject
 
-@HiltViewModel
-class MpvPlayerViewModel @Inject constructor(
+@HiltViewModel(assistedFactory = MpvPlayerViewModel.Factory::class)
+class MpvPlayerViewModel @AssistedInject constructor(
     @ApplicationContext private val context: Context,
     private val driveRepository: DriveRepository,
     private val appPreferences: AppPreferences,
@@ -39,15 +42,18 @@ class MpvPlayerViewModel @Inject constructor(
     private val mediaFileDao: com.mkbhdana.streamhive.data.db.MediaFileDao,
     private val tmdbMetadataDao: TmdbMetadataDao,
     private val streamProxyServer: com.mkbhdana.streamhive.player.proxy.StreamProxyServer,
-    savedStateHandle: SavedStateHandle
+    @Assisted private val navKey: MpvPlayerRoute
 ) : ViewModel() {
 
-    private var currentFileId: String = savedStateHandle.get<String>("fileId") ?: ""
-    private var currentFileName: String = java.net.URLDecoder.decode(
-        savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
-    )
+    @AssistedFactory
+    interface Factory {
+        fun create(navKey: MpvPlayerRoute): MpvPlayerViewModel
+    }
+
+    private var currentFileId: String = navKey.fileId
+    private var currentFileName: String = navKey.fileName
     private val initialDecoderMode: String = normalizeDecoderMode(
-        decodeDecoderRouteValue(savedStateHandle.get<String>("decoder"))
+        navKey.decoder.takeIf { it.isNotBlank() }
             ?: appPreferences.defaultDecoder
     )
 

@@ -46,7 +46,10 @@ fun PlayerScreen(
     switchingMessage: String? = null,
     onFallbackToMpv: ((String?) -> Unit)? = null,
     onSwitchToMpv: ((String?) -> Unit)? = null,
-    viewModel: PlayerViewModel = hiltViewModel()
+    navKey: com.mkbhdana.streamhive.navigation.PlayerRoute = com.mkbhdana.streamhive.navigation.PlayerRoute("", ""),
+    viewModel: PlayerViewModel = hiltViewModel<PlayerViewModel, PlayerViewModel.Factory>(
+        creationCallback = { factory -> factory.create(navKey) }
+    )
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
