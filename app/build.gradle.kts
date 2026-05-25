@@ -1,10 +1,15 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xannotation-default-target=param-property")
+    }
 }
 
 val streamHiveVersionNameProperty = providers.gradleProperty("STREAMHIVE_VERSION_NAME").orNull
@@ -95,10 +100,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
     }
@@ -131,9 +132,16 @@ dependencies {
     implementation(libs.compose.animation)
     debugImplementation(libs.compose.ui.tooling)
 
-    // Activity & Navigation
+    // Activity
     implementation(libs.activity.compose)
-    implementation(libs.navigation.compose)
+
+    // Navigation 3
+    implementation(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
+    implementation(libs.lifecycle.viewmodel.navigation3)
+
+    // Adaptive Navigation
+    implementation(libs.material3.adaptive.navigation.suite)
 
     // Lifecycle
     implementation(libs.lifecycle.runtime.ktx)

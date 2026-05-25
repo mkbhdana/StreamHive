@@ -1,13 +1,16 @@
 [versions]
-agp = "8.13.2"
+agp = "9.0.0"
 kotlin = "2.1.0"
-ksp = "2.1.0-1.0.29"
+ksp = "2.3.6"
 
 # Compose
 composeBom = "2024.12.01"
 activityCompose = "1.9.3"
-navigationCompose = "2.8.5"
 lifecycleRuntime = "2.8.7"
+
+# Navigation 3
+nav3Core = "1.0.0"
+lifecycleViewmodelNav3 = "2.10.0-rc01"
 
 # Compose TV
 tvMaterial = "1.0.0"
@@ -16,11 +19,11 @@ tvMaterial = "1.0.0"
 media3 = "1.10.0"
 
 # Hilt
-hilt = "2.53.1"
+hilt = "2.59.2"
 hiltNavigationCompose = "1.2.0"
 
 # Room
-room = "2.6.1"
+room = "2.8.4"
 
 # Network
 okhttp = "4.12.0"
@@ -71,7 +74,14 @@ compose-animation = { group = "androidx.compose.animation", name = "animation" }
 
 # Activity & Navigation
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+
+# Navigation 3
+navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
+navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
+lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
+
+# Material3 Adaptive
+material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
 
 # Lifecycle
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntime" }

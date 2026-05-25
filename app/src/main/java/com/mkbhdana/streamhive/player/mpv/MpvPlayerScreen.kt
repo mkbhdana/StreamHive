@@ -45,7 +45,10 @@ fun MpvPlayerScreen(
     switchingMessage: String? = null,
     onFallbackToExo: ((String?) -> Unit)? = null,
     onSwitchToExo: ((String?) -> Unit)? = null,
-    viewModel: MpvPlayerViewModel = hiltViewModel()
+    navKey: com.mkbhdana.streamhive.navigation.MpvPlayerRoute = com.mkbhdana.streamhive.navigation.MpvPlayerRoute("", ""),
+    viewModel: MpvPlayerViewModel = hiltViewModel<MpvPlayerViewModel, MpvPlayerViewModel.Factory>(
+        creationCallback = { factory -> factory.create(navKey) }
+    )
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current

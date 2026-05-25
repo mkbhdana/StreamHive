@@ -1,6 +1,9 @@
 package com.mkbhdana.streamhive.catalog.info
 
-import androidx.lifecycle.SavedStateHandle
+import com.mkbhdana.streamhive.navigation.MediaInfoRoute
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mkbhdana.streamhive.catalog.DriveRepository
@@ -54,19 +57,24 @@ data class MediaInfoUiState(
     val requestedMediaType: String = "auto"
 )
 
-@HiltViewModel
-class MediaInfoViewModel @Inject constructor(
+@HiltViewModel(assistedFactory = MediaInfoViewModel.Factory::class)
+class MediaInfoViewModel @AssistedInject constructor(
     private val tmdbRepository: TmdbRepository,
     private val driveRepository: DriveRepository,
     private val mediaFileDao: MediaFileDao,
     private val appPreferences: AppPreferences,
-    savedStateHandle: SavedStateHandle
+    @Assisted private val navKey: MediaInfoRoute
 ) : ViewModel() {
 
-    private val driveFileId: String = savedStateHandle.get<String>("driveFileId") ?: ""
+    @AssistedFactory
+    interface Factory {
+        fun create(navKey: MediaInfoRoute): MediaInfoViewModel
+    }
+
+    private val driveFileId: String = navKey.driveFileId
 
     /** Catalog type hint from navigation: "movie", "tv", or "auto" */
-    private val mediaTypeHint: String = savedStateHandle.get<String>("mediaType") ?: "auto"
+    private val mediaTypeHint: String = navKey.mediaType
 
     private var sourcePriorityFilteringEnabled = false
     private var metadataRevision = 0

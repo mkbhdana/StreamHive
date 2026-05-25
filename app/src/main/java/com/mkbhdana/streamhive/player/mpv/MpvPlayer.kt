@@ -137,7 +137,7 @@ class MpvPlayer(private val context: Context) {
         try {
             mpvLibClass = Class.forName("is.xyz.mpv.MPV")
             val cls = mpvLibClass!!
-            mpvInstance = try { cls.getField("INSTANCE").get(null) } catch (e: Exception) { cls.newInstance() }
+            mpvInstance = try { cls.getField("INSTANCE").get(null) } catch (e: Exception) { cls.getDeclaredConstructor().newInstance() }
 
             // MPVLib.create(context) — one param: Context
             val createMethod = cls.getMethod("create", Context::class.java)

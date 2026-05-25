@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
-import androidx.lifecycle.SavedStateHandle
+import com.mkbhdana.streamhive.navigation.PlayerRoute
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
@@ -104,8 +107,8 @@ data class PlayerUiState(
 )
 
 @UnstableApi
-@HiltViewModel
-class PlayerViewModel @Inject constructor(
+@HiltViewModel(assistedFactory = PlayerViewModel.Factory::class)
+class PlayerViewModel @AssistedInject constructor(
     @ApplicationContext private val context: Context,
     private val driveRepository: DriveRepository,
     private val appPreferences: AppPreferences,
@@ -113,15 +116,18 @@ class PlayerViewModel @Inject constructor(
     private val mediaFileDao: com.mkbhdana.streamhive.data.db.MediaFileDao,
     private val tmdbMetadataDao: TmdbMetadataDao,
     private val streamProxyServer: com.mkbhdana.streamhive.player.proxy.StreamProxyServer,
-    savedStateHandle: SavedStateHandle
+    @Assisted private val navKey: PlayerRoute
 ) : ViewModel() {
 
-    private var currentFileId: String = savedStateHandle.get<String>("fileId") ?: ""
-    private var currentFileName: String = java.net.URLDecoder.decode(
-        savedStateHandle.get<String>("fileName") ?: "", "UTF-8"
-    )
+    @AssistedFactory
+    interface Factory {
+        fun create(navKey: PlayerRoute): PlayerViewModel
+    }
+
+    private var currentFileId: String = navKey.fileId
+    private var currentFileName: String = navKey.fileName
     private val initialDecoderMode: String = normalizeDecoderMode(
-        decodeDecoderRouteValue(savedStateHandle.get<String>("decoder"))
+        navKey.decoder.takeIf { it.isNotBlank() }
             ?: appPreferences.defaultDecoder
     )
 

@@ -40,7 +40,8 @@ fun SearchTab(
     focusRequestSignal: Int = 0,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
     onFolderNavigate: (MediaFileEntity) -> Unit,
-    onNavigateToInfo: (String, String) -> Unit
+    onNavigateToInfo: (String, String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isGridView = state.isGridView
     var tooltipName by remember { mutableStateOf<String?>(null) }
@@ -75,7 +76,7 @@ fun SearchTab(
     val folderResults = allResults.filter { it.isFolder && !state.tmdbMetadata.containsKey(it.id) }
     val fileResults = allResults.filter { !it.isFolder && !state.tmdbMetadata.containsKey(it.id) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
         if (state.searchFolderStack.isNotEmpty()) {
             // Render Isolated Folder Browser
             Column(modifier = Modifier.fillMaxSize()) {

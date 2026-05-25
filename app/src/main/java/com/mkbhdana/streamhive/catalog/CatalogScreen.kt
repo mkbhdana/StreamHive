@@ -317,10 +317,11 @@ fun CatalogScreen(
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun FoldersTab(
+fun FoldersTab(
     uiState: CatalogUiState,
     viewModel: CatalogViewModel,
-    onPlayFile: (String, String, PlayerEngine) -> Unit
+    onPlayFile: (String, String, PlayerEngine) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isGridView = uiState.isGridView
     var tooltipName by remember { mutableStateOf<String?>(null) }
@@ -336,7 +337,7 @@ private fun FoldersTab(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         // Drive selector
         if (uiState.sharedDrives.isNotEmpty()) {
             DriveSelector(
