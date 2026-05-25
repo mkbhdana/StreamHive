@@ -54,7 +54,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
     private var currentFileName: String = navKey.fileName
     private val initialDecoderMode: String = normalizeDecoderMode(
         navKey.decoder.takeIf { it.isNotBlank() }
-            ?: appPreferences.defaultDecoder
+            ?: appPreferences.mpvDecoder
     )
 
     private val _uiState = MutableStateFlow(
@@ -70,15 +70,20 @@ class MpvPlayerViewModel @AssistedInject constructor(
             gestureLockEnabled = appPreferences.gestureLockEnabled,
             hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
             gestureSensitivity = appPreferences.gestureSensitivity,
-            subtitleFontSize = appPreferences.subtitleFontSize,
-            subtitleColor = appPreferences.subtitleColor,
-            subtitleBgOpacity = appPreferences.subtitleBgOpacity,
-            subtitlePosition = appPreferences.subtitlePosition,
-            subtitleEdgeType = appPreferences.subtitleEdgeType,
-            subtitleEdgeSize = appPreferences.subtitleEdgeSize,
-            subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+            subtitleFontSize = appPreferences.mpvSubtitleFontSize,
+            subtitleColor = appPreferences.mpvSubtitleColor,
+            subtitleBgOpacity = appPreferences.mpvSubtitleBgOpacity,
+            subtitlePosition = appPreferences.mpvSubtitlePosition,
+            subtitleEdgeType = appPreferences.mpvSubtitleEdgeType,
+            subtitleEdgeSize = appPreferences.mpvSubtitleEdgeSize,
+            subtitleOutlineColor = appPreferences.mpvSubtitleOutlineColor,
             libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
-            overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
+            overrideAssSubtitleStyles = appPreferences.mpvOverrideAssSubtitleStyles,
+            subtitleScale = appPreferences.subtitleScale,
+            subtitleFont = appPreferences.subtitleFont,
+            subtitleBold = appPreferences.subtitleBold,
+            subtitleItalic = appPreferences.subtitleItalic,
+            subtitleAlignment = appPreferences.subtitleAlignment,
             tapSeekDuration = appPreferences.tapSeekDuration,
             decoderMode = initialDecoderMode
         )
@@ -107,8 +112,9 @@ class MpvPlayerViewModel @AssistedInject constructor(
     private var sessionAudioLabel: String? = null
     private var sessionSubtitleLanguage: String? = null
     private var sessionSubtitleLabel: String? = null
+    private var currentZoomLevel: Float = 1.0f
     private val baseSubtitleScale: Double
-        get() = (_uiState.value.subtitleFontSize.coerceIn(10, 48) / 18.0).coerceIn(0.55, 2.7)
+        get() = _uiState.value.subtitleScale.coerceIn(0.5f, 3.0f).toDouble()
 
     init {
         rememberPlaybackSelection()
@@ -211,6 +217,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
         pendingSeekMs = 0L
         pendingExternalSubtitleTrackRefresh = false
         preferredTracksApplied = false
+        preferredSubtitleTracksApplied = false
         rememberPlaybackSelection()
         fetchEpisodeList()
 
@@ -339,7 +346,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
 
                 mpvPlayer.initialize(
                     useLibassSubtitles = appPreferences.libassSubtitlesEnabled,
-                    overrideAssStyles = appPreferences.overrideAssSubtitleStyles,
+                    overrideAssStyles = appPreferences.mpvOverrideAssSubtitleStyles,
                     decoderMode = sessionDecoderMode
                 )
                 applySubtitleStyle()
@@ -411,24 +418,25 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 }
                 "sub" -> {
                     val isExternal = mpvPlayer.isTrackExternal(i)
-                    val externalFileName = mpvPlayer.getTrackExternalFileName(i)
-                        .substringAfterLast('/')
-                        .takeIf { it.isNotBlank() }
+                    val externalFileName = if (isExternal) {
+                        mpvPlayer.getTrackExternalFileName(i)
+                            .substringAfterLast('/')
+                            .takeIf { it.isNotBlank() }
+                    } else null
                     val name = title.ifBlank {
                         externalFileName ?: "Subtitle ${subtitleTracks.size + 1}"
                     }
-                    subtitleTracks.add(
-                        TrackInfo(
-                            index = id,
-                            name = name,
-                            language = lang.ifBlank { null },
-                            codec = codec.ifBlank { null },
-                            isSelected = selected,
-                            isExternal = isExternal,
-                            canRemove = isExternal,
-                            sourceId = id.toString()
-                        )
+                    val trackInfo = TrackInfo(
+                        index = id,
+                        name = name,
+                        language = lang.ifBlank { null },
+                        codec = codec.ifBlank { null },
+                        isSelected = selected,
+                        isExternal = isExternal,
+                        canRemove = isExternal,
+                        sourceId = id.toString()
                     )
+                    subtitleTracks.add(trackInfo)
                 }
             }
         }
@@ -455,8 +463,17 @@ class MpvPlayerViewModel @AssistedInject constructor(
             audioTracks
         }
 
+        val preferredSubTrack = maybeApplyPreferredSubtitleTrack(subtitleTracks)
+        val displayedSubTracks = if (preferredSubTrack != null) {
+            subtitleTracks.map { track ->
+                track.copy(isSelected = track.index == preferredSubTrack.index)
+            }
+        } else {
+            subtitleTracks
+        }
+
         _uiState.update {
-            it.copy(audioTracks = displayedAudioTracks, subtitleTracks = subtitleTracks)
+            it.copy(audioTracks = displayedAudioTracks, subtitleTracks = displayedSubTracks)
         }
     }
 
@@ -498,6 +515,45 @@ class MpvPlayerViewModel @AssistedInject constructor(
         preferredTracksApplied = true
         if (preferredTrack != null && !preferredTrack.isSelected) {
             mpvPlayer.setAudioTrack(preferredTrack.index)
+            return preferredTrack
+        }
+        return null
+    }
+
+    private var preferredSubtitleTracksApplied = false
+
+    private fun maybeApplyPreferredSubtitleTrack(subtitleTracks: List<TrackInfo>): TrackInfo? {
+        if (preferredSubtitleTracksApplied || subtitleTracks.isEmpty()) return null
+
+        // Session overrides (from per-file saved settings) take priority
+        if (sessionSubtitleLanguage != null) {
+            // Try label match first for precise selection
+            val labelMatch = if (sessionSubtitleLabel != null) {
+                subtitleTracks.firstOrNull { it.name == sessionSubtitleLabel }
+            } else null
+            val langMatch = labelMatch ?: subtitleTracks.firstOrNull {
+                languageMatches(it.language, sessionSubtitleLanguage!!)
+            }
+            preferredSubtitleTracksApplied = true
+            if (langMatch != null && !langMatch.isSelected) {
+                mpvPlayer.setSubtitleTrack(langMatch.index)
+                return langMatch
+            }
+            return null
+        }
+
+        val preferredSubtitleLanguage = appPreferences.preferredSubtitleLanguage
+        if (preferredSubtitleLanguage == "none" || preferredSubtitleLanguage.isBlank()) {
+            preferredSubtitleTracksApplied = true
+            return null
+        }
+
+        val preferredTrack = subtitleTracks.firstOrNull {
+            languageMatches(it.language, preferredSubtitleLanguage)
+        }
+        preferredSubtitleTracksApplied = true
+        if (preferredTrack != null && !preferredTrack.isSelected) {
+            mpvPlayer.setSubtitleTrack(preferredTrack.index)
             return preferredTrack
         }
         return null
@@ -623,6 +679,8 @@ class MpvPlayerViewModel @AssistedInject constructor(
         _uiState.update { it.copy(isPlaying = false) }
     }
 
+    fun pause() = mpvPlayer.pause()
+
     fun scheduleExternalPlayerCleanup() {
         externalPlayerCleanupJob?.cancel()
         externalPlayerCleanupJob = viewModelScope.launch {
@@ -651,6 +709,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
 
     fun setResizeMode(mode: String) {
         _uiState.update { it.copy(resizeMode = mode) }
+        mpvPlayer.setResizeMode(mode)
     }
 
     fun selectAudioTrack(trackId: Int) {
@@ -662,6 +721,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
 
     fun selectSubtitleTrack(trackId: Int) {
         preferredTracksApplied = true
+        preferredSubtitleTracksApplied = true
         if (trackId < 0) {
             mpvPlayer.disableSubtitles()
         } else {
@@ -737,26 +797,68 @@ class MpvPlayerViewModel @AssistedInject constructor(
         mpvPlayer.setSubtitleSpeed(normalizedSpeed)
     }
 
-    fun resetSubtitleStyle() {
-        _uiState.update {
-            it.copy(
-                subtitleFontSize = appPreferences.subtitleFontSize,
-                subtitleColor = appPreferences.subtitleColor,
-                subtitleBgOpacity = appPreferences.subtitleBgOpacity,
-                subtitlePosition = appPreferences.subtitlePosition,
-                subtitleEdgeType = appPreferences.subtitleEdgeType,
-                subtitleEdgeSize = appPreferences.subtitleEdgeSize,
-                subtitleOutlineColor = appPreferences.subtitleOutlineColor,
-                overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles
-            )
-        }
-        mpvPlayer.setAssStyleOverride(appPreferences.overrideAssSubtitleStyles)
+    fun setSubtitleScale(scale: Float) {
+        val clamped = scale.coerceIn(0.5f, 3.0f)
+        _uiState.update { it.copy(subtitleScale = clamped) }
+        appPreferences.subtitleScale = clamped
         applySubtitleStyle()
         debounceSaveFileSettings()
     }
 
-    fun applySubtitleZoomCompensation(zoomLevel: Float) {
-        mpvPlayer.setSubScale(baseSubtitleScale / zoomLevel.coerceAtLeast(0.1f))
+    fun setSubtitleFont(font: String) {
+        _uiState.update { it.copy(subtitleFont = font) }
+        appPreferences.subtitleFont = font
+        applySubtitleStyle()
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleBold(bold: Boolean) {
+        _uiState.update { it.copy(subtitleBold = bold) }
+        appPreferences.subtitleBold = bold
+        applySubtitleStyle()
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleItalic(italic: Boolean) {
+        _uiState.update { it.copy(subtitleItalic = italic) }
+        appPreferences.subtitleItalic = italic
+        applySubtitleStyle()
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleAlignment(alignment: String) {
+        _uiState.update { it.copy(subtitleAlignment = alignment) }
+        appPreferences.subtitleAlignment = alignment
+        applySubtitleStyle()
+        debounceSaveFileSettings()
+    }
+
+    fun resetSubtitleStyle() {
+        _uiState.update {
+            it.copy(
+                subtitleFontSize = appPreferences.mpvSubtitleFontSize,
+                subtitleColor = appPreferences.mpvSubtitleColor,
+                subtitleBgOpacity = appPreferences.mpvSubtitleBgOpacity,
+                subtitlePosition = appPreferences.mpvSubtitlePosition,
+                subtitleEdgeType = appPreferences.mpvSubtitleEdgeType,
+                subtitleEdgeSize = appPreferences.mpvSubtitleEdgeSize,
+                subtitleOutlineColor = appPreferences.mpvSubtitleOutlineColor,
+                overrideAssSubtitleStyles = appPreferences.mpvOverrideAssSubtitleStyles,
+                subtitleScale = appPreferences.subtitleScale,
+                subtitleFont = appPreferences.subtitleFont,
+                subtitleBold = appPreferences.subtitleBold,
+                subtitleItalic = appPreferences.subtitleItalic,
+                subtitleAlignment = appPreferences.subtitleAlignment
+            )
+        }
+        mpvPlayer.setAssStyleOverride(appPreferences.mpvOverrideAssSubtitleStyles)
+        applySubtitleStyle()
+        debounceSaveFileSettings()
+    }
+
+    fun setVideoZoom(zoom: Float, panX: Float = 0f, panY: Float = 0f) {
+        currentZoomLevel = zoom.coerceAtLeast(0.1f)
+        mpvPlayer.setVideoZoom(currentZoomLevel, panX, panY)
     }
 
     private fun applySubtitleStyle() {
@@ -768,7 +870,12 @@ class MpvPlayerViewModel @AssistedInject constructor(
             position = state.subtitlePosition,
             edgeType = state.subtitleEdgeType,
             edgeSize = state.subtitleEdgeSize,
-            outlineColor = state.subtitleOutlineColor
+            outlineColor = state.subtitleOutlineColor,
+            scale = state.subtitleScale,
+            font = state.subtitleFont,
+            bold = state.subtitleBold,
+            italic = state.subtitleItalic,
+            alignment = state.subtitleAlignment
         )
     }
 
@@ -830,10 +937,11 @@ class MpvPlayerViewModel @AssistedInject constructor(
         }
 
         val displayName = queryDisplayName(uri)
-        val extension = displayName
+        var extension = displayName
             ?.substringAfterLast('.', "")
             ?.takeIf { it.isNotBlank() }
             ?: inferSubtitleExtension(uri)
+        if (extension.lowercase(Locale.US) == "subrip") extension = "srt"
         val baseName = displayName
             ?.substringBeforeLast('.', displayName)
             ?.takeIf { it.isNotBlank() }
@@ -893,14 +1001,29 @@ class MpvPlayerViewModel @AssistedInject constructor(
         }
     }
 
+    /**
+     * Explicitly release the player — called from UI on back navigation.
+     * This ensures the player is destroyed immediately rather than relying
+     * on ViewModel.onCleared() which Navigation 3 may not trigger promptly.
+     */
+    fun releasePlayer() {
+        if (!playerReleased) {
+            playerReleased = true
+            externalPlayerCleanupJob?.cancel()
+            positionSaveJob?.cancel()
+            fileSettingsSaveJob?.cancel()
+            mpvPlayer.pause()
+            savePlaybackPosition()
+            saveCurrentFileSettingsBlocking()
+            mpvPlayer.destroy()
+        }
+    }
+
+    private var playerReleased = false
+
     override fun onCleared() {
         super.onCleared()
-        externalPlayerCleanupJob?.cancel()
-        positionSaveJob?.cancel()
-        fileSettingsSaveJob?.cancel()
-        savePlaybackPosition()
-        saveCurrentFileSettingsBlocking()
-        mpvPlayer.destroy()
+        releasePlayer()
     }
 
     private companion object {
@@ -983,14 +1106,19 @@ class MpvPlayerViewModel @AssistedInject constructor(
             subtitleTrackLanguage = selectedSubtitle?.language,
             subtitleTrackLabel = selectedSubtitle?.name,
             subtitleDelay = state.subtitleDelay.takeIf { it != 0L },
-            subtitleFontSize = state.subtitleFontSize.takeIf { it != appPreferences.subtitleFontSize },
-            subtitleColor = state.subtitleColor.takeIf { it != appPreferences.subtitleColor },
-            subtitleBgOpacity = state.subtitleBgOpacity.takeIf { it != appPreferences.subtitleBgOpacity },
-            subtitlePosition = state.subtitlePosition.takeIf { it != appPreferences.subtitlePosition },
-            subtitleEdgeType = state.subtitleEdgeType.takeIf { it != appPreferences.subtitleEdgeType },
-            subtitleEdgeSize = state.subtitleEdgeSize.takeIf { it != appPreferences.subtitleEdgeSize },
-            subtitleOutlineColor = state.subtitleOutlineColor.takeIf { it != appPreferences.subtitleOutlineColor },
-            overrideAssSubtitleStyles = state.overrideAssSubtitleStyles.takeIf { it != appPreferences.overrideAssSubtitleStyles }
+            subtitleFontSize = state.subtitleFontSize.takeIf { it != appPreferences.mpvSubtitleFontSize },
+            subtitleColor = state.subtitleColor.takeIf { it != appPreferences.mpvSubtitleColor },
+            subtitleBgOpacity = state.subtitleBgOpacity.takeIf { it != appPreferences.mpvSubtitleBgOpacity },
+            subtitlePosition = state.subtitlePosition.takeIf { it != appPreferences.mpvSubtitlePosition },
+            subtitleEdgeType = state.subtitleEdgeType.takeIf { it != appPreferences.mpvSubtitleEdgeType },
+            subtitleEdgeSize = state.subtitleEdgeSize.takeIf { it != appPreferences.mpvSubtitleEdgeSize },
+            subtitleOutlineColor = state.subtitleOutlineColor.takeIf { it != appPreferences.mpvSubtitleOutlineColor },
+            overrideAssSubtitleStyles = state.overrideAssSubtitleStyles.takeIf { it != appPreferences.mpvOverrideAssSubtitleStyles },
+            subtitleScale = state.subtitleScale.takeIf { it != appPreferences.subtitleScale },
+            subtitleFont = state.subtitleFont.takeIf { it != appPreferences.subtitleFont },
+            subtitleBold = state.subtitleBold.takeIf { it != appPreferences.subtitleBold },
+            subtitleItalic = state.subtitleItalic.takeIf { it != appPreferences.subtitleItalic },
+            subtitleAlignment = state.subtitleAlignment.takeIf { it != appPreferences.subtitleAlignment }
         )
 
         return try {
@@ -1033,7 +1161,12 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 subtitleEdgeType = settings.subtitleEdgeType ?: state.subtitleEdgeType,
                 subtitleEdgeSize = settings.subtitleEdgeSize ?: state.subtitleEdgeSize,
                 subtitleOutlineColor = settings.subtitleOutlineColor ?: state.subtitleOutlineColor,
-                overrideAssSubtitleStyles = settings.overrideAssSubtitleStyles ?: state.overrideAssSubtitleStyles
+                overrideAssSubtitleStyles = settings.overrideAssSubtitleStyles ?: state.overrideAssSubtitleStyles,
+                subtitleScale = settings.subtitleScale ?: state.subtitleScale,
+                subtitleFont = settings.subtitleFont ?: state.subtitleFont,
+                subtitleBold = settings.subtitleBold ?: state.subtitleBold,
+                subtitleItalic = settings.subtitleItalic ?: state.subtitleItalic,
+                subtitleAlignment = settings.subtitleAlignment ?: state.subtitleAlignment
             )
         }
         // Apply restored subtitle styles to MPV

@@ -38,9 +38,13 @@ class AppPreferences @Inject constructor(
         }
         set(value) = prefs.edit().putString(KEY_ENGINE, value.name).apply()
 
-    var defaultDecoder: String
-        get() = prefs.getString(KEY_DECODER, "hw+") ?: "hw+"
-        set(value) = prefs.edit().putString(KEY_DECODER, value).apply()
+    var exoDecoder: String
+        get() = prefs.getString(KEY_EXO_DECODER, "hw+") ?: "hw+"
+        set(value) = prefs.edit().putString(KEY_EXO_DECODER, value).apply()
+
+    var mpvDecoder: String
+        get() = prefs.getString(KEY_MPV_DECODER, "hw+") ?: "hw+"
+        set(value) = prefs.edit().putString(KEY_MPV_DECODER, value).apply()
 
     var mapDv7ToHevc: Boolean
         get() = prefs.getBoolean(KEY_MAP_DV7_TO_HEVC, false)
@@ -131,29 +135,53 @@ class AppPreferences @Inject constructor(
 
     // ──── Subtitle Settings ────
 
-    var subtitleFontSize: Int
-        get() = prefs.getInt(KEY_SUBTITLE_FONT_SIZE, 18)
-        set(value) = prefs.edit().putInt(KEY_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
+    var exoSubtitleFontSize: Int
+        get() = prefs.getInt(KEY_EXO_SUBTITLE_FONT_SIZE, prefs.getInt("subtitle_font_size", 18))
+        set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
 
-    var subtitleColor: Long
-        get() = prefs.getLong(KEY_SUBTITLE_COLOR, 0xFFFFFFFF)
-        set(value) = prefs.edit().putLong(KEY_SUBTITLE_COLOR, value).apply()
+    var mpvSubtitleFontSize: Int
+        get() = prefs.getInt(KEY_MPV_SUBTITLE_FONT_SIZE, prefs.getInt("subtitle_font_size", 18))
+        set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
 
-    var subtitleBgOpacity: Float
-        get() = prefs.getFloat(KEY_SUBTITLE_BG_OPACITY, 0.0f)
-        set(value) = prefs.edit().putFloat(KEY_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
+    var exoSubtitleColor: Long
+        get() = prefs.getLong(KEY_EXO_SUBTITLE_COLOR, prefs.getLong("subtitle_color", 0xFFFFFFFF))
+        set(value) = prefs.edit().putLong(KEY_EXO_SUBTITLE_COLOR, value).apply()
 
-    var subtitleEdgeType: String
-        get() = prefs.getString(KEY_SUBTITLE_EDGE_TYPE, "outline") ?: "outline"
-        set(value) = prefs.edit().putString(KEY_SUBTITLE_EDGE_TYPE, value).apply()
+    var mpvSubtitleColor: Long
+        get() = prefs.getLong(KEY_MPV_SUBTITLE_COLOR, prefs.getLong("subtitle_color", 0xFFFFFFFF))
+        set(value) = prefs.edit().putLong(KEY_MPV_SUBTITLE_COLOR, value).apply()
 
-    var subtitleEdgeSize: Int
-        get() = prefs.getInt(KEY_SUBTITLE_EDGE_SIZE, 0)
-        set(value) = prefs.edit().putInt(KEY_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
+    var exoSubtitleBgOpacity: Float
+        get() = prefs.getFloat(KEY_EXO_SUBTITLE_BG_OPACITY, prefs.getFloat("subtitle_bg_opacity", 0.0f))
+        set(value) = prefs.edit().putFloat(KEY_EXO_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
 
-    var subtitleOutlineColor: Long
-        get() = prefs.getLong(KEY_SUBTITLE_OUTLINE_COLOR, 0xFF000000)
-        set(value) = prefs.edit().putLong(KEY_SUBTITLE_OUTLINE_COLOR, value).apply()
+    var mpvSubtitleBgOpacity: Float
+        get() = prefs.getFloat(KEY_MPV_SUBTITLE_BG_OPACITY, prefs.getFloat("subtitle_bg_opacity", 0.0f))
+        set(value) = prefs.edit().putFloat(KEY_MPV_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
+
+    var exoSubtitleEdgeType: String
+        get() = prefs.getString(KEY_EXO_SUBTITLE_EDGE_TYPE, prefs.getString("subtitle_edge_type", "outline")) ?: "outline"
+        set(value) = prefs.edit().putString(KEY_EXO_SUBTITLE_EDGE_TYPE, value).apply()
+
+    var mpvSubtitleEdgeType: String
+        get() = prefs.getString(KEY_MPV_SUBTITLE_EDGE_TYPE, prefs.getString("subtitle_edge_type", "outline")) ?: "outline"
+        set(value) = prefs.edit().putString(KEY_MPV_SUBTITLE_EDGE_TYPE, value).apply()
+
+    var exoSubtitleEdgeSize: Int
+        get() = prefs.getInt(KEY_EXO_SUBTITLE_EDGE_SIZE, prefs.getInt("subtitle_edge_size", 0))
+        set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
+
+    var mpvSubtitleEdgeSize: Int
+        get() = prefs.getInt(KEY_MPV_SUBTITLE_EDGE_SIZE, prefs.getInt("subtitle_edge_size", 0))
+        set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
+
+    var exoSubtitleOutlineColor: Long
+        get() = prefs.getLong(KEY_EXO_SUBTITLE_OUTLINE_COLOR, prefs.getLong("subtitle_outline_color", 0xFF000000))
+        set(value) = prefs.edit().putLong(KEY_EXO_SUBTITLE_OUTLINE_COLOR, value).apply()
+
+    var mpvSubtitleOutlineColor: Long
+        get() = prefs.getLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, prefs.getLong("subtitle_outline_color", 0xFF000000))
+        set(value) = prefs.edit().putLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, value).apply()
 
     var preferredAudioLanguage: String
         get() = prefs.getString(KEY_PREF_AUDIO_LANG, "original") ?: "original"
@@ -167,17 +195,50 @@ class AppPreferences @Inject constructor(
         get() = prefs.getStringSet(KEY_SUBTITLE_EXCLUDE_LANGS, emptySet()) ?: emptySet()
         set(value) = prefs.edit().putStringSet(KEY_SUBTITLE_EXCLUDE_LANGS, value).apply()
 
-    var subtitlePosition: Int
-        get() = prefs.getInt(KEY_SUBTITLE_POSITION, 90)
-        set(value) = prefs.edit().putInt(KEY_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
+    var exoSubtitlePosition: Int
+        get() = prefs.getInt(KEY_EXO_SUBTITLE_POSITION, prefs.getInt("subtitle_position", 90))
+        set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
+
+    var mpvSubtitlePosition: Int
+        get() = prefs.getInt(KEY_MPV_SUBTITLE_POSITION, prefs.getInt("subtitle_position", 90))
+        set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
 
     var libassSubtitlesEnabled: Boolean
         get() = prefs.getBoolean(KEY_LIBASS_SUBTITLES_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_LIBASS_SUBTITLES_ENABLED, value).apply()
 
-    var overrideAssSubtitleStyles: Boolean
-        get() = prefs.getBoolean(KEY_OVERRIDE_ASS_SUBTITLE_STYLES, false)
-        set(value) = prefs.edit().putBoolean(KEY_OVERRIDE_ASS_SUBTITLE_STYLES, value).apply()
+    var exoOverrideAssSubtitleStyles: Boolean
+        get() = prefs.getBoolean(KEY_EXO_OVERRIDE_ASS_SUBTITLE_STYLES, prefs.getBoolean("override_ass_subtitle_styles", false))
+        set(value) = prefs.edit().putBoolean(KEY_EXO_OVERRIDE_ASS_SUBTITLE_STYLES, value).apply()
+
+    var mpvOverrideAssSubtitleStyles: Boolean
+        get() = prefs.getBoolean(KEY_MPV_OVERRIDE_ASS_SUBTITLE_STYLES, prefs.getBoolean("override_ass_subtitle_styles", false))
+        set(value) = prefs.edit().putBoolean(KEY_MPV_OVERRIDE_ASS_SUBTITLE_STYLES, value).apply()
+
+    /** Global subtitle scale multiplier (0.5 to 3.0, default 1.0). Applied as MPV sub-scale. */
+    var subtitleScale: Float
+        get() = prefs.getFloat(KEY_SUBTITLE_SCALE, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_SUBTITLE_SCALE, value.coerceIn(0.5f, 3.0f)).apply()
+
+    /** Subtitle font name (default 'sans-serif'). Applied as MPV sub-font. */
+    var subtitleFont: String
+        get() = prefs.getString(KEY_SUBTITLE_FONT, "sans-serif") ?: "sans-serif"
+        set(value) = prefs.edit().putString(KEY_SUBTITLE_FONT, value).apply()
+
+    /** Subtitle bold. Applied as MPV sub-bold. */
+    var subtitleBold: Boolean
+        get() = prefs.getBoolean(KEY_SUBTITLE_BOLD, false)
+        set(value) = prefs.edit().putBoolean(KEY_SUBTITLE_BOLD, value).apply()
+
+    /** Subtitle italic. Applied as MPV sub-italic. */
+    var subtitleItalic: Boolean
+        get() = prefs.getBoolean(KEY_SUBTITLE_ITALIC, false)
+        set(value) = prefs.edit().putBoolean(KEY_SUBTITLE_ITALIC, value).apply()
+
+    /** Subtitle text alignment: left, center, right. Applied as MPV sub-justify. */
+    var subtitleAlignment: String
+        get() = prefs.getString(KEY_SUBTITLE_ALIGNMENT, "center") ?: "center"
+        set(value) = prefs.edit().putString(KEY_SUBTITLE_ALIGNMENT, value).apply()
 
     // ──── TMDB Settings ────
 
@@ -248,6 +309,14 @@ class AppPreferences @Inject constructor(
             .apply()
     }
 
+    fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     fun clearAll() {
         prefs.edit().clear().apply()
     }
@@ -308,7 +377,8 @@ class AppPreferences @Inject constructor(
 
         // Player
         private const val KEY_ENGINE = "player_engine"
-        private const val KEY_DECODER = "default_decoder"
+        private const val KEY_EXO_DECODER = "exo_decoder"
+        private const val KEY_MPV_DECODER = "mpv_decoder"
         private const val KEY_MAP_DV7_TO_HEVC = "map_dv7_to_hevc"
         private const val KEY_TUNNELED_PLAYBACK = "tunneled_playback"
         private const val KEY_RESIZE_MODE = "default_resize_mode"
@@ -334,18 +404,31 @@ class AppPreferences @Inject constructor(
         const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_CATALOG_SETTINGS_LAST_CHANGED = "catalog_settings_last_changed"
         private const val KEY_SUBTITLE_LANGUAGE = "subtitle_language"
-        private const val KEY_SUBTITLE_FONT_SIZE = "subtitle_font_size"
-        private const val KEY_SUBTITLE_COLOR = "subtitle_color"
-        private const val KEY_SUBTITLE_BG_OPACITY = "subtitle_bg_opacity"
-        private const val KEY_SUBTITLE_POSITION = "subtitle_position"
-        private const val KEY_SUBTITLE_EDGE_TYPE = "subtitle_edge_type"
-        private const val KEY_SUBTITLE_EDGE_SIZE = "subtitle_edge_size"
-        private const val KEY_SUBTITLE_OUTLINE_COLOR = "subtitle_outline_color"
+        private const val KEY_EXO_SUBTITLE_FONT_SIZE = "exo_subtitle_font_size"
+        private const val KEY_MPV_SUBTITLE_FONT_SIZE = "mpv_subtitle_font_size"
+        private const val KEY_EXO_SUBTITLE_COLOR = "exo_subtitle_color"
+        private const val KEY_MPV_SUBTITLE_COLOR = "mpv_subtitle_color"
+        private const val KEY_EXO_SUBTITLE_BG_OPACITY = "exo_subtitle_bg_opacity"
+        private const val KEY_MPV_SUBTITLE_BG_OPACITY = "mpv_subtitle_bg_opacity"
+        private const val KEY_EXO_SUBTITLE_POSITION = "exo_subtitle_position"
+        private const val KEY_MPV_SUBTITLE_POSITION = "mpv_subtitle_position"
+        private const val KEY_EXO_SUBTITLE_EDGE_TYPE = "exo_subtitle_edge_type"
+        private const val KEY_MPV_SUBTITLE_EDGE_TYPE = "mpv_subtitle_edge_type"
+        private const val KEY_EXO_SUBTITLE_EDGE_SIZE = "exo_subtitle_edge_size"
+        private const val KEY_MPV_SUBTITLE_EDGE_SIZE = "mpv_subtitle_edge_size"
+        private const val KEY_EXO_SUBTITLE_OUTLINE_COLOR = "exo_subtitle_outline_color"
+        private const val KEY_MPV_SUBTITLE_OUTLINE_COLOR = "mpv_subtitle_outline_color"
         private const val KEY_PREF_AUDIO_LANG = "pref_audio_lang"
         private const val KEY_PREF_SUBTITLE_LANG = "pref_subtitle_lang"
         private const val KEY_SUBTITLE_EXCLUDE_LANGS = "subtitle_exclude_langs"
         private const val KEY_LIBASS_SUBTITLES_ENABLED = "libass_subtitles_enabled"
-        private const val KEY_OVERRIDE_ASS_SUBTITLE_STYLES = "override_ass_subtitle_styles"
+        private const val KEY_EXO_OVERRIDE_ASS_SUBTITLE_STYLES = "exo_override_ass_subtitle_styles"
+        private const val KEY_MPV_OVERRIDE_ASS_SUBTITLE_STYLES = "mpv_override_ass_subtitle_styles"
+        private const val KEY_SUBTITLE_SCALE = "subtitle_scale"
+        private const val KEY_SUBTITLE_FONT = "subtitle_font"
+        private const val KEY_SUBTITLE_BOLD = "subtitle_bold"
+        private const val KEY_SUBTITLE_ITALIC = "subtitle_italic"
+        private const val KEY_SUBTITLE_ALIGNMENT = "subtitle_alignment"
 
         // TMDB
         private const val KEY_TMDB_API_KEY = "tmdb_api_key"

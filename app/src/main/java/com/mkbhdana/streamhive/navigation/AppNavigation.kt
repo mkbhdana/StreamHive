@@ -357,6 +357,7 @@ private fun MainScreen(
                         ) {
                             HomeTab(
                                 state = catalogState,
+                                preferredEngine = catalogViewModel.getPreferredEngine(),
                                 onPlayFile = { fileId, fileName, engine ->
                                     launchPlayback(fileId, fileName, engine, null)
                                 },
@@ -420,31 +421,52 @@ private fun MainScreen(
                 rememberViewModelStoreNavEntryDecorator()
             ),
             transitionSpec = {
-                slideInHorizontally(
-                    initialOffsetX = { it },
-                    animationSpec = tween(300)
-                ) togetherWith slideOutHorizontally(
-                    targetOffsetX = { -it / 3 },
-                    animationSpec = tween(300)
-                )
+                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
+                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
+
+                if (targetIsPlayer || initialIsPlayer) {
+                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { it },
+                        animationSpec = tween(300)
+                    ) togetherWith slideOutHorizontally(
+                        targetOffsetX = { -it / 3 },
+                        animationSpec = tween(300)
+                    )
+                }
             },
             popTransitionSpec = {
-                slideInHorizontally(
-                    initialOffsetX = { -it / 3 },
-                    animationSpec = tween(300)
-                ) togetherWith slideOutHorizontally(
-                    targetOffsetX = { it },
-                    animationSpec = tween(300)
-                )
+                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
+                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
+
+                if (targetIsPlayer || initialIsPlayer) {
+                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { -it / 3 },
+                        animationSpec = tween(300)
+                    ) togetherWith slideOutHorizontally(
+                        targetOffsetX = { it },
+                        animationSpec = tween(300)
+                    )
+                }
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(
-                    initialOffsetX = { -it / 3 },
-                    animationSpec = tween(300)
-                ) togetherWith slideOutHorizontally(
-                    targetOffsetX = { it },
-                    animationSpec = tween(300)
-                )
+                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
+                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
+
+                if (targetIsPlayer || initialIsPlayer) {
+                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { -it / 3 },
+                        animationSpec = tween(300)
+                    ) togetherWith slideOutHorizontally(
+                        targetOffsetX = { it },
+                        animationSpec = tween(300)
+                    )
+                }
             },
             entryProvider = entryProvider {
                 // These entries are only rendered when a child route is on top.

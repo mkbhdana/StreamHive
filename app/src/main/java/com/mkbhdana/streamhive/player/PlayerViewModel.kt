@@ -95,6 +95,11 @@ data class PlayerUiState(
     val subtitleOutlineColor: Long = 0xFF000000,
     val libassSubtitlesEnabled: Boolean = false,
     val overrideAssSubtitleStyles: Boolean = false,
+    val subtitleScale: Float = 1.0f,
+    val subtitleFont: String = "sans-serif",
+    val subtitleBold: Boolean = false,
+    val subtitleItalic: Boolean = false,
+    val subtitleAlignment: String = "center",
 
     // Tap seek
     val tapSeekDuration: Int = 10,
@@ -128,7 +133,7 @@ class PlayerViewModel @AssistedInject constructor(
     private var currentFileName: String = navKey.fileName
     private val initialDecoderMode: String = normalizeDecoderMode(
         navKey.decoder.takeIf { it.isNotBlank() }
-            ?: appPreferences.defaultDecoder
+            ?: appPreferences.exoDecoder
     )
 
     private val _uiState = MutableStateFlow(
@@ -144,15 +149,20 @@ class PlayerViewModel @AssistedInject constructor(
             gestureLockEnabled = appPreferences.gestureLockEnabled,
             hapticFeedbackEnabled = appPreferences.hapticFeedbackEnabled,
             gestureSensitivity = appPreferences.gestureSensitivity,
-            subtitleFontSize = appPreferences.subtitleFontSize,
-            subtitleColor = appPreferences.subtitleColor,
-            subtitleBgOpacity = appPreferences.subtitleBgOpacity,
-            subtitlePosition = appPreferences.subtitlePosition,
-            subtitleEdgeType = appPreferences.subtitleEdgeType,
-            subtitleEdgeSize = appPreferences.subtitleEdgeSize,
-            subtitleOutlineColor = appPreferences.subtitleOutlineColor,
+            subtitleFontSize = appPreferences.exoSubtitleFontSize,
+            subtitleColor = appPreferences.exoSubtitleColor,
+            subtitleBgOpacity = appPreferences.exoSubtitleBgOpacity,
+            subtitlePosition = appPreferences.exoSubtitlePosition,
+            subtitleEdgeType = appPreferences.exoSubtitleEdgeType,
+            subtitleEdgeSize = appPreferences.exoSubtitleEdgeSize,
+            subtitleOutlineColor = appPreferences.exoSubtitleOutlineColor,
             libassSubtitlesEnabled = appPreferences.libassSubtitlesEnabled,
-            overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles,
+            overrideAssSubtitleStyles = appPreferences.exoOverrideAssSubtitleStyles,
+            subtitleScale = appPreferences.subtitleScale,
+            subtitleFont = appPreferences.subtitleFont,
+            subtitleBold = appPreferences.subtitleBold,
+            subtitleItalic = appPreferences.subtitleItalic,
+            subtitleAlignment = appPreferences.subtitleAlignment,
             tapSeekDuration = appPreferences.tapSeekDuration,
             decoderMode = initialDecoderMode
         )
@@ -448,7 +458,6 @@ class PlayerViewModel @AssistedInject constructor(
                     .build()
                     .apply {
                         val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
-                        Log.d("ExoPlayer", "Stream URL: $streamUrl")
                         val mediaItem = buildMediaItem(streamUrl)
 
                         setMediaItem(mediaItem)
@@ -1175,17 +1184,47 @@ class PlayerViewModel @AssistedInject constructor(
         _uiState.update { it.copy(subtitleSpeed = speed.coerceIn(0.25f, 4.0f)) }
     }
 
+    fun setSubtitleScale(scale: Float) {
+        _uiState.update { it.copy(subtitleScale = scale.coerceIn(0.5f, 3.0f)) }
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleFont(font: String) {
+        _uiState.update { it.copy(subtitleFont = font) }
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleBold(bold: Boolean) {
+        _uiState.update { it.copy(subtitleBold = bold) }
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleItalic(italic: Boolean) {
+        _uiState.update { it.copy(subtitleItalic = italic) }
+        debounceSaveFileSettings()
+    }
+
+    fun setSubtitleAlignment(alignment: String) {
+        _uiState.update { it.copy(subtitleAlignment = alignment) }
+        debounceSaveFileSettings()
+    }
+
     fun resetSubtitleStyle() {
         _uiState.update {
             it.copy(
-                subtitleFontSize = appPreferences.subtitleFontSize,
-                subtitleColor = appPreferences.subtitleColor,
-                subtitleBgOpacity = appPreferences.subtitleBgOpacity,
-                subtitlePosition = appPreferences.subtitlePosition,
-                subtitleEdgeType = appPreferences.subtitleEdgeType,
-                subtitleEdgeSize = appPreferences.subtitleEdgeSize,
-                subtitleOutlineColor = appPreferences.subtitleOutlineColor,
-                overrideAssSubtitleStyles = appPreferences.overrideAssSubtitleStyles
+                subtitleFontSize = appPreferences.exoSubtitleFontSize,
+                subtitleColor = appPreferences.exoSubtitleColor,
+                subtitleBgOpacity = appPreferences.exoSubtitleBgOpacity,
+                subtitlePosition = appPreferences.exoSubtitlePosition,
+                subtitleEdgeType = appPreferences.exoSubtitleEdgeType,
+                subtitleEdgeSize = appPreferences.exoSubtitleEdgeSize,
+                subtitleOutlineColor = appPreferences.exoSubtitleOutlineColor,
+                overrideAssSubtitleStyles = appPreferences.exoOverrideAssSubtitleStyles,
+                subtitleScale = appPreferences.subtitleScale,
+                subtitleFont = appPreferences.subtitleFont,
+                subtitleBold = appPreferences.subtitleBold,
+                subtitleItalic = appPreferences.subtitleItalic,
+                subtitleAlignment = appPreferences.subtitleAlignment
             )
         }
         debounceSaveFileSettings()
@@ -1291,19 +1330,30 @@ class PlayerViewModel @AssistedInject constructor(
         }.getOrNull()
     }
 
+    /**
+     * Explicitly release the player — called from UI on back navigation.
+     * This ensures the player is destroyed immediately rather than relying
+     * on ViewModel.onCleared() which Navigation 3 may not trigger promptly.
+     */
+    fun releasePlayer() {
+        if (!playerReleased) {
+            playerReleased = true
+            externalPlayerCleanupJob?.cancel()
+            positionSaveJob?.cancel()
+            fileSettingsSaveJob?.cancel()
+            _player?.pause()
+            savePlaybackPosition()
+            saveCurrentFileSettingsBlocking()
+            _player?.release()
+            _player = null
+        }
+    }
+
+    private var playerReleased = false
+
     override fun onCleared() {
         super.onCleared()
-        externalPlayerCleanupJob?.cancel()
-        positionSaveJob?.cancel()
-        fileSettingsSaveJob?.cancel()
-        savePlaybackPosition()
-        // Save settings synchronously — viewModelScope is about to be cancelled
-        saveCurrentFileSettingsBlocking()
-        
-        // Revert to releasing on the main thread to prevent IllegalStateException.
-        // ExoPlayer must be released on the thread it was created on.
-        _player?.release()
-        _player = null
+        releasePlayer()
     }
 
     private companion object {
@@ -1402,14 +1452,19 @@ class PlayerViewModel @AssistedInject constructor(
             subtitleTrackLanguage = selectedSubtitle?.language,
             subtitleTrackLabel = selectedSubtitle?.name,
             subtitleDelay = state.subtitleDelay.takeIf { it != 0L },
-            subtitleFontSize = state.subtitleFontSize.takeIf { it != appPreferences.subtitleFontSize },
-            subtitleColor = state.subtitleColor.takeIf { it != appPreferences.subtitleColor },
-            subtitleBgOpacity = state.subtitleBgOpacity.takeIf { it != appPreferences.subtitleBgOpacity },
-            subtitlePosition = state.subtitlePosition.takeIf { it != appPreferences.subtitlePosition },
-            subtitleEdgeType = state.subtitleEdgeType.takeIf { it != appPreferences.subtitleEdgeType },
-            subtitleEdgeSize = state.subtitleEdgeSize.takeIf { it != appPreferences.subtitleEdgeSize },
-            subtitleOutlineColor = state.subtitleOutlineColor.takeIf { it != appPreferences.subtitleOutlineColor },
-            overrideAssSubtitleStyles = state.overrideAssSubtitleStyles.takeIf { it != appPreferences.overrideAssSubtitleStyles }
+            subtitleFontSize = state.subtitleFontSize.takeIf { it != appPreferences.exoSubtitleFontSize },
+            subtitleColor = state.subtitleColor.takeIf { it != appPreferences.exoSubtitleColor },
+            subtitleBgOpacity = state.subtitleBgOpacity.takeIf { it != appPreferences.exoSubtitleBgOpacity },
+            subtitlePosition = state.subtitlePosition.takeIf { it != appPreferences.exoSubtitlePosition },
+            subtitleEdgeType = state.subtitleEdgeType.takeIf { it != appPreferences.exoSubtitleEdgeType },
+            subtitleEdgeSize = state.subtitleEdgeSize.takeIf { it != appPreferences.exoSubtitleEdgeSize },
+            subtitleOutlineColor = state.subtitleOutlineColor.takeIf { it != appPreferences.exoSubtitleOutlineColor },
+            overrideAssSubtitleStyles = state.overrideAssSubtitleStyles.takeIf { it != appPreferences.exoOverrideAssSubtitleStyles },
+            subtitleScale = state.subtitleScale.takeIf { it != appPreferences.subtitleScale },
+            subtitleFont = state.subtitleFont.takeIf { it != appPreferences.subtitleFont },
+            subtitleBold = state.subtitleBold.takeIf { it != appPreferences.subtitleBold },
+            subtitleItalic = state.subtitleItalic.takeIf { it != appPreferences.subtitleItalic },
+            subtitleAlignment = state.subtitleAlignment.takeIf { it != appPreferences.subtitleAlignment }
         )
 
         return try {
@@ -1449,7 +1504,12 @@ class PlayerViewModel @AssistedInject constructor(
                 subtitleEdgeType = settings.subtitleEdgeType ?: state.subtitleEdgeType,
                 subtitleEdgeSize = settings.subtitleEdgeSize ?: state.subtitleEdgeSize,
                 subtitleOutlineColor = settings.subtitleOutlineColor ?: state.subtitleOutlineColor,
-                overrideAssSubtitleStyles = settings.overrideAssSubtitleStyles ?: state.overrideAssSubtitleStyles
+                overrideAssSubtitleStyles = settings.overrideAssSubtitleStyles ?: state.overrideAssSubtitleStyles,
+                subtitleScale = settings.subtitleScale ?: state.subtitleScale,
+                subtitleFont = settings.subtitleFont ?: state.subtitleFont,
+                subtitleBold = settings.subtitleBold ?: state.subtitleBold,
+                subtitleItalic = settings.subtitleItalic ?: state.subtitleItalic,
+                subtitleAlignment = settings.subtitleAlignment ?: state.subtitleAlignment
             )
         }
 

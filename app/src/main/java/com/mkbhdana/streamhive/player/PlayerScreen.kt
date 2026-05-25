@@ -123,11 +123,6 @@ fun PlayerScreen(
         viewModel.setPlaybackSpeed(restoreSpeed)
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            speedHoldRestoreSpeed?.let { viewModel.setPlaybackSpeed(it) }
-        }
-    }
 
     LaunchedEffect(seekPillSignal) {
         if (seekPillSignal > 0) {
@@ -168,7 +163,7 @@ fun PlayerScreen(
         }
     }
 
-    // Intercept back navigation to smoothly pause the player and instantly restore orientation
+    // Intercept back navigation to instantly restore orientation
     val handleBack = {
         val activity = context as? Activity
         keepWindowModeForHandoff = false
@@ -186,6 +181,14 @@ fun PlayerScreen(
     }
 
     PlayerWindowMode(restoreOnDispose = !keepWindowModeForHandoff)
+
+    // Release player when this composable leaves composition (back navigation)
+    DisposableEffect(Unit) {
+        onDispose {
+            speedHoldRestoreSpeed?.let { viewModel.setPlaybackSpeed(it) }
+            viewModel.releasePlayer()
+        }
+    }
 
     // Auto-hide controls (paused while a panel is open)
     LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
@@ -487,19 +490,29 @@ fun PlayerScreen(
                 subtitleFontSize = uiState.subtitleFontSize,
                 subtitleColor = uiState.subtitleColor,
                 subtitlePosition = uiState.subtitlePosition,
-                subtitleOutlineColor = uiState.subtitleOutlineColor,
+
                 subtitleBgOpacity = uiState.subtitleBgOpacity,
                 subtitleEdgeSize = uiState.subtitleEdgeSize,
                 overrideAssSubtitleStyles = uiState.overrideAssSubtitleStyles,
                 onSubtitleFontSizeChange = viewModel::setSubtitleFontSize,
                 onSubtitleColorChange = viewModel::setSubtitleColor,
                 onSubtitlePositionChange = viewModel::setSubtitlePosition,
-                onSubtitleOutlineColorChange = viewModel::setSubtitleOutlineColor,
+
                 onSubtitleBgOpacityChange = viewModel::setSubtitleBgOpacity,
                 onSubtitleEdgeSizeChange = viewModel::setSubtitleEdgeSize,
                 onOverrideAssSubtitleStylesChange = viewModel::setOverrideAssSubtitleStyles,
                 onSubtitleSpeedChange = viewModel::setSubtitleSpeed,
                 onSubtitleStyleReset = viewModel::resetSubtitleStyle,
+                subtitleScale = uiState.subtitleScale,
+
+                subtitleBold = uiState.subtitleBold,
+                subtitleItalic = uiState.subtitleItalic,
+                subtitleAlignment = uiState.subtitleAlignment,
+                onSubtitleScaleChange = viewModel::setSubtitleScale,
+
+                onSubtitleBoldChange = viewModel::setSubtitleBold,
+                onSubtitleItalicChange = viewModel::setSubtitleItalic,
+                onSubtitleAlignmentChange = viewModel::setSubtitleAlignment,
                 switchPlayerLabel = if (canSwitchToMpv) "MPV" else null,
                 onSwitchPlayer = if (canSwitchToMpv) {
                     {

@@ -52,8 +52,7 @@ data class MediaInfoUiState(
     val sourcePriorityFiltered: Boolean = false,
     val sourcePrioritySummary: String? = null,
 
-    // Preferred engine from settings
-    val preferredEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
+    // Requested media type from navigation
     val requestedMediaType: String = "auto"
 )
 
@@ -81,11 +80,12 @@ class MediaInfoViewModel @AssistedInject constructor(
 
     private val _uiState = MutableStateFlow(
         MediaInfoUiState(
-            preferredEngine = appPreferences.preferredEngine,
             requestedMediaType = mediaTypeHint
         )
     )
     val uiState: StateFlow<MediaInfoUiState> = _uiState.asStateFlow()
+
+    fun getPreferredEngine(): com.mkbhdana.streamhive.player.mpv.PlayerEngine = appPreferences.preferredEngine
 
     init {
         loadMediaInfo()

@@ -69,6 +69,7 @@ fun MpvPlayerScreen(
         keepWindowModeForHandoff = false
         isSwitchingPlayer = false
         activeSwitchingMessage = null
+        viewModel.pause()
         activity?.exitPlayerWindowMode()
         onBack()
     }
@@ -122,9 +123,11 @@ fun MpvPlayerScreen(
         viewModel.setPlaybackSpeed(restoreSpeed)
     }
 
+    // Release player when this composable leaves composition (back navigation)
     DisposableEffect(Unit) {
         onDispose {
             speedHoldRestoreSpeed?.let { viewModel.setPlaybackSpeed(it) }
+            viewModel.releasePlayer()
         }
     }
 
@@ -177,7 +180,7 @@ fun MpvPlayerScreen(
     }
 
     LaunchedEffect(gestureState.value.zoomLevel) {
-        viewModel.applySubtitleZoomCompensation(gestureState.value.zoomLevel)
+        viewModel.setVideoZoom(gestureState.value.zoomLevel)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -216,12 +219,7 @@ fun MpvPlayerScreen(
             factory = { ctx ->
                 SurfaceView(ctx).also { viewModel.attachSurface(it) }
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = gestureState.value.zoomLevel
-                    scaleY = gestureState.value.zoomLevel
-                }
+            modifier = Modifier.fillMaxSize()
         )
 
         // Gesture layer
@@ -339,19 +337,29 @@ fun MpvPlayerScreen(
                 subtitleFontSize = uiState.subtitleFontSize,
                 subtitleColor = uiState.subtitleColor,
                 subtitlePosition = uiState.subtitlePosition,
-                subtitleOutlineColor = uiState.subtitleOutlineColor,
+
                 subtitleBgOpacity = uiState.subtitleBgOpacity,
                 subtitleEdgeSize = uiState.subtitleEdgeSize,
                 overrideAssSubtitleStyles = uiState.overrideAssSubtitleStyles,
                 onSubtitleFontSizeChange = viewModel::setSubtitleFontSize,
                 onSubtitleColorChange = viewModel::setSubtitleColor,
                 onSubtitlePositionChange = viewModel::setSubtitlePosition,
-                onSubtitleOutlineColorChange = viewModel::setSubtitleOutlineColor,
+
                 onSubtitleBgOpacityChange = viewModel::setSubtitleBgOpacity,
                 onSubtitleEdgeSizeChange = viewModel::setSubtitleEdgeSize,
                 onOverrideAssSubtitleStylesChange = viewModel::setOverrideAssSubtitleStyles,
                 onSubtitleSpeedChange = viewModel::setSubtitleSpeed,
                 onSubtitleStyleReset = viewModel::resetSubtitleStyle,
+                subtitleScale = uiState.subtitleScale,
+
+                subtitleBold = uiState.subtitleBold,
+                subtitleItalic = uiState.subtitleItalic,
+                subtitleAlignment = uiState.subtitleAlignment,
+                onSubtitleScaleChange = viewModel::setSubtitleScale,
+
+                onSubtitleBoldChange = viewModel::setSubtitleBold,
+                onSubtitleItalicChange = viewModel::setSubtitleItalic,
+                onSubtitleAlignmentChange = viewModel::setSubtitleAlignment,
                 switchPlayerLabel = if (onSwitchToExo != null) "EXO" else null,
                 onSwitchPlayer = if (onSwitchToExo != null) {
                     {

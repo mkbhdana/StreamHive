@@ -176,8 +176,7 @@ fun PlayerGestureHandler(
                                     showSpeedIndicator = false
                                 )
                                 onLockToggle()
-                                delay(1000)
-                                gestureState.value = gestureState.value.copy(showLockIndicator = false)
+                                scheduleLockIndicatorHide()
                             }
                             val up = waitForUpOrCancellation()
                             longPressJob.cancel()

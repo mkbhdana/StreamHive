@@ -54,6 +54,7 @@ import androidx.compose.foundation.lazy.LazyListState
 @Composable
 fun HomeTab(
     state: CatalogUiState,
+    preferredEngine: PlayerEngine,
     onPlayFile: (String, String, PlayerEngine) -> Unit,
     onPlayFileWithDecoder: (
         fileId: String,
@@ -138,7 +139,7 @@ fun HomeTab(
                 ContinuePlayingSection(
                     items = state.continuePlayingItems,
                     tmdbMetadata = state.tmdbMetadata,
-                    engine = state.selectedEngine,
+                    engine = preferredEngine,
                     onPlayFile = onPlayFileWithDecoder,
                     onRemoveItem = onRemoveFromContinue,
                     onPlayFromStart = onPlayFromStart

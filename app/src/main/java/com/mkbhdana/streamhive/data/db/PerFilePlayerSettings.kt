@@ -21,5 +21,10 @@ data class PerFilePlayerSettings(
     val subtitleEdgeType: String? = null,
     val subtitleEdgeSize: Int? = null,
     val subtitleOutlineColor: Long? = null,
-    val overrideAssSubtitleStyles: Boolean? = null
+    val overrideAssSubtitleStyles: Boolean? = null,
+    val subtitleScale: Float? = null,
+    val subtitleFont: String? = null,
+    val subtitleBold: Boolean? = null,
+    val subtitleItalic: Boolean? = null,
+    val subtitleAlignment: String? = null
 )

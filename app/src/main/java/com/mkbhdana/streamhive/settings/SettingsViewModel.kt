@@ -28,7 +28,8 @@ import javax.inject.Inject
 data class SettingsUiState(
     // Player
     val preferredEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
-    val defaultDecoder: String = "hw+",
+    val exoDecoder: String = "hw+",
+    val mpvDecoder: String = "hw+",
     val mapDv7ToHevc: Boolean = false,
     val tunneledPlaybackEnabled: Boolean = false,
     val defaultResizeMode: String = "fit",
@@ -53,15 +54,28 @@ data class SettingsUiState(
     val preferredAudioLanguage: String = "original",
     val preferredSubtitleLanguage: String = "none",
     val subtitleExcludeLanguages: Set<String> = emptySet(),
-    val subtitleFontSize: Int = 18,
-    val subtitleColor: Long = 0xFFFFFFFF,
-    val subtitleBgOpacity: Float = 0.0f,
-    val subtitlePosition: Int = 90,
-    val subtitleEdgeType: String = "outline",
-    val subtitleEdgeSize: Int = 0,
-    val subtitleOutlineColor: Long = 0xFF000000,
+    val exoSubtitleFontSize: Int = 18,
+    val mpvSubtitleFontSize: Int = 18,
+    val exoSubtitleColor: Long = 0xFFFFFFFF,
+    val mpvSubtitleColor: Long = 0xFFFFFFFF,
+    val exoSubtitleBgOpacity: Float = 0.0f,
+    val mpvSubtitleBgOpacity: Float = 0.0f,
+    val exoSubtitlePosition: Int = 90,
+    val mpvSubtitlePosition: Int = 90,
+    val exoSubtitleEdgeType: String = "outline",
+    val mpvSubtitleEdgeType: String = "outline",
+    val exoSubtitleEdgeSize: Int = 0,
+    val mpvSubtitleEdgeSize: Int = 0,
+    val exoSubtitleOutlineColor: Long = 0xFF000000,
+    val mpvSubtitleOutlineColor: Long = 0xFF000000,
     val libassSubtitlesEnabled: Boolean = false,
-    val overrideAssSubtitleStyles: Boolean = false,
+    val exoOverrideAssSubtitleStyles: Boolean = false,
+    val mpvOverrideAssSubtitleStyles: Boolean = false,
+    val subtitleScale: Float = 1.0f,
+    val subtitleFont: String = "sans-serif",
+    val subtitleBold: Boolean = false,
+    val subtitleItalic: Boolean = false,
+    val subtitleAlignment: String = "center",
     
     val tapSeekDuration: Int = 10,
 
@@ -102,7 +116,8 @@ class SettingsViewModel @Inject constructor(
 
     private fun loadState() = SettingsUiState(
         preferredEngine = prefs.preferredEngine,
-        defaultDecoder = prefs.defaultDecoder,
+        exoDecoder = prefs.exoDecoder,
+        mpvDecoder = prefs.mpvDecoder,
         mapDv7ToHevc = prefs.mapDv7ToHevc,
         tunneledPlaybackEnabled = prefs.tunneledPlaybackEnabled,
         defaultResizeMode = prefs.defaultResizeMode,
@@ -124,15 +139,28 @@ class SettingsViewModel @Inject constructor(
         preferredAudioLanguage = prefs.preferredAudioLanguage,
         preferredSubtitleLanguage = prefs.preferredSubtitleLanguage,
         subtitleExcludeLanguages = prefs.subtitleExcludeLanguages,
-        subtitleFontSize = prefs.subtitleFontSize,
-        subtitleColor = prefs.subtitleColor,
-        subtitleBgOpacity = prefs.subtitleBgOpacity,
-        subtitlePosition = prefs.subtitlePosition,
-        subtitleEdgeType = prefs.subtitleEdgeType,
-        subtitleEdgeSize = prefs.subtitleEdgeSize,
-        subtitleOutlineColor = prefs.subtitleOutlineColor,
+        exoSubtitleFontSize = prefs.exoSubtitleFontSize,
+        mpvSubtitleFontSize = prefs.mpvSubtitleFontSize,
+        exoSubtitleColor = prefs.exoSubtitleColor,
+        mpvSubtitleColor = prefs.mpvSubtitleColor,
+        exoSubtitleBgOpacity = prefs.exoSubtitleBgOpacity,
+        mpvSubtitleBgOpacity = prefs.mpvSubtitleBgOpacity,
+        exoSubtitlePosition = prefs.exoSubtitlePosition,
+        mpvSubtitlePosition = prefs.mpvSubtitlePosition,
+        exoSubtitleEdgeType = prefs.exoSubtitleEdgeType,
+        mpvSubtitleEdgeType = prefs.mpvSubtitleEdgeType,
+        exoSubtitleEdgeSize = prefs.exoSubtitleEdgeSize,
+        mpvSubtitleEdgeSize = prefs.mpvSubtitleEdgeSize,
+        exoSubtitleOutlineColor = prefs.exoSubtitleOutlineColor,
+        mpvSubtitleOutlineColor = prefs.mpvSubtitleOutlineColor,
         libassSubtitlesEnabled = prefs.libassSubtitlesEnabled,
-        overrideAssSubtitleStyles = prefs.overrideAssSubtitleStyles,
+        exoOverrideAssSubtitleStyles = prefs.exoOverrideAssSubtitleStyles,
+        mpvOverrideAssSubtitleStyles = prefs.mpvOverrideAssSubtitleStyles,
+        subtitleScale = prefs.subtitleScale,
+        subtitleFont = prefs.subtitleFont,
+        subtitleBold = prefs.subtitleBold,
+        subtitleItalic = prefs.subtitleItalic,
+        subtitleAlignment = prefs.subtitleAlignment,
         tmdbApiKey = prefs.tmdbApiKey,
         tmdbMovieFolders = prefs.tmdbMovieFolders,
         tmdbTvFolders = prefs.tmdbTvFolders,
@@ -148,9 +176,14 @@ class SettingsViewModel @Inject constructor(
         uiState = uiState.copy(preferredEngine = engine)
     }
 
-    fun setDefaultDecoder(decoder: String) {
-        prefs.defaultDecoder = decoder
-        uiState = uiState.copy(defaultDecoder = decoder)
+    fun setExoDecoder(decoder: String) {
+        prefs.exoDecoder = decoder
+        uiState = uiState.copy(exoDecoder = decoder)
+    }
+
+    fun setMpvDecoder(decoder: String) {
+        prefs.mpvDecoder = decoder
+        uiState = uiState.copy(mpvDecoder = decoder)
     }
 
     fun setMapDv7ToHevc(enabled: Boolean) {
@@ -243,39 +276,74 @@ class SettingsViewModel @Inject constructor(
 
     // ──── Subtitles ────
 
-    fun setSubtitleFontSize(size: Int) {
-        prefs.subtitleFontSize = size
-        uiState = uiState.copy(subtitleFontSize = size)
+    fun setExoSubtitleFontSize(size: Int) {
+        prefs.exoSubtitleFontSize = size
+        uiState = uiState.copy(exoSubtitleFontSize = size)
     }
 
-    fun setSubtitleColor(color: Long) {
-        prefs.subtitleColor = color
-        uiState = uiState.copy(subtitleColor = color)
+    fun setMpvSubtitleFontSize(size: Int) {
+        prefs.mpvSubtitleFontSize = size
+        uiState = uiState.copy(mpvSubtitleFontSize = size)
     }
 
-    fun setSubtitleBgOpacity(opacity: Float) {
-        prefs.subtitleBgOpacity = opacity
-        uiState = uiState.copy(subtitleBgOpacity = opacity)
+    fun setExoSubtitleColor(color: Long) {
+        prefs.exoSubtitleColor = color
+        uiState = uiState.copy(exoSubtitleColor = color)
     }
 
-    fun setSubtitlePosition(position: Int) {
-        prefs.subtitlePosition = position
-        uiState = uiState.copy(subtitlePosition = position)
+    fun setMpvSubtitleColor(color: Long) {
+        prefs.mpvSubtitleColor = color
+        uiState = uiState.copy(mpvSubtitleColor = color)
     }
 
-    fun setSubtitleEdgeType(type: String) {
-        prefs.subtitleEdgeType = type
-        uiState = uiState.copy(subtitleEdgeType = type)
+    fun setExoSubtitleBgOpacity(opacity: Float) {
+        prefs.exoSubtitleBgOpacity = opacity
+        uiState = uiState.copy(exoSubtitleBgOpacity = opacity)
     }
 
-    fun setSubtitleEdgeSize(size: Int) {
-        prefs.subtitleEdgeSize = size
-        uiState = uiState.copy(subtitleEdgeSize = size)
+    fun setMpvSubtitleBgOpacity(opacity: Float) {
+        prefs.mpvSubtitleBgOpacity = opacity
+        uiState = uiState.copy(mpvSubtitleBgOpacity = opacity)
     }
 
-    fun setSubtitleOutlineColor(color: Long) {
-        prefs.subtitleOutlineColor = color
-        uiState = uiState.copy(subtitleOutlineColor = color)
+    fun setExoSubtitlePosition(position: Int) {
+        prefs.exoSubtitlePosition = position
+        uiState = uiState.copy(exoSubtitlePosition = position)
+    }
+
+    fun setMpvSubtitlePosition(position: Int) {
+        prefs.mpvSubtitlePosition = position
+        uiState = uiState.copy(mpvSubtitlePosition = position)
+    }
+
+    fun setExoSubtitleEdgeType(type: String) {
+        prefs.exoSubtitleEdgeType = type
+        uiState = uiState.copy(exoSubtitleEdgeType = type)
+    }
+
+    fun setMpvSubtitleEdgeType(type: String) {
+        prefs.mpvSubtitleEdgeType = type
+        uiState = uiState.copy(mpvSubtitleEdgeType = type)
+    }
+
+    fun setExoSubtitleEdgeSize(size: Int) {
+        prefs.exoSubtitleEdgeSize = size
+        uiState = uiState.copy(exoSubtitleEdgeSize = size)
+    }
+
+    fun setMpvSubtitleEdgeSize(size: Int) {
+        prefs.mpvSubtitleEdgeSize = size
+        uiState = uiState.copy(mpvSubtitleEdgeSize = size)
+    }
+
+    fun setExoSubtitleOutlineColor(color: Long) {
+        prefs.exoSubtitleOutlineColor = color
+        uiState = uiState.copy(exoSubtitleOutlineColor = color)
+    }
+
+    fun setMpvSubtitleOutlineColor(color: Long) {
+        prefs.mpvSubtitleOutlineColor = color
+        uiState = uiState.copy(mpvSubtitleOutlineColor = color)
     }
 
     fun setPreferredAudioLanguage(lang: String) {
@@ -298,9 +366,39 @@ class SettingsViewModel @Inject constructor(
         uiState = uiState.copy(libassSubtitlesEnabled = enabled)
     }
 
-    fun setOverrideAssSubtitleStyles(enabled: Boolean) {
-        prefs.overrideAssSubtitleStyles = enabled
-        uiState = uiState.copy(overrideAssSubtitleStyles = enabled)
+    fun setExoOverrideAssSubtitleStyles(enabled: Boolean) {
+        prefs.exoOverrideAssSubtitleStyles = enabled
+        uiState = uiState.copy(exoOverrideAssSubtitleStyles = enabled)
+    }
+
+    fun setMpvOverrideAssSubtitleStyles(enabled: Boolean) {
+        prefs.mpvOverrideAssSubtitleStyles = enabled
+        uiState = uiState.copy(mpvOverrideAssSubtitleStyles = enabled)
+    }
+
+    fun setSubtitleScale(scale: Float) {
+        prefs.subtitleScale = scale
+        uiState = uiState.copy(subtitleScale = scale)
+    }
+
+    fun setSubtitleFont(font: String) {
+        prefs.subtitleFont = font
+        uiState = uiState.copy(subtitleFont = font)
+    }
+
+    fun setSubtitleBold(bold: Boolean) {
+        prefs.subtitleBold = bold
+        uiState = uiState.copy(subtitleBold = bold)
+    }
+
+    fun setSubtitleItalic(italic: Boolean) {
+        prefs.subtitleItalic = italic
+        uiState = uiState.copy(subtitleItalic = italic)
+    }
+
+    fun setSubtitleAlignment(alignment: String) {
+        prefs.subtitleAlignment = alignment
+        uiState = uiState.copy(subtitleAlignment = alignment)
     }
 
     fun checkForUpdates(onComplete: (String) -> Unit = {}) {

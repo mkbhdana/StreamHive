@@ -12,15 +12,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * MPV Player wrapper using reflection to call MPVLib from mpv-android-lib.
+ * MPV Player wrapper using reflection to call mpv-android-lib (version 0.1.12).
+ * In v0.1.12, the class is `is.xyz.mpv.MPV` (renamed from `MPVLib` in older versions).
  *
  * Correct lifecycle:
- *  1. MPVLib.create(context)      — one param only
- *  2. MPVLib.setOptionString(...)  — set options before init
- *  3. MPVLib.init()               — initialize mpv core
- *  4. MPVLib.attachSurface(surface)
- *  5. MPVLib.command(["loadfile", url])
- *  6. MPVLib.destroy()
+ *  1. Utils.copyAssets(context)       — copy bundled fonts/assets
+ *  2. MPV.create(context)             — create native mpv context
+ *  3. MPV.setOptionString(key, value) — set options before init
+ *  4. MPV.init()                      — initialize mpv core
+ *  5. MPV.attachSurface(surface)      — attach rendering surface
+ *  6. MPV.command(["loadfile", url])  — load media
+ *  7. MPV.destroy()                   — tear down
  */
 class MpvPlayer(private val context: Context) {
 
@@ -31,7 +33,7 @@ class MpvPlayer(private val context: Context) {
     private var recoverVideoOnNextAttach = false
     private var videoReloadPending = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var mpvLibClass: Class<*>? = null
+    private var mpvClass: Class<*>? = null
     private var mpvInstance: Any? = null
     private var currentSurface: Surface? = null
     private var currentSurfaceWidth: Int = 0
@@ -135,21 +137,49 @@ class MpvPlayer(private val context: Context) {
         overrideAssStylesEnabled = overrideAssStyles
         this.decoderMode = normalizeDecoderMode(decoderMode)
         try {
-            mpvLibClass = Class.forName("is.xyz.mpv.MPV")
-            val cls = mpvLibClass!!
-            mpvInstance = try { cls.getField("INSTANCE").get(null) } catch (e: Exception) { cls.getDeclaredConstructor().newInstance() }
+            // ── Step 1: Copy mpv-android-lib's bundled assets (subfont.ttf, etc.) ──
+            // This is what mpvKt does via Utils.copyAssets(context)
+            try {
+                val utilsClass = Class.forName("is.xyz.mpv.Utils")
+                // Utils is a Kotlin object — get INSTANCE then call copyAssets
+                val utilsInstance = try { utilsClass.getField("INSTANCE").get(null) } catch (_: Exception) { null }
+                if (utilsInstance != null) {
+                    utilsClass.getMethod("copyAssets", Context::class.java).invoke(utilsInstance, context)
+                } else {
+                    // Try static call (older versions)
+                    utilsClass.getMethod("copyAssets", Context::class.java).invoke(null, context)
+                }
+                Log.d(TAG, "Utils.copyAssets() completed")
+            } catch (e: Exception) {
+                Log.w(TAG, "Utils.copyAssets() failed (non-fatal): ${e.message}")
+            }
 
-            // MPVLib.create(context) — one param: Context
-            val createMethod = cls.getMethod("create", Context::class.java)
-            createMethod.invoke(mpvInstance, context)
+            // ── Step 2: Get MPV class and instance ──
+            mpvClass = Class.forName("is.xyz.mpv.MPV")
+            val cls = mpvClass!!
+            mpvInstance = try {
+                cls.getField("INSTANCE").get(null)
+            } catch (_: Exception) {
+                cls.getDeclaredConstructor().newInstance()
+            }
 
-            // Set options BEFORE init()
+            // ── Step 3: MPV.create(context) ──
+            cls.getMethod("create", Context::class.java).invoke(mpvInstance, context)
+
+            // ── Step 4: Set config-dir and cache-dir (matching BaseMPVView.initialize) ──
+            val configDir = context.filesDir.path
+            val cacheDir = context.cacheDir.path
+            setOption("config", "yes")
+            setOption("config-dir", configDir)
+            setOption("gpu-shader-cache-dir", cacheDir)
+            setOption("icc-cache-dir", cacheDir)
+
+            // ── Step 5: Set video/audio/network options BEFORE init() ──
             setOption("vo", videoOutputName)
             setOption("gpu-context", "android")
             setOption("opengl-es", "yes")
             setOption("hwdec", hwdecForDecoderMode(this.decoderMode))
             setOption("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
-            setOption("hwdec-software-fallback", "yes")
             setOption("ao", "audiotrack,opensles")
             setOption("tls-verify", "no")
             setOption("tls-ca-file", "")
@@ -157,14 +187,32 @@ class MpvPlayer(private val context: Context) {
             setOption("demuxer-max-back-bytes", "75MiB")
             setOption("cache", "yes")
             setOption("cache-secs", "120")
+
+            // ── Step 6: Subtitle options (matching mpvKt setupSubtitlesOptions) ──
             setOption("sub-auto", "fuzzy")
+            val fontsDir = java.io.File(configDir, "fonts")
+            if (!fontsDir.exists()) fontsDir.mkdirs()
+            setOption("sub-fonts-dir", fontsDir.absolutePath + "/")
+            setOption("sub-font-size", "55")
+            setOption("sub-color", "#FFFFFFFF")
+            setOption("sub-border-color", "#FF000000")
+            setOption("sub-back-color", "#00000000")
+            setOption("sub-border-size", "2")
+            setOption("sub-shadow-offset", "1")
+            setOption("sub-pos", "90")
+            setOption("sub-border-style", "outline-and-shadow")
             applyAssStyleModeAsOptions()
 
-            // MPVLib.init() — no params
-            val initMethod = cls.getMethod("init")
-            initMethod.invoke(mpvInstance)
+            // ── Step 7: MPV.init() ──
+            cls.getMethod("init").invoke(mpvInstance)
+            Log.d(TAG, "MPV.init() completed")
 
-            // Observe properties (format: 0=NONE, 3=FLAG, 4=INT64, 5=DOUBLE)
+            // ── Step 8: Post-init properties (matching mpvKt/BaseMPVView) ──
+            setPropertyBoolean("keep-open", true)
+            setPropertyBoolean("input-default-bindings", true)
+
+            // ── Step 9: Observe properties ──
+            // Format constants: FLAG=3, INT64=4, DOUBLE=5, STRING=7
             observeProperty("pause", 3)
             observeProperty("time-pos", 4)
             observeProperty("duration", 4)
@@ -172,7 +220,7 @@ class MpvPlayer(private val context: Context) {
             observeProperty("eof-reached", 3)
             observeProperty("track-list/count", 4)
 
-            // Register EventObserver via reflection + dynamic Proxy
+            // ── Step 10: Register EventObserver ──
             registerEventObserver(cls)
 
             isInitialized = true
@@ -190,48 +238,39 @@ class MpvPlayer(private val context: Context) {
     }
 
     /**
-     * Dynamically implements MPVLib.EventObserver and registers it via addObserver().
-     * This routes native callbacks to our onPropertyChanged() method.
+     * Dynamically implements MPV.EventObserver and registers it via addObserver().
      */
     private fun registerEventObserver(cls: Class<*>) {
         try {
-            // Find the inner EventObserver interface
             val observerInterface = cls.declaredClasses.firstOrNull { it.simpleName == "EventObserver" }
             if (observerInterface == null) {
-                Log.w(TAG, "EventObserver interface not found in MPVLib")
+                Log.w(TAG, "EventObserver interface not found in MPV class")
                 return
             }
 
-            // Create a dynamic proxy that routes all calls to onPropertyChanged
+            val proxyHolder = arrayOfNulls<Any>(1)
             val proxy = java.lang.reflect.Proxy.newProxyInstance(
                 observerInterface.classLoader,
                 arrayOf(observerInterface)
             ) { _, method, args ->
                 when (method.name) {
                     "eventProperty" -> {
-                        // eventProperty(String property, <T> value)
                         val property = args?.getOrNull(0) as? String ?: return@newProxyInstance null
                         val value = args.getOrNull(1)
                         onPropertyChanged(property, value)
                     }
                     "event" -> {
-                        // event(int eventId) — can handle lifecycle events if needed
                         val eventId = args?.getOrNull(0)
                         Log.d(TAG, "MPV event: $eventId")
                     }
-                    else -> {
-                        // Default: toString, equals, hashCode
-                        when (method.name) {
-                            "toString" -> return@newProxyInstance "MpvPlayerEventObserver"
-                            "hashCode" -> return@newProxyInstance System.identityHashCode(this).hashCode()
-                            "equals" -> return@newProxyInstance (args?.getOrNull(0) === this)
-                        }
-                    }
+                    "toString" -> return@newProxyInstance "MpvPlayerEventObserver"
+                    "hashCode" -> return@newProxyInstance System.identityHashCode(proxyHolder[0])
+                    "equals" -> return@newProxyInstance (args?.getOrNull(0) === proxyHolder[0])
                 }
                 null
             }
+            proxyHolder[0] = proxy
 
-            // Call MPVLib.addObserver(observer)
             val addObserverMethod = cls.getMethod("addObserver", observerInterface)
             addObserverMethod.invoke(mpvInstance, proxy)
             Log.d(TAG, "EventObserver registered successfully")
@@ -239,6 +278,8 @@ class MpvPlayer(private val context: Context) {
             Log.w(TAG, "Failed to register EventObserver: ${e.message}")
         }
     }
+
+    // ──── Surface management ────
 
     private fun attachSurfaceInternal(surface: Surface, width: Int = currentSurfaceWidth, height: Int = currentSurfaceHeight) {
         try {
@@ -251,7 +292,6 @@ class MpvPlayer(private val context: Context) {
             currentSurface = surface
             if (!isInitialized) return
 
-            val cls = mpvLibClass ?: return
             if (width > 0 && height > 0) {
                 setAndroidSurfaceSize(width, height)
             }
@@ -263,8 +303,7 @@ class MpvPlayer(private val context: Context) {
             if (surfaceAttached && previousSurface !== surface) {
                 detachSurfaceInternal(clearSurface = false)
             }
-            val method = cls.getMethod("attachSurface", android.view.Surface::class.java)
-            method.invoke(mpvInstance, surface)
+            mpvClass?.getMethod("attachSurface", Surface::class.java)?.invoke(mpvInstance, surface)
             surfaceAttached = true
             restoreVideoOutput()
             Log.d(TAG, "Surface attached")
@@ -294,26 +333,18 @@ class MpvPlayer(private val context: Context) {
     private fun detachSurfaceInternal(clearSurface: Boolean, disableOutput: Boolean = true) {
         if (!isInitialized) {
             surfaceAttached = false
-            if (clearSurface) {
-                currentSurface = null
-            }
+            if (clearSurface) currentSurface = null
             return
         }
-        if (disableOutput) {
-            disableVideoOutput()
-        }
+        if (disableOutput) disableVideoOutput()
         if (!surfaceAttached) {
-            if (clearSurface) {
-                currentSurface = null
-            }
+            if (clearSurface) currentSurface = null
             return
         }
         try {
-            mpvLibClass?.getMethod("detachSurface")?.invoke(mpvInstance)
+            mpvClass?.getMethod("detachSurface")?.invoke(mpvInstance)
             surfaceAttached = false
-            if (clearSurface) {
-                currentSurface = null
-            }
+            if (clearSurface) currentSurface = null
             Log.d(TAG, "Surface detached")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to detach surface: ${e.message}")
@@ -368,26 +399,20 @@ class MpvPlayer(private val context: Context) {
 
     fun attachSurface(surfaceView: SurfaceView) {
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                attachHolder(holder)
-            }
-
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                attachHolder(holder)
-            }
-
+            override fun surfaceCreated(holder: SurfaceHolder) { attachHolder(holder) }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { attachHolder(holder) }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 detachSurfaceInternal(clearSurface = currentSurface === holder.surface)
             }
         })
-
         attachHolder(surfaceView.holder)
     }
+
+    // ──── Playback controls ────
 
     fun loadFile(url: String, headers: Map<String, String> = emptyMap()) {
         if (!isInitialized) return
         if (!surfaceAttached) {
-            // Queue for later — surface will trigger load when ready
             pendingFileUrl = url
             pendingFileHeaders = headers
             Log.d(TAG, "Surface not ready, queuing file: $url")
@@ -458,6 +483,8 @@ class MpvPlayer(private val context: Context) {
         reloadVideoTrack()
     }
 
+    // ──── Track selection ────
+
     fun setAudioTrack(trackId: Int) {
         if (!isInitialized) return
         setPropertyInt("aid", trackId)
@@ -465,11 +492,18 @@ class MpvPlayer(private val context: Context) {
 
     fun setSubtitleTrack(trackId: Int) {
         if (!isInitialized) return
-        setPropertyInt("sid", trackId)
+        Log.d(TAG, "Setting sid=$trackId, sub-visibility=yes")
+        if (trackId == -1) {
+            setPropertyString("sid", "no")
+        } else {
+            setPropertyInt("sid", trackId)
+        }
+        setPropertyString("sub-visibility", "yes")
     }
 
     fun disableSubtitles() {
         if (!isInitialized) return
+        Log.d(TAG, "Disabling subtitles (sid=no)")
         setPropertyString("sid", "no")
     }
 
@@ -502,16 +536,27 @@ class MpvPlayer(private val context: Context) {
         position: Int,
         edgeType: String,
         edgeSize: Int,
-        outlineColor: Long
+        outlineColor: Long,
+        scale: Float = 1.0f,
+        font: String = "sans-serif",
+        bold: Boolean = false,
+        italic: Boolean = false,
+        alignment: String = "center"
     ) {
         if (!isInitialized) return
 
-        setPropertyString("sub-color", mpvColor(color))
-        setPropertyString("sub-back-color", mpvColor(0xFF000000, (backgroundOpacity * 255).toInt()))
+        val colorStr = mpvColor(color)
+        val backColorStr = mpvColor(0xFF000000, (backgroundOpacity * 255).toInt())
+
+        setPropertyString("sub-font", font)
+        setPropertyString("sub-bold", if (bold) "yes" else "no")
+        setPropertyString("sub-italic", if (italic) "yes" else "no")
+        setPropertyString("sub-justify", alignment)
+        setPropertyString("sub-color", colorStr)
+        setPropertyString("sub-back-color", backColorStr)
         setPropertyString("sub-border-color", mpvColor(outlineColor))
-        setPropertyString("sub-outline-color", mpvColor(outlineColor))
-        setPropertyDouble("sub-font-size", fontSize.coerceIn(10, 48).toDouble())
-        setPropertyInt("sub-pos", position.coerceIn(0, 100))
+        setPropertyString("sub-font-size", fontSize.coerceIn(10, 100).toString())
+        setPropertyString("sub-pos", position.coerceIn(0, 100).toString())
         setPropertyString(
             "sub-border-style",
             if (backgroundOpacity > 0f) "background-box" else "outline-and-shadow"
@@ -521,23 +566,21 @@ class MpvPlayer(private val context: Context) {
         val requestedEdgeSize = edgeSize.coerceIn(0, 20)
         when (normalizedEdge) {
             "none" -> {
-                setPropertyDouble("sub-border-size", 0.0)
-                setPropertyDouble("sub-outline-size", 0.0)
-                setPropertyDouble("sub-shadow-offset", 0.0)
+                setPropertyString("sub-border-size", "0")
+                setPropertyString("sub-shadow-offset", "0")
             }
             "shadow" -> {
-                setPropertyDouble("sub-border-size", if (requestedEdgeSize > 0) 1.0 else 0.0)
-                setPropertyDouble("sub-outline-size", if (requestedEdgeSize > 0) 1.0 else 0.0)
-                setPropertyDouble("sub-shadow-offset", requestedEdgeSize.toDouble())
+                setPropertyString("sub-border-size", if (requestedEdgeSize > 0) "1" else "0")
+                setPropertyString("sub-shadow-offset", requestedEdgeSize.toString())
             }
             else -> {
-                setPropertyDouble("sub-border-size", requestedEdgeSize.toDouble())
-                setPropertyDouble("sub-outline-size", requestedEdgeSize.toDouble())
-                setPropertyDouble("sub-shadow-offset", 0.0)
+                setPropertyString("sub-border-size", requestedEdgeSize.toString())
+                setPropertyString("sub-shadow-offset", "0")
             }
         }
 
-        setSubScale((fontSize.coerceIn(10, 48) / 18.0).coerceIn(0.55, 2.7))
+        // Apply sub-scale from the dedicated scale setting (not derived from fontSize)
+        setSubScale(scale.coerceIn(0.5f, 3.0f).toDouble())
         if (overrideAssStylesEnabled) {
             setAssStyleOverrides(
                 fontSize = fontSize,
@@ -545,7 +588,11 @@ class MpvPlayer(private val context: Context) {
                 backgroundOpacity = backgroundOpacity,
                 position = position,
                 edgeSize = edgeSize,
-                outlineColor = outlineColor
+                outlineColor = outlineColor,
+                font = font,
+                bold = bold,
+                italic = italic,
+                alignment = alignment
             )
             refreshSubtitleRenderer()
         }
@@ -557,11 +604,18 @@ class MpvPlayer(private val context: Context) {
         backgroundOpacity: Float,
         position: Int,
         edgeSize: Int,
-        outlineColor: Long
+        outlineColor: Long,
+        font: String = "sans-serif",
+        bold: Boolean = false,
+        italic: Boolean = false,
+        alignment: String = "center"
     ) {
         val bottomMargin = ((100 - position.coerceIn(0, 100)) * 3).coerceIn(0, 240)
         val outline = edgeSize.coerceIn(0, 20)
         val styleOverrides = listOf(
+            "FontName=$font",
+            "Bold=${if (bold) 1 else 0}",
+            "Italic=${if (italic) 1 else 0}",
             "Fontsize=${fontSize.coerceIn(10, 48)}",
             "PrimaryColour=${assColor(color)}",
             "OutlineColour=${assColor(outlineColor)}",
@@ -569,52 +623,92 @@ class MpvPlayer(private val context: Context) {
             "BorderStyle=${if (backgroundOpacity > 0f) 3 else 1}",
             "Outline=$outline",
             "Shadow=0",
-            "Alignment=2",
+            "Alignment=${when(alignment) { "left" -> 1; "right" -> 3; else -> 2 }}",
             "MarginV=$bottomMargin"
         ).joinToString(",")
         setOption("sub-ass-style-overrides", styleOverrides)
         setPropertyString("sub-ass-style-overrides", styleOverrides)
     }
 
+    fun setResizeMode(mode: String) {
+        if (!isInitialized) return
+        when (mode.lowercase()) {
+            "fit" -> {
+                setPropertyString("keepaspect", "yes")
+                setPropertyString("panscan", "0.0")
+                setPropertyString("video-aspect-override", "-1")
+            }
+            "fill" -> {
+                setPropertyString("keepaspect", "no")
+                setPropertyString("panscan", "0.0")
+                setPropertyString("video-aspect-override", "-1")
+            }
+            "zoom" -> {
+                setPropertyString("keepaspect", "yes")
+                setPropertyString("panscan", "1.0")
+                setPropertyString("video-aspect-override", "-1")
+            }
+            "16:9" -> {
+                setPropertyString("keepaspect", "yes")
+                setPropertyString("panscan", "0.0")
+                setPropertyString("video-aspect-override", "16:9")
+            }
+            "4:3" -> {
+                setPropertyString("keepaspect", "yes")
+                setPropertyString("panscan", "0.0")
+                setPropertyString("video-aspect-override", "4:3")
+            }
+            else -> {
+                setPropertyString("keepaspect", "yes")
+                setPropertyString("panscan", "0.0")
+                setPropertyString("video-aspect-override", "-1")
+            }
+        }
+    }
+
+    fun setVideoZoom(zoom: Float, panX: Float = 0f, panY: Float = 0f) {
+        if (!isInitialized) return
+        
+        if (zoom <= 1.0f) {
+            // Reset to default
+            setPropertyDouble("video-zoom", 0.0)
+            setPropertyDouble("video-pan-x", 0.0)
+            setPropertyDouble("video-pan-y", 0.0)
+        } else {
+            // MPV video-zoom is logarithmic (base 2). 
+            // e.g., 2^(video-zoom) = scale factor
+            // video-zoom = log2(scale)
+            val log2Zoom = kotlin.math.log2(zoom.toDouble())
+            setPropertyDouble("video-zoom", log2Zoom)
+            
+            // Pan values in MPV are relative to the video size (e.g. 0.5 is half the video)
+            // Adjust pan coordinates based on the zoom factor.
+            // When scaling up, the visible area decreases, so pan has more effect.
+            setPropertyDouble("video-pan-x", panX.toDouble() / zoom)
+            setPropertyDouble("video-pan-y", panY.toDouble() / zoom)
+        }
+    }
+
     private fun applyAssStyleModeAsOptions() {
         if (overrideAssStylesEnabled) {
-            setOption("sub-ass", "yes")
-            setOption("sub-ass-override", "scale")
-            setOption("embeddedfonts", "yes")
+            setOption("sub-ass-override", "force")
         } else {
-            setOption("sub-ass", if (libassSubtitlesEnabled) "yes" else "no")
-            setOption("sub-ass-override", "no")
-            setOption("embeddedfonts", "yes")
-            setOption("sub-ass-style-overrides", "")
+            setOption("sub-ass-override", "scale")
         }
     }
 
     private fun applyAssStyleModeAsProperties() {
         if (overrideAssStylesEnabled) {
-            setOption("sub-ass", "yes")
-            setOption("sub-ass-override", "scale")
-            setOption("embeddedfonts", "yes")
-            setPropertyString("sub-ass", "yes")
-            setPropertyString("sub-ass-override", "scale")
-            setPropertyString("embeddedfonts", "yes")
+            setPropertyString("sub-ass-override", "force")
         } else {
-            setOption("sub-ass", if (libassSubtitlesEnabled) "yes" else "no")
-            setOption("sub-ass-override", "no")
-            setOption("embeddedfonts", "yes")
-            setOption("sub-ass-style-overrides", "")
-            setPropertyString("sub-ass", if (libassSubtitlesEnabled) "yes" else "no")
-            setPropertyString("sub-ass-override", "no")
-            setPropertyString("embeddedfonts", "yes")
-            setPropertyString("sub-ass-style-overrides", "")
+            setPropertyString("sub-ass-override", "scale")
         }
     }
 
     private fun refreshSubtitleRenderer() {
         if (subtitleRendererRefreshPending) return
         subtitleRendererRefreshPending = true
-        val selectedSubtitle = getPropertyString("sid")
-            .takeIf { it.isNotBlank() && it != "no" }
-            ?: getPropertyInt("sid").takeIf { it > 0 }?.toString()
+        val selectedSubtitle = getPropertyInt("sid").takeIf { it > 0 }?.toString()
         if (selectedSubtitle == null) {
             subtitleRendererRefreshPending = false
             return
@@ -622,7 +716,8 @@ class MpvPlayer(private val context: Context) {
         setPropertyString("sid", "no")
         mainHandler.postDelayed({
             subtitleRendererRefreshPending = false
-            setPropertyString("sid", selectedSubtitle)
+            setPropertyString("sub-visibility", "yes")
+            setPropertyInt("sid", selectedSubtitle.toInt())
         }, 80)
     }
 
@@ -636,6 +731,8 @@ class MpvPlayer(private val context: Context) {
         command(arrayOf("sub-remove", trackId.toString()))
     }
 
+    // ──── Track info ────
+
     fun getTrackCount(): Int = if (isInitialized) getPropertyInt("track-list/count") else 0
     fun getTrackType(index: Int): String = getPropertyString("track-list/$index/type")
     fun getTrackTitle(index: Int): String = getPropertyString("track-list/$index/title")
@@ -646,10 +743,8 @@ class MpvPlayer(private val context: Context) {
     fun isTrackExternal(index: Int): Boolean = getPropertyBoolean("track-list/$index/external")
     fun isTrackSelected(index: Int): Boolean = getPropertyBoolean("track-list/$index/selected")
 
-    /**
-     * Called by native code via EventObserver when properties change.
-     * We register via addObserver reflection.
-     */
+    // ──── Property change callback ────
+
     fun onPropertyChanged(property: String, value: Any?) {
         mainHandler.post {
             when (property) {
@@ -692,29 +787,117 @@ class MpvPlayer(private val context: Context) {
         }
     }
 
+    // ──── Destroy ────
+
     fun destroy() {
         if (!isInitialized) return
+        Log.d(TAG, "Destroying MPV player")
         abandonAudioFocus()
         try {
-            command(arrayOf("quit"))
-            mpvLibClass?.getMethod("destroy")?.invoke(mpvInstance)
-        } catch (_: Exception) {}
+            command(arrayOf("stop"))
+            if (surfaceAttached) {
+                try { mpvClass?.getMethod("detachSurface")?.invoke(mpvInstance) } catch (_: Exception) {}
+                surfaceAttached = false
+            }
+            currentSurface = null
+            mpvClass?.getMethod("destroy")?.invoke(mpvInstance)
+            Log.d(TAG, "MPV player destroyed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error destroying MPV: ${e.message}")
+        }
         isInitialized = false
     }
 
-    // ──── Internal helpers ────
+    // ──── Zoom compensation stub ────
+
+    fun applySubtitleZoomCompensation(zoomLevel: Float) {
+        // No-op — zoom compensation handled at UI layer
+    }
+
+    // ──── Reflection helpers ────
 
     private fun command(args: Array<String>) {
         try {
-            mpvLibClass?.getMethod("command", Array<String>::class.java)?.invoke(mpvInstance, args)
-        } catch (_: Exception) {}
+            mpvClass?.getMethod("command", Array<String>::class.java)?.invoke(mpvInstance, args)
+        } catch (e: Exception) {
+            Log.e(TAG, "command(${args.joinToString()}) failed: ${e.message}")
+        }
     }
 
     private fun setOption(key: String, value: String) {
         try {
-            mpvLibClass?.getMethod("setOptionString", String::class.java, String::class.java)
+            val result = mpvClass?.getMethod("setOptionString", String::class.java, String::class.java)
                 ?.invoke(mpvInstance, key, value)
-        } catch (_: Exception) {}
+            Log.d(TAG, "setOption($key, $value) -> $result")
+        } catch (e: Exception) {
+            Log.e(TAG, "setOption($key, $value) failed: ${e.message}")
+        }
+    }
+
+    private fun setPropertyBoolean(key: String, value: Boolean) {
+        try {
+            mpvClass?.getMethod("setPropertyBoolean", String::class.java, Boolean::class.javaPrimitiveType)
+                ?.invoke(mpvInstance, key, value)
+        } catch (e: Exception) {
+            Log.e(TAG, "setPropertyBoolean($key, $value) failed: ${e.message}")
+        }
+    }
+
+    private fun setPropertyInt(key: String, value: Int) {
+        try {
+            mpvClass?.getMethod("setPropertyInt", String::class.java, Int::class.javaPrimitiveType)
+                ?.invoke(mpvInstance, key, value)
+        } catch (e: Exception) {
+            Log.e(TAG, "setPropertyInt($key, $value) failed: ${e.message}")
+        }
+    }
+
+    private fun setPropertyDouble(key: String, value: Double) {
+        try {
+            mpvClass?.getMethod("setPropertyDouble", String::class.java, Double::class.javaPrimitiveType)
+                ?.invoke(mpvInstance, key, value)
+        } catch (e: Exception) {
+            Log.e(TAG, "setPropertyDouble($key, $value) failed: ${e.message}")
+        }
+    }
+
+    private fun setPropertyString(key: String, value: String) {
+        try {
+            mpvClass?.getMethod("setPropertyString", String::class.java, String::class.java)
+                ?.invoke(mpvInstance, key, value)
+        } catch (e: Exception) {
+            Log.e(TAG, "setPropertyString($key, $value) failed: ${e.message}")
+        }
+    }
+
+    private fun getPropertyInt(key: String): Int {
+        return try {
+            mpvClass?.getMethod("getPropertyInt", String::class.java)
+                ?.invoke(mpvInstance, key) as? Int ?: 0
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun getPropertyBoolean(key: String): Boolean {
+        return try {
+            mpvClass?.getMethod("getPropertyBoolean", String::class.java)
+                ?.invoke(mpvInstance, key) as? Boolean ?: false
+        } catch (_: Exception) { false }
+    }
+
+    private fun getPropertyString(key: String): String {
+        return try {
+            mpvClass?.getMethod("getPropertyString", String::class.java)
+                ?.invoke(mpvInstance, key) as? String ?: ""
+        } catch (_: Exception) { "" }
+    }
+
+    private fun observeProperty(name: String, format: Int) {
+        try {
+            mpvClass?.getMethod("observeProperty", String::class.java, Int::class.javaPrimitiveType)
+                ?.invoke(mpvInstance, name, format)
+        } catch (e: Exception) {
+            Log.e(TAG, "observeProperty($name, $format) failed: ${e.message}")
+        }
     }
 
     private fun setAndroidSurfaceSize(width: Int, height: Int) {
@@ -723,73 +906,13 @@ class MpvPlayer(private val context: Context) {
         setPropertyString("android-surface-size", size)
     }
 
-    private fun setPropertyBoolean(key: String, value: Boolean) {
-        try {
-            mpvLibClass?.getMethod("setPropertyBoolean", String::class.java, Boolean::class.javaPrimitiveType)
-                ?.invoke(mpvInstance, key, value)
-        } catch (_: Exception) {}
-    }
-
-    private fun setPropertyInt(key: String, value: Int) {
-        try {
-            mpvLibClass?.getMethod("setPropertyInt", String::class.java, Int::class.javaPrimitiveType)
-                ?.invoke(mpvInstance, key, value)
-        } catch (_: Exception) {}
-    }
-
-    private fun setPropertyDouble(key: String, value: Double) {
-        try {
-            mpvLibClass?.getMethod("setPropertyDouble", String::class.java, Double::class.javaPrimitiveType)
-                ?.invoke(mpvInstance, key, value)
-        } catch (_: Exception) {}
-    }
-
-    private fun setPropertyString(key: String, value: String) {
-        try {
-            mpvLibClass?.getMethod("setPropertyString", String::class.java, String::class.java)
-                ?.invoke(mpvInstance, key, value)
-        } catch (_: Exception) {}
-    }
-
-    private fun getPropertyInt(key: String): Int {
-        return try {
-            mpvLibClass?.getMethod("getPropertyInt", String::class.java)
-                ?.invoke(mpvInstance, key) as? Int ?: 0
-        } catch (_: Exception) { 0 }
-    }
-
-    private fun getPropertyBoolean(key: String): Boolean {
-        return try {
-            mpvLibClass?.getMethod("getPropertyBoolean", String::class.java)
-                ?.invoke(mpvInstance, key) as? Boolean ?: false
-        } catch (_: Exception) { false }
-    }
-
-    private fun getPropertyString(key: String): String {
-        return try {
-            mpvLibClass?.getMethod("getPropertyString", String::class.java)
-                ?.invoke(mpvInstance, key) as? String ?: ""
-        } catch (_: Exception) { "" }
-    }
-
-    private fun observeProperty(name: String, format: Int) {
-        try {
-            mpvLibClass?.getMethod("observeProperty", String::class.java, Int::class.javaPrimitiveType)
-                ?.invoke(mpvInstance, name, format)
-        } catch (_: Exception) {}
-    }
-
     private fun restoreVideoOutput() {
-        setOption("force-window", "yes")
-        setPropertyString("force-window", "yes")
         setPropertyString("vo", videoOutputName)
         applyDecoderMode()
     }
 
     private fun disableVideoOutput() {
         setPropertyString("vo", "null")
-        setOption("force-window", "no")
-        setPropertyString("force-window", "no")
     }
 
     private fun reloadVideoTrackIfNeeded() {
@@ -812,8 +935,6 @@ class MpvPlayer(private val context: Context) {
         val hwdec = hwdecForDecoderMode(decoderMode)
         setOption("hwdec", hwdec)
         setPropertyString("hwdec", hwdec)
-        setOption("hwdec-software-fallback", "yes")
-        setPropertyString("hwdec-software-fallback", "yes")
     }
 
     private fun normalizeDecoderMode(mode: String): String {
@@ -828,17 +949,17 @@ class MpvPlayer(private val context: Context) {
             "sw" -> "no"
             "hw" -> "mediacodec"
             "auto" -> "auto-copy"
-            else -> "mediacodec-copy,auto-copy"
+            else -> "auto"
         }
     }
 
     private fun mpvColor(argb: Long, alphaOverride: Int? = null): String {
-        val a = alphaOverride ?: ((argb shr 24) and 0xFF).toInt()
+        val androidAlpha = alphaOverride ?: ((argb shr 24) and 0xFF).toInt()
         val r = ((argb shr 16) and 0xFF).toInt()
         val g = ((argb shr 8) and 0xFF).toInt()
         val b = (argb and 0xFF).toInt()
         return "#%02X%02X%02X%02X".format(
-            a.coerceIn(0, 255),
+            androidAlpha.coerceIn(0, 255),
             r.coerceIn(0, 255),
             g.coerceIn(0, 255),
             b.coerceIn(0, 255)

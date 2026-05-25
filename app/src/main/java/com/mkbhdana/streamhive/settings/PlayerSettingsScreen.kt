@@ -76,27 +76,43 @@ fun PlayerSettingsScreen(
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(20.dp)) }
                         )
                     }
-
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
-                    var decoderExpanded by remember { mutableStateOf(false) }
+                    var exoDecoderExpanded by remember { mutableStateOf(false) }
                     SettingsDropdownItem(
-                        title = "Decoder",
-                        subtitle = when (state.defaultDecoder) {
+                        title = "ExoPlayer Decoder",
+                        subtitle = when (state.exoDecoder) {
                             "hw" -> "Hardware (HW)"; "sw" -> "Software (SW)"; "hw+" -> "Hardware+ (HW+)"
-                            else -> state.defaultDecoder
+                            else -> state.exoDecoder
                         },
-                        expanded = decoderExpanded,
-                        onToggle = { decoderExpanded = !decoderExpanded },
+                        expanded = exoDecoderExpanded,
+                        onToggle = { exoDecoderExpanded = !exoDecoderExpanded },
                         icon = Icons.Default.Memory
                     ) {
-                        listOf("hw" to "Hardware (HW)", "sw" to "Software (SW)", "hw+" to "Hardware+ (HW+)").forEach { (k, v) ->
-                            DropdownMenuItem(text = { Text(v) }, onClick = { viewModel.setDefaultDecoder(k); decoderExpanded = false })
+                        listOf("hw" to "Hardware (HW)", "hw+" to "Hardware+ (HW+)", "sw" to "Software (SW)").forEach { (k, v) ->
+                            DropdownMenuItem(text = { Text(v) }, onClick = { viewModel.setExoDecoder(k); exoDecoderExpanded = false })
                         }
                     }
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
+                    var mpvDecoderExpanded by remember { mutableStateOf(false) }
+                    SettingsDropdownItem(
+                        title = "MPV Decoder",
+                        subtitle = when (state.mpvDecoder) {
+                            "hw" -> "Hardware (HW)"; "sw" -> "Software (SW)"; "hw+" -> "Hardware+ (HW+)"; "auto" -> "Auto"
+                            else -> state.mpvDecoder
+                        },
+                        expanded = mpvDecoderExpanded,
+                        onToggle = { mpvDecoderExpanded = !mpvDecoderExpanded },
+                        icon = Icons.Default.Memory
+                    ) {
+                        listOf("hw" to "Hardware (HW)", "hw+" to "Hardware+ (HW+)", "sw" to "Software (SW)", "auto" to "Auto").forEach { (k, v) ->
+                            DropdownMenuItem(text = { Text(v) }, onClick = { viewModel.setMpvDecoder(k); mpvDecoderExpanded = false })
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     SettingsSwitchItem(
                         "Map DV7 to HEVC",
                         "Dolby Vision Profile 7 to HEVC fallback for unsupported devices",
@@ -136,6 +152,8 @@ fun PlayerSettingsScreen(
                     }
                 }
             }
+
+
 
             item {
                 SettingsSectionHeader(Icons.Default.Tune, "Source Priority")

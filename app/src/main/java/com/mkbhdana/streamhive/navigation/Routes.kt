@@ -22,7 +22,8 @@ data class PlayerRoute(
     val fileName: String,
     val allowFallback: Boolean = true,
     val handoff: Boolean = false,
-    val decoder: String = ""
+    val decoder: String = "",
+    val instanceId: Long = System.nanoTime() // Unique per play to force fresh ViewModel
 )
 
 data class MpvPlayerRoute(
@@ -30,7 +31,8 @@ data class MpvPlayerRoute(
     val fileName: String,
     val allowFallback: Boolean = true,
     val handoff: Boolean = false,
-    val decoder: String = ""
+    val decoder: String = "",
+    val instanceId: Long = System.nanoTime() // Unique per play to force fresh ViewModel
 )
 
 // ──── Settings ────

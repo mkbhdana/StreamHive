@@ -150,6 +150,14 @@ fun PlayerControlsOverlay(
     onOverrideAssSubtitleStylesChange: (Boolean) -> Unit = {},
     onSubtitleSpeedChange: (Float) -> Unit = {},
     onSubtitleStyleReset: () -> Unit = {},
+    subtitleScale: Float = 1.0f,
+    subtitleBold: Boolean = false,
+    subtitleItalic: Boolean = false,
+    subtitleAlignment: String = "center",
+    onSubtitleScaleChange: (Float) -> Unit = {},
+    onSubtitleBoldChange: (Boolean) -> Unit = {},
+    onSubtitleItalicChange: (Boolean) -> Unit = {},
+    onSubtitleAlignmentChange: (String) -> Unit = {},
     switchPlayerLabel: String? = null,
     onSwitchPlayer: (() -> Unit)? = null,
     onChapterNext: () -> Unit = {},
@@ -503,18 +511,25 @@ fun PlayerControlsOverlay(
             modifier = Modifier.align(Alignment.CenterEnd)
         ) {
             SubtitleStyleSidebar(
+                isMpv = engineLabel == "MPV" || engineLabel.lowercase().contains("mpv"),
                 subtitleFontSize = subtitleFontSize,
                 subtitleColor = subtitleColor,
                 subtitlePosition = subtitlePosition,
-                subtitleOutlineColor = subtitleOutlineColor,
                 subtitleBgOpacity = subtitleBgOpacity,
                 overrideAssSubtitleStyles = overrideAssSubtitleStyles,
+                subtitleScale = subtitleScale,
+                subtitleBold = subtitleBold,
+                subtitleItalic = subtitleItalic,
+                subtitleAlignment = subtitleAlignment,
                 onSubtitleFontSizeChange = onSubtitleFontSizeChange,
                 onSubtitleColorChange = onSubtitleColorChange,
                 onSubtitlePositionChange = onSubtitlePositionChange,
-                onSubtitleOutlineColorChange = onSubtitleOutlineColorChange,
                 onSubtitleBgOpacityChange = onSubtitleBgOpacityChange,
                 onOverrideAssSubtitleStylesChange = onOverrideAssSubtitleStylesChange,
+                onSubtitleScaleChange = onSubtitleScaleChange,
+                onSubtitleBoldChange = onSubtitleBoldChange,
+                onSubtitleItalicChange = onSubtitleItalicChange,
+                onSubtitleAlignmentChange = onSubtitleAlignmentChange,
                 hapticsEnabled = hapticFeedbackEnabled,
                 onReset = onSubtitleStyleReset,
                 onDismiss = { showSubtitleStyleSidebar = false }
@@ -1022,18 +1037,25 @@ private fun SubtitleSheetTrackRow(
 
 @Composable
 private fun SubtitleStyleSidebar(
+    isMpv: Boolean,
     subtitleFontSize: Int,
     subtitleColor: Long,
     subtitlePosition: Int,
-    subtitleOutlineColor: Long,
     subtitleBgOpacity: Float,
     overrideAssSubtitleStyles: Boolean,
+    subtitleScale: Float,
+    subtitleBold: Boolean,
+    subtitleItalic: Boolean,
+    subtitleAlignment: String,
     onSubtitleFontSizeChange: (Int) -> Unit,
     onSubtitleColorChange: (Long) -> Unit,
     onSubtitlePositionChange: (Int) -> Unit,
-    onSubtitleOutlineColorChange: (Long) -> Unit,
     onSubtitleBgOpacityChange: (Float) -> Unit,
     onOverrideAssSubtitleStylesChange: (Boolean) -> Unit,
+    onSubtitleScaleChange: (Float) -> Unit,
+    onSubtitleBoldChange: (Boolean) -> Unit,
+    onSubtitleItalicChange: (Boolean) -> Unit,
+    onSubtitleAlignmentChange: (String) -> Unit,
     hapticsEnabled: Boolean,
     onReset: () -> Unit,
     onDismiss: () -> Unit
@@ -1055,7 +1077,7 @@ private fun SubtitleStyleSidebar(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             SidebarHeader(title = "Subtitle Style", onDismiss = onDismiss)
             SidebarSlider(
@@ -1066,6 +1088,70 @@ private fun SubtitleStyleSidebar(
                 onValueChange = { onSubtitleFontSizeChange(it.toInt()) },
                 hapticsEnabled = hapticsEnabled
             )
+            if (isMpv) {
+                SidebarSlider(
+                    title = "Scale (MPV Only)",
+                    valueText = String.format("%.1fx", subtitleScale),
+                    value = subtitleScale,
+                    valueRange = 0.5f..3.0f,
+                    onValueChange = onSubtitleScaleChange,
+                    hapticsEnabled = hapticsEnabled
+                )
+
+                // Bold / Italic row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = subtitleBold,
+                        onClick = { onSubtitleBoldChange(!subtitleBold) },
+                        label = { Text("Bold", fontWeight = FontWeight.Bold) },
+                        leadingIcon = {
+                            Icon(Icons.Default.FormatBold, contentDescription = "Bold", modifier = Modifier.size(18.dp))
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = subtitleItalic,
+                        onClick = { onSubtitleItalicChange(!subtitleItalic) },
+                        label = { Text("Italic", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) },
+                        leadingIcon = {
+                            Icon(Icons.Default.FormatItalic, contentDescription = "Italic", modifier = Modifier.size(18.dp))
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Alignment row
+                Column {
+                    Text(
+                        text = "Alignment (MPV Only)",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "left" to Icons.AutoMirrored.Filled.FormatAlignLeft,
+                            "center" to Icons.Default.FormatAlignCenter,
+                            "right" to Icons.AutoMirrored.Filled.FormatAlignRight
+                        ).forEach { (key, icon) ->
+                            FilterChip(
+                                selected = subtitleAlignment == key,
+                                onClick = { onSubtitleAlignmentChange(key) },
+                                label = { Icon(icon, contentDescription = key, modifier = Modifier.size(20.dp)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
             ColorChoiceRow(
                 title = "Subtitle Color",
                 selectedColor = subtitleColor,
@@ -1078,11 +1164,6 @@ private fun SubtitleStyleSidebar(
                 valueRange = 0f..100f,
                 onValueChange = { onSubtitlePositionChange(it.toInt()) },
                 hapticsEnabled = hapticsEnabled
-            )
-            ColorChoiceRow(
-                title = "Edge Color",
-                selectedColor = subtitleOutlineColor,
-                onSelect = onSubtitleOutlineColorChange
             )
             SidebarSlider(
                 title = "Background",

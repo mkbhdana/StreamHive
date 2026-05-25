@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.content.SharedPreferences
 
 enum class SearchMode { CURRENT_DRIVE, ALL_DRIVES }
 
@@ -55,7 +56,6 @@ data class CatalogUiState(
     val currentDriveSearchResults: List<MediaFileEntity> = emptyList(), // For CURRENT_DRIVE mode
     val isSearchLoading: Boolean = false,
     val error: String? = null,
-    val selectedEngine: PlayerEngine = PlayerEngine.EXO_PLAYER,
     val playFolderFilesExternally: Boolean = false,
     val isMpvAvailable: Boolean = false,
     val isNavigating: Boolean = false,
@@ -69,6 +69,7 @@ data class CatalogUiState(
     val isHomeLoading: Boolean = false,
     val isHomeRefreshing: Boolean = false,
     val hasTmdbSetup: Boolean = false,
+    val tmdbConfiguredFolderIds: Set<String> = emptySet(),
 
     // App Preferences
     val isGridView: Boolean = true,
@@ -111,6 +112,8 @@ class CatalogViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CatalogUiState())
     val uiState: StateFlow<CatalogUiState> = _uiState.asStateFlow()
 
+    fun getPreferredEngine(): PlayerEngine = appPreferences.preferredEngine
+
     private var loadFilesJob: Job? = null
     private var cacheCollectionJob: Job? = null
     private var homeLoadJob: Job? = null
@@ -124,19 +127,26 @@ class CatalogViewModel @Inject constructor(
     private val lastLoadedTimestamps = mutableMapOf<String, Long>()
     private val cacheTtlMs = 5 * 60 * 1000L // 5 minutes
 
+    private val prefChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == AppPreferences.KEY_CATALOG_SETTINGS_LAST_CHANGED) {
+            loadHomeContent(isRefresh = true)
+        }
+    }
+
     init {
         val hasTmdb = appPreferences.tmdbApiKey.isNotEmpty()
         _uiState.update {
             it.copy(
-                selectedEngine = appPreferences.preferredEngine,
                 isMpvAvailable = appPreferences.isMpvAvailable(),
                 hasTmdbSetup = hasTmdb,
+                tmdbConfiguredFolderIds = appPreferences.tmdbMovieFolders + appPreferences.tmdbTvFolders + appPreferences.tmdbRecentFolders,
                 isGridView = appPreferences.isGridView,
                 // Show skeleton from first render so continue-playing doesn't flash alone
                 isHomeLoading = hasTmdb
             )
         }
         observeNetworkConnectivity()
+        appPreferences.registerOnSharedPreferenceChangeListener(prefChangeListener)
         loadSharedDrives()
         loadContinuePlaying()
     }
@@ -517,7 +527,10 @@ class CatalogViewModel @Inject constructor(
         val recentFolders = appPreferences.tmdbRecentFolders
         val hasTmdb = appPreferences.tmdbApiKey.isNotEmpty()
 
-        _uiState.update { it.copy(hasTmdbSetup = hasTmdb) }
+        _uiState.update { it.copy(
+            hasTmdbSetup = hasTmdb,
+            tmdbConfiguredFolderIds = movieFolders + tvFolders + recentFolders
+        ) }
 
         if (!hasTmdb) {
             homeLoadJob?.cancel()
@@ -1028,6 +1041,7 @@ class CatalogViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        appPreferences.unregisterOnSharedPreferenceChangeListener(prefChangeListener)
         offlineDebounceJob?.cancel()
         val callback = networkCallback ?: return
         runCatching { connectivityManager?.unregisterNetworkCallback(callback) }
@@ -1059,9 +1073,9 @@ class CatalogViewModel @Inject constructor(
     fun refreshPreferences() {
         _uiState.update {
             it.copy(
-                selectedEngine = appPreferences.preferredEngine,
                 isMpvAvailable = appPreferences.isMpvAvailable(),
                 hasTmdbSetup = appPreferences.tmdbApiKey.isNotEmpty(),
+                tmdbConfiguredFolderIds = appPreferences.tmdbMovieFolders + appPreferences.tmdbTvFolders + appPreferences.tmdbRecentFolders,
                 isGridView = appPreferences.isGridView
             )
         }

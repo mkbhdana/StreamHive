@@ -72,9 +72,13 @@ fun SearchTab(
     }
 
     // Process TMDB, Folders, Files using cached TMDB metadata
-    val tmdbResults = allResults.filter { state.tmdbMetadata.containsKey(it.id) }
-    val folderResults = allResults.filter { it.isFolder && !state.tmdbMetadata.containsKey(it.id) }
-    val fileResults = allResults.filter { !it.isFolder && !state.tmdbMetadata.containsKey(it.id) }
+    // Only show files in TMDB section if they belong to a TMDB-configured folder
+    val tmdbFolderIds = state.tmdbConfiguredFolderIds
+    val tmdbResults = allResults.filter {
+        state.tmdbMetadata.containsKey(it.id) && it.parentId in tmdbFolderIds
+    }
+    val folderResults = allResults.filter { it.isFolder && it !in tmdbResults }
+    val fileResults = allResults.filter { !it.isFolder && it !in tmdbResults }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (state.searchFolderStack.isNotEmpty()) {
@@ -121,7 +125,7 @@ fun SearchTab(
                                     if (file.isFolder) {
                                         viewModel.openSearchFolder(file.id, file.name, file.driveId)
                                     } else {
-                                        onPlayFile(file.id, file.name, state.selectedEngine)
+                                        onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
                                     }
                                 },
                                 onLongClick = { tooltipName = file.name },
@@ -313,7 +317,7 @@ fun SearchTab(
                                             tmdbMetadata = null,
                                             onClick = {
                                                 if (file.isFolder) onFolderNavigate(file)
-                                                else onPlayFile(file.id, file.name, state.selectedEngine)
+                                                else onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
                                             },
                                             onLongClick = { tooltipName = file.name },
                                             subtitle = if (state.searchMode == SearchMode.ALL_DRIVES) viewModel.getDriveName(file.driveId) else null
@@ -330,7 +334,7 @@ fun SearchTab(
                                             file = file,
                                             onClick = {
                                                 if (file.isFolder) onFolderNavigate(file)
-                                                else onPlayFile(file.id, file.name, state.selectedEngine)
+                                                else onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
                                             },
                                             onLongClick = { tooltipName = file.name },
                                             subtitle = if (state.searchMode == SearchMode.ALL_DRIVES) viewModel.getDriveName(file.driveId) else null
@@ -384,7 +388,7 @@ fun SearchTab(
                                         files = fileResults.take(10),
                                         totalCount = fileResults.size,
                                         onSeeAll = { selectedSection = "files" },
-                                        onClick = { onPlayFile(it.id, it.name, state.selectedEngine) },
+                                        onClick = { onPlayFile(it.id, it.name, viewModel.getPreferredEngine()) },
                                         onLongClick = { tooltipName = it.name },
                                         showDriveName = state.searchMode == SearchMode.ALL_DRIVES,
                                         getDriveName = viewModel::getDriveName

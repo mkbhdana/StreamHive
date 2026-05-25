@@ -270,6 +270,7 @@ fun CatalogScreen(
                     ) {
                         HomeTab(
                             state = uiState,
+                            preferredEngine = viewModel.getPreferredEngine(),
                             onPlayFile = onPlayFile,
                             onPlayFileWithDecoder = onPlayFileWithDecoder,
                             onNavigateToSettings = onNavigateToSettings,
@@ -450,7 +451,7 @@ fun FoldersTab(
                                         if (file.isFolder) {
                                             viewModel.openFolder(file.id, file.name)
                                         } else {
-                                            onPlayFile(file.id, file.name, uiState.folderPlaybackEngine())
+                                            onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
                                         }
                                     },
                                     onLongClick = { tooltipName = file.name }
@@ -469,7 +470,7 @@ fun FoldersTab(
                                         if (file.isFolder) {
                                             viewModel.openFolder(file.id, file.name)
                                         } else {
-                                            onPlayFile(file.id, file.name, uiState.folderPlaybackEngine())
+                                            onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
                                         }
                                     },
                                     onLongClick = { tooltipName = file.name }
@@ -484,8 +485,8 @@ fun FoldersTab(
     }
 }
 
-private fun CatalogUiState.folderPlaybackEngine(): PlayerEngine {
-    return if (playFolderFilesExternally) PlayerEngine.EXTERNAL else selectedEngine
+private fun folderPlaybackEngine(uiState: CatalogUiState, viewModel: CatalogViewModel): PlayerEngine {
+    return if (uiState.playFolderFilesExternally) PlayerEngine.EXTERNAL else viewModel.getPreferredEngine()
 }
 
 

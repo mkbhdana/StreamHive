@@ -177,8 +177,8 @@ fun SubtitleSettingsScreen(
                             "Override ASS Styles",
                             "Force custom font size and colors on ASS subtitles",
                             Icons.Default.FormatPaint,
-                            state.overrideAssSubtitleStyles,
-                            viewModel::setOverrideAssSubtitleStyles,
+                            state.mpvOverrideAssSubtitleStyles,
+                            viewModel::setMpvOverrideAssSubtitleStyles,
                             hapticsEnabled = state.hapticFeedbackEnabled
                         )
                     }
@@ -188,15 +188,36 @@ fun SubtitleSettingsScreen(
             item { SettingsSectionHeader(Icons.Default.FormatSize, "Subtitle Appearance") }
 
             item {
+                var selectedPlayerTab by remember { mutableStateOf(0) }
+                val isExo = selectedPlayerTab == 0
+                val currentFontSize = if (isExo) state.exoSubtitleFontSize else state.mpvSubtitleFontSize
+                val setFontSize = if (isExo) viewModel::setExoSubtitleFontSize else viewModel::setMpvSubtitleFontSize
+                val currentPosition = if (isExo) state.exoSubtitlePosition else state.mpvSubtitlePosition
+                val setPosition = if (isExo) viewModel::setExoSubtitlePosition else viewModel::setMpvSubtitlePosition
+                val currentBgOpacity = if (isExo) state.exoSubtitleBgOpacity else state.mpvSubtitleBgOpacity
+                val setBgOpacity = if (isExo) viewModel::setExoSubtitleBgOpacity else viewModel::setMpvSubtitleBgOpacity
+                val currentEdgeType = if (isExo) state.exoSubtitleEdgeType else state.mpvSubtitleEdgeType
+                val setEdgeType = if (isExo) viewModel::setExoSubtitleEdgeType else viewModel::setMpvSubtitleEdgeType
+                val currentColor = if (isExo) state.exoSubtitleColor else state.mpvSubtitleColor
+                val setColor = if (isExo) viewModel::setExoSubtitleColor else viewModel::setMpvSubtitleColor
+
                 SettingsCard {
+                    TabRow(
+                        selectedTabIndex = selectedPlayerTab,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
+                    ) {
+                        Tab(selected = isExo, onClick = { selectedPlayerTab = 0 }, text = { Text("ExoPlayer") })
+                        Tab(selected = !isExo, onClick = { selectedPlayerTab = 1 }, text = { Text("MPV") })
+                    }
                     Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Font Size", style = MaterialTheme.typography.bodyMedium)
-                            Text("${state.subtitleFontSize}px", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("${currentFontSize}px", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         HapticSlider(
-                            value = state.subtitleFontSize.toFloat(),
-                            onValueChange = { viewModel.setSubtitleFontSize(it.roundToInt()) },
+                            value = currentFontSize.toFloat(),
+                            onValueChange = { setFontSize(it.roundToInt()) },
                             valueRange = 10f..48f,
                             steps = 37,
                             modifier = Modifier.padding(horizontal = 8.dp),
@@ -206,14 +227,79 @@ fun SubtitleSettingsScreen(
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
+                    if (!isExo) {
+                        // Subtitle Scale
+                        Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Subtitle Scale", style = MaterialTheme.typography.bodyMedium)
+                                Text("${String.format("%.1f", state.subtitleScale)}x", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                            HapticSlider(
+                                value = state.subtitleScale,
+                                onValueChange = { viewModel.setSubtitleScale((it * 10).roundToInt() / 10f) },
+                                valueRange = 0.5f..3.0f,
+                                steps = 24,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                hapticsEnabled = state.hapticFeedbackEnabled
+                            )
+                        }
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                        // Bold & Italic toggles
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Style", style = MaterialTheme.typography.bodyMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = state.subtitleBold,
+                                    onClick = { viewModel.setSubtitleBold(!state.subtitleBold) },
+                                    label = { Text("Bold", fontWeight = FontWeight.Bold) },
+                                    leadingIcon = { Icon(Icons.Default.FormatBold, "Bold", modifier = Modifier.size(18.dp)) }
+                                )
+                                FilterChip(
+                                    selected = state.subtitleItalic,
+                                    onClick = { viewModel.setSubtitleItalic(!state.subtitleItalic) },
+                                    label = { Text("Italic", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) },
+                                    leadingIcon = { Icon(Icons.Default.FormatItalic, "Italic", modifier = Modifier.size(18.dp)) }
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                        // Text Alignment
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Alignment", style = MaterialTheme.typography.bodyMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("left" to Icons.AutoMirrored.Filled.FormatAlignLeft, "center" to Icons.Default.FormatAlignCenter, "right" to Icons.AutoMirrored.Filled.FormatAlignRight).forEach { (key, icon) ->
+                                    FilterChip(
+                                        selected = state.subtitleAlignment == key,
+                                        onClick = { viewModel.setSubtitleAlignment(key) },
+                                        label = { Icon(icon, key, modifier = Modifier.size(18.dp)) }
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    }
+
                     Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Vertical Position", style = MaterialTheme.typography.bodyMedium)
-                            Text("${state.subtitlePosition}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("${currentPosition}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         HapticSlider(
-                            value = state.subtitlePosition.toFloat(),
-                            onValueChange = { viewModel.setSubtitlePosition(it.roundToInt()) },
+                            value = currentPosition.toFloat(),
+                            onValueChange = { setPosition(it.roundToInt()) },
                             valueRange = 0f..100f,
                             steps = 100,
                             modifier = Modifier.padding(horizontal = 8.dp),
@@ -226,11 +312,11 @@ fun SubtitleSettingsScreen(
                     Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Background Opacity", style = MaterialTheme.typography.bodyMedium)
-                            Text("${(state.subtitleBgOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("${(currentBgOpacity * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         HapticSlider(
-                            value = state.subtitleBgOpacity,
-                            onValueChange = viewModel::setSubtitleBgOpacity,
+                            value = currentBgOpacity,
+                            onValueChange = setBgOpacity,
                             valueRange = 0f..1f,
                             steps = 10,
                             modifier = Modifier.padding(horizontal = 8.dp),
@@ -243,20 +329,20 @@ fun SubtitleSettingsScreen(
                     var edgeTypeExpanded by remember { mutableStateOf(false) }
                     SettingsDropdownItem(
                         title = "Edge Type",
-                        subtitle = when(state.subtitleEdgeType) {
+                        subtitle = when(currentEdgeType) {
                             "none" -> "None"
                             "outline" -> "Outline"
                             "dropshadow" -> "Drop Shadow"
                             "raised" -> "Raised"
                             "depressed" -> "Depressed"
-                            else -> state.subtitleEdgeType
+                            else -> currentEdgeType
                         },
                         expanded = edgeTypeExpanded,
                         onToggle = { edgeTypeExpanded = !edgeTypeExpanded },
                         icon = Icons.Default.Title
                     ) {
                         listOf("none" to "None", "outline" to "Outline", "dropshadow" to "Drop Shadow", "raised" to "Raised", "depressed" to "Depressed").forEach { (k, v) ->
-                            DropdownMenuItem(text = { Text(v) }, onClick = { viewModel.setSubtitleEdgeType(k); edgeTypeExpanded = false })
+                            DropdownMenuItem(text = { Text(v) }, onClick = { setEdgeType(k); edgeTypeExpanded = false })
                         }
                     }
 
@@ -275,8 +361,8 @@ fun SubtitleSettingsScreen(
                                         .size(32.dp)
                                         .clip(CircleShape)
                                         .background(Color(color))
-                                        .border(2.dp, if (state.subtitleColor == color) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                                        .clickable { viewModel.setSubtitleColor(color) }
+                                        .border(2.dp, if (currentColor == color) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                                        .clickable { setColor(color) }
                                 )
                             }
                         }

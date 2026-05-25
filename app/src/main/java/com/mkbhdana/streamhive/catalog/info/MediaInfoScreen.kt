@@ -241,7 +241,7 @@ fun MediaInfoScreen(
                     items(season.files, key = { "file_${it.id}" }) { file ->
                         FileListItem(
                             file = file,
-                            onClick = { onPlayFile(file.id, file.name, uiState.preferredEngine) }
+                            onClick = { onPlayFile(file.id, file.name, viewModel.getPreferredEngine()) }
                         )
                     }
                 }
@@ -260,7 +260,7 @@ fun MediaInfoScreen(
                 items(uiState.driveFiles, key = { "file_${it.id}" }) { file ->
                     FileListItem(
                         file = file,
-                        onClick = { onPlayFile(file.id, file.name, uiState.preferredEngine) }
+                        onClick = { onPlayFile(file.id, file.name, viewModel.getPreferredEngine()) }
                     )
                 }
             }
