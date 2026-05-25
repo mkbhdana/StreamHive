@@ -43,3 +43,7 @@
 -dontwarn javax.naming.**
 -dontwarn org.ietf.jgss.**
 -dontwarn org.apache.http.**
+
+# Keep data models for JSON Serialization
+-keep class com.mkbhdana.streamhive.data.model.** { *; }
+-keep class com.mkbhdana.streamhive.data.tmdb.** { *; }

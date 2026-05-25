@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.material3.adaptive.navigationsuite.ExperimentalMaterial3AdaptiveNavigationSuiteApi
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScope
 import androidx.compose.runtime.*
@@ -330,6 +331,7 @@ private fun MainScreen(
             }
         ) { topBarPadding ->
             NavigationSuiteScaffold(
+                layoutType = NavigationSuiteType.NavigationBar,
                 navigationSuiteItems = {
                     TOP_LEVEL_ITEMS.forEach { navItem ->
                         item(
