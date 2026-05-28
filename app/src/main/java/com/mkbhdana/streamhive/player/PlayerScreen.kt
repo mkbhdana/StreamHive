@@ -163,15 +163,25 @@ fun PlayerScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    var isClosing by remember { mutableStateOf(false) }
+
     // Intercept back navigation to instantly restore orientation
-    val handleBack = {
-        val activity = context as? Activity
-        keepWindowModeForHandoff = false
-        isSwitchingPlayer = false
-        activeSwitchingMessage = null
-        viewModel.player?.pause()
-        activity?.exitPlayerWindowMode()
-        onBack()
+    val handleBack: () -> Unit = {
+        coroutineScope.launch {
+            val activity = context as? Activity
+            keepWindowModeForHandoff = false
+            isSwitchingPlayer = false
+            activeSwitchingMessage = null
+            viewModel.player?.pause()
+            
+            // Remove the SurfaceView immediately to prevent Compose transition layout glitches
+            isClosing = true
+            delay(50)
+            
+            activity?.exitPlayerWindowMode()
+            onBack()
+        }
     }
 
     val subtitlePicker = rememberLauncherForActivityResult(
@@ -324,35 +334,37 @@ fun PlayerScreen(
                 }
             }
 
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        this.player = player
-                        useController = false
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        this.resizeMode = resizeModeInt
-                        this.layoutTransition = android.animation.LayoutTransition()
-                        this.subtitleView?.visibility = android.view.View.GONE
-                    }
-                },
-                update = { view ->
-                    view.resizeMode = resizeModeInt
-                    if (view.player != player) {
-                        view.player = player
-                    }
-                    
-                    // Apply zoom directly to the video frame, leaving the subtitle canvas completely untouched
-                    val contentFrame = view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_content_frame)
-                    contentFrame?.scaleX = currentZoom
-                    contentFrame?.scaleY = currentZoom
-                    
-                    view.subtitleView?.visibility = android.view.View.GONE
-                },
-                onRelease = { view ->
-                    view.player = null
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (!isClosing) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = false
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            this.resizeMode = resizeModeInt
+                            this.layoutTransition = android.animation.LayoutTransition()
+                            this.subtitleView?.visibility = android.view.View.GONE
+                        }
+                    },
+                    update = { view ->
+                        view.resizeMode = resizeModeInt
+                        if (view.player != player) {
+                            view.player = player
+                        }
+                        
+                        // Apply zoom directly to the video frame, leaving the subtitle canvas completely untouched
+                        val contentFrame = view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_content_frame)
+                        contentFrame?.scaleX = currentZoom
+                        contentFrame?.scaleY = currentZoom
+                        
+                        view.subtitleView?.visibility = android.view.View.GONE
+                    },
+                    onRelease = { view ->
+                        view.player = null
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             
             // Independent subtitle canvas overlaid on top
             AndroidView(
@@ -464,7 +476,6 @@ fun PlayerScreen(
                 hapticFeedbackEnabled = uiState.hapticFeedbackEnabled,
                 audioTracks = uiState.audioTracks,
                 subtitleTracks = uiState.subtitleTracks,
-                chapters = uiState.chapters,
                 onBack = handleBack,
                 onPlayPause = viewModel::togglePlayPause,
                 onSeekForward = { quickSeekForward() },
@@ -527,9 +538,7 @@ fun PlayerScreen(
                 } else {
                     null
                 },
-                onChapterNext = viewModel::seekToNextChapter,
-                onChapterPrevious = viewModel::seekToPreviousChapter,
-                onChapterSelect = viewModel::seekToChapter,
+
                 onOpenExternal = {
                     viewModel.getProxyUrl()?.let { url ->
                         // Pause in-app player before launching external

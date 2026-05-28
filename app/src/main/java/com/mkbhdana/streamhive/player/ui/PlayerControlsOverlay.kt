@@ -94,12 +94,6 @@ data class TrackInfo(
     val sourceId: String? = null
 )
 
-data class ChapterInfo(
-    val title: String,
-    val startMs: Long,
-    val endMs: Long = 0L
-)
-
 @Composable
 fun PlayerControlsOverlay(
     fileName: String,
@@ -117,7 +111,7 @@ fun PlayerControlsOverlay(
     hapticFeedbackEnabled: Boolean = true,
     audioTracks: List<TrackInfo>,
     subtitleTracks: List<TrackInfo>,
-    chapters: List<ChapterInfo> = emptyList(),
+
     decoderMode: String = "hw+",
     decoderOptions: List<String> = listOf("hw", "hw+", "sw"),
     onBack: () -> Unit,
@@ -160,9 +154,7 @@ fun PlayerControlsOverlay(
     onSubtitleAlignmentChange: (String) -> Unit = {},
     switchPlayerLabel: String? = null,
     onSwitchPlayer: (() -> Unit)? = null,
-    onChapterNext: () -> Unit = {},
-    onChapterPrevious: () -> Unit = {},
-    onChapterSelect: (Int) -> Unit = {},
+
     onOpenExternal: () -> Unit = {},
     episodeList: List<com.mkbhdana.streamhive.data.db.MediaFileEntity> = emptyList(),
     onEpisodeSelect: (String, String) -> Unit = { _, _ -> },
@@ -179,7 +171,7 @@ fun PlayerControlsOverlay(
     var showSubtitleStyleSidebar by remember { mutableStateOf(false) }
     var showSubtitleDelaySidebar by remember { mutableStateOf(false) }
     var showSpeedSelector by remember { mutableStateOf(false) }
-    var showChapterList by remember { mutableStateOf(false) }
+
     var showDecoderSelector by remember { mutableStateOf(false) }
     var showEpisodeList by remember { mutableStateOf(false) }
     var showResizePill by remember { mutableStateOf(false) }
@@ -208,14 +200,9 @@ fun PlayerControlsOverlay(
 
     // Track when any panel is open and notify parent
     val isPanelOpen = showAudioSheet || showSubtitleSheet || showSubtitleStyleSidebar ||
-        showSubtitleDelaySidebar || showSpeedSelector || showChapterList || showDecoderSelector || showEpisodeList
+        showSubtitleDelaySidebar || showSpeedSelector || showDecoderSelector || showEpisodeList
     LaunchedEffect(isPanelOpen) {
         if (isPanelOpen) onPanelOpened() else onPanelClosed()
-    }
-
-    // Current chapter name
-    val currentChapter = remember(chapters, currentPosition) {
-        chapters.lastOrNull { it.startMs <= currentPosition }
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -303,10 +290,7 @@ fun PlayerControlsOverlay(
                     }
                     ControlIconButton(Icons.Default.Audiotrack, "Audio") { showAudioSheet = true }
                     ControlIconButton(Icons.Default.Subtitles, "Sub") { showSubtitleSheet = true }
-                    ControlIconButton(Icons.Default.Bookmarks, "Chapters") {
-                        if (chapters.isNotEmpty()) showChapterList = true
-                        else Toast.makeText(context, "No chapters found", Toast.LENGTH_SHORT).show()
-                    }
+
                 }
             }
         }
@@ -386,10 +370,7 @@ fun PlayerControlsOverlay(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlIconButton(Icons.Default.Lock, "Lock", true) { onLockToggle() }
                     ControlIconButton(Icons.Default.Speed, "Speed", true) { showSpeedSelector = true }
-                    if (chapters.isNotEmpty()) {
-                        ControlIconButton(Icons.Default.SkipPrevious, "Prev", true) { onChapterPrevious() }
-                        ControlIconButton(Icons.Default.SkipNext, "Next", true) { onChapterNext() }
-                    }
+
                 }
                 
                 // Right Group
@@ -454,7 +435,7 @@ fun PlayerControlsOverlay(
                         fraction = seekbarFraction,
                         bufferedFraction = if (duration > 0) bufferedPercentage / 100f else 0f,
                         duration = duration,
-                        chapters = chapters,
+
                         onSeek = { fraction ->
                             isSeeking = true
                             seekFraction = fraction
@@ -670,17 +651,7 @@ fun PlayerControlsOverlay(
         )
     }
 
-    if (showChapterList && chapters.isNotEmpty()) {
-        ChapterListSheet(
-            chapters = chapters,
-            currentPosition = currentPosition,
-            onChapterSelect = { index ->
-                onChapterSelect(index)
-                showChapterList = false
-            },
-            onDismiss = { showChapterList = false }
-        )
-    }
+
 }
 
 // ──── Custom Seekbar ────
@@ -692,7 +663,7 @@ private fun CustomSeekbar(
     fraction: Float,
     bufferedFraction: Float,
     duration: Long = 0L,
-    chapters: List<ChapterInfo> = emptyList(),
+
     onSeek: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     isPlaying: Boolean = true,
@@ -761,22 +732,7 @@ private fun CustomSeekbar(
             )
         }
 
-        // Cut chapter gaps
-        if (duration > 0 && chapters.isNotEmpty()) {
-            chapters.forEach { chapter ->
-                val chFraction = chapter.startMs.toFloat() / duration.toFloat()
-                if (chFraction > 0f && chFraction < 1f) {
-                    val gapX = chFraction * size.width
-                    drawLine(
-                        color = Color.Transparent,
-                        start = Offset(gapX, trackY),
-                        end = Offset(gapX, trackY + trackHeight),
-                        strokeWidth = 2.dp.toPx(),
-                        blendMode = androidx.compose.ui.graphics.BlendMode.Clear
-                    )
-                }
-            }
-        }
+
 
         // Thumb (Vertical Pill)
         val thumbWidth = 8.dp.toPx()

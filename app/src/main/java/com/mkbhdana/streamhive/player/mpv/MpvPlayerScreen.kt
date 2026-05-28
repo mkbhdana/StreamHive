@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -37,6 +39,7 @@ import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
 import com.mkbhdana.streamhive.player.ui.PlayerControlsOverlay
 import com.mkbhdana.streamhive.ui.theme.AccentCyan
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun MpvPlayerScreen(
@@ -63,15 +66,25 @@ fun MpvPlayerScreen(
     var activeSwitchingMessage by remember(switchingMessage) { mutableStateOf(switchingMessage) }
     val latestPlaybackSpeed by rememberUpdatedState(uiState.playbackSpeed)
 
+    val coroutineScope = rememberCoroutineScope()
+    var isClosing by remember { mutableStateOf(false) }
+
     // Intercept back navigation to instantly restore orientation
-    val handleBack = {
-        val activity = context as? Activity
-        keepWindowModeForHandoff = false
-        isSwitchingPlayer = false
-        activeSwitchingMessage = null
-        viewModel.pause()
-        activity?.exitPlayerWindowMode()
-        onBack()
+    val handleBack: () -> Unit = {
+        coroutineScope.launch {
+            val activity = context as? Activity
+            keepWindowModeForHandoff = false
+            isSwitchingPlayer = false
+            activeSwitchingMessage = null
+            viewModel.pause()
+            
+            // Remove the SurfaceView immediately to prevent Compose transition layout glitches
+            isClosing = true
+            delay(50)
+            
+            activity?.exitPlayerWindowMode()
+            onBack()
+        }
     }
 
     val subtitlePicker = rememberLauncherForActivityResult(
@@ -215,12 +228,14 @@ fun MpvPlayerScreen(
             .background(Color.Black)
     ) {
         // MPV SurfaceView surface
-        AndroidView(
-            factory = { ctx ->
-                SurfaceView(ctx).also { viewModel.attachSurface(it) }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        if (!isClosing) {
+            AndroidView(
+                factory = { ctx ->
+                    SurfaceView(ctx).also { viewModel.attachSurface(it) }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // Gesture layer
         PlayerGestureHandler(

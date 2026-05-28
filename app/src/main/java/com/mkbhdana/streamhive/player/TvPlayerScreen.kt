@@ -26,7 +26,7 @@ import androidx.media3.ui.PlayerView
 import com.mkbhdana.streamhive.ui.theme.*
 import com.mkbhdana.streamhive.util.FileUtils
 import com.mkbhdana.streamhive.player.ui.TrackSelectionSheet
-import com.mkbhdana.streamhive.player.ui.ChapterListSheet
+
 import com.mkbhdana.streamhive.player.ui.TrackType
 import kotlinx.coroutines.delay
 
@@ -39,7 +39,6 @@ fun TvPlayerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
     var showTrackSheet by remember { mutableStateOf(false) }
-    var showChapterSheet by remember { mutableStateOf(false) }
 
     // Auto-hide controls
     LaunchedEffect(uiState.showControls, uiState.isPlaying) {
@@ -120,12 +119,8 @@ fun TvPlayerScreen(
                             true
                         }
                         Key.Menu -> {
-                            // Menu key opens track/chapter selection
-                            if (uiState.chapters.isNotEmpty()) {
-                                showChapterSheet = true
-                            } else {
-                                showTrackSheet = true
-                            }
+                            // Menu key opens track selection
+                            showTrackSheet = true
                             true
                         }
                         else -> false
@@ -303,16 +298,5 @@ fun TvPlayerScreen(
         )
     }
 
-    // Chapter list sheet (triggered by Menu key when chapters available)
-    if (showChapterSheet && uiState.chapters.isNotEmpty()) {
-        ChapterListSheet(
-            chapters = uiState.chapters,
-            currentPosition = uiState.currentPosition,
-            onChapterSelect = { index ->
-                viewModel.seekToChapter(index)
-                showChapterSheet = false
-            },
-            onDismiss = { showChapterSheet = false }
-        )
-    }
+
 }

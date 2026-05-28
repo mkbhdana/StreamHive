@@ -71,8 +71,6 @@ data class PlayerUiState(
     val audioTracks: List<TrackInfo> = emptyList(),
     val subtitleTracks: List<TrackInfo> = emptyList(),
 
-    // Chapter info
-    val chapters: List<com.mkbhdana.streamhive.player.ui.ChapterInfo> = emptyList(),
 
     // Gesture settings
     val gestureSeekEnabled: Boolean = true,
@@ -342,9 +340,7 @@ class PlayerViewModel @AssistedInject constructor(
                 isPlaying = false,
                 error = null,
                 showControls = false,
-                currentPosition = 0L,
-                bufferedPercentage = 0,
-                chapters = emptyList() // clear chapters for new file
+                bufferedPercentage = 0
             ) 
         }
         
@@ -503,7 +499,7 @@ class PlayerViewModel @AssistedInject constructor(
                                 pendingSeekMs = 0L
                             }
                             updateTrackInfo()
-                            extractChapters()
+
                         }
                     }
 
@@ -571,7 +567,7 @@ class PlayerViewModel @AssistedInject constructor(
 
                     override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
                         super.onTimelineChanged(timeline, reason)
-                        extractChapters()
+
                     }
                 })
 
@@ -837,74 +833,6 @@ class PlayerViewModel @AssistedInject constructor(
             ?.takeIf { it.isNotBlank() }
     }
 
-    private fun extractChapters() {
-        val player = _player ?: return
-
-        try {
-            val timeline = player.currentTimeline
-            if (timeline.windowCount > 0) {
-                val window = androidx.media3.common.Timeline.Window()
-                timeline.getWindow(0, window)
-                
-                // Fast path: if chapters are already populated
-                if (_uiState.value.chapters.isNotEmpty()) return
-                
-                val chapters = mutableListOf<com.mkbhdana.streamhive.player.ui.ChapterInfo>()
-                val mediaItem = window.mediaItem
-                val extras = mediaItem.mediaMetadata.extras
-
-                // ExoPlayer exposes embedded chapters through MediaMetadata extras (matroska/mkv)
-                // For formats without embedded chapters, this list will be empty
-                if (extras != null) {
-                    val chapterCount = extras.getInt("chapter_count", 0)
-                    for (i in 0 until chapterCount) {
-                        val title = extras.getString("chapter_title_$i") ?: "Chapter ${i + 1}"
-                        val startMs = extras.getLong("chapter_start_$i", 0L)
-                        val endMs = extras.getLong("chapter_end_$i", 0L)
-                        chapters.add(com.mkbhdana.streamhive.player.ui.ChapterInfo(title, startMs, endMs))
-                    }
-                }
-                
-                // Virtual Chapters Fallback removed
-                
-                if (chapters.isNotEmpty()) {
-                    _uiState.update { it.copy(chapters = chapters) }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("PlayerVM", "Chapter extraction failed: ${e.message}")
-        }
-    }
-
-    fun seekToChapter(index: Int) {
-        val chapters = _uiState.value.chapters
-        if (index in chapters.indices) {
-            seekTo(chapters[index].startMs)
-        }
-    }
-
-    fun seekToNextChapter() {
-        val chapters = _uiState.value.chapters
-        val currentPos = _player?.currentPosition ?: return
-        val nextChapter = chapters.firstOrNull { it.startMs > currentPos + 1000 }
-        if (nextChapter != null) {
-            seekTo(nextChapter.startMs)
-        }
-    }
-
-    fun seekToPreviousChapter() {
-        val chapters = _uiState.value.chapters
-        val currentPos = _player?.currentPosition ?: return
-        // Go to start of current chapter if > 3s in, else previous chapter
-        val currentIdx = chapters.indexOfLast { it.startMs <= currentPos }
-        if (currentIdx >= 0) {
-            if (currentPos - chapters[currentIdx].startMs > 3000 || currentIdx == 0) {
-                seekTo(chapters[currentIdx].startMs)
-            } else {
-                seekTo(chapters[currentIdx - 1].startMs)
-            }
-        }
-    }
 
     fun togglePlayPause() {
         _player?.let { player ->
