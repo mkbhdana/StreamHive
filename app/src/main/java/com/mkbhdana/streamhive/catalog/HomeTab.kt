@@ -116,8 +116,8 @@ fun HomeTab(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 80.dp), // Extra padding to avoid overlay
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            contentPadding = PaddingValues(bottom = 100.dp), // Extra padding to avoid overlay
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
 
         // Recently added hero
@@ -397,7 +397,8 @@ private fun HeroBackdrop(
                         scaleX = posterScale
                         scaleY = posterScale
                     },
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter
             )
         } else {
             Box(
@@ -994,14 +995,14 @@ fun TmdbHorizontalSection(
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(files, key = { it.id }) { file ->
                 TmdbPosterCard(
                     file = file,
                     metadata = tmdbMetadata[file.id],
                     onClick = { onNavigateToInfo(file.id, mediaType) },
-                    modifier = Modifier.width(130.dp)
+                    modifier = Modifier.width(104.dp)
                 )
             }
         }
@@ -1024,9 +1025,9 @@ fun TmdbPosterCard(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            containerColor = Color.Transparent
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column {
             // Poster area
@@ -1073,76 +1074,17 @@ fun TmdbPosterCard(
                         )
                     }
                 }
-
-                // Movie/Series tag badge
-                metadata?.let { meta ->
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                if (meta.mediaType == "tv") Color(0xFF2196F3).copy(alpha = 0.9f)
-                                else Color(0xFFE91E63).copy(alpha = 0.9f)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (meta.mediaType == "tv") "TV" else "Movie",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Rating badge
-                metadata?.rating?.let { rating ->
-                    if (rating > 0) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(6.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    when {
-                                        rating >= 7f -> Color(0xFF4CAF50)
-                                        rating >= 5f -> Color(0xFFFF9800)
-                                        else -> Color(0xFFF44336)
-                                    }.copy(alpha = 0.9f)
-                                )
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Star, null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(Modifier.width(2.dp))
-                                Text(
-                                    text = "%.1f".format(rating),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
             }
 
-            // Title + Year
             Column(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .height(48.dp)
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = metadata?.title ?: file.name,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Medium
                 )
@@ -1376,7 +1318,7 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                     ShimmerBox(Modifier.width(140.dp).height(20.dp))
                 }
                 Spacer(Modifier.height(12.dp))
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(10) {
                         Card(
                             modifier = Modifier.width(330.dp).height(116.dp),
@@ -1409,16 +1351,16 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                     ShimmerBox(Modifier.width(100.dp).height(20.dp))
                 }
                 Spacer(Modifier.height(12.dp))
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(10) {
                         Card(
-                            modifier = Modifier.width(130.dp),
+                            modifier = Modifier.width(104.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
                         ) {
                             Column {
-                                ShimmerBox(Modifier.fillMaxWidth().aspectRatio(2f / 3f))
-                                Column(modifier = Modifier.padding(8.dp)) {
+                                ShimmerBox(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)))
+                                Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
                                     ShimmerBox(Modifier.fillMaxWidth().height(14.dp))
                                     Spacer(Modifier.height(4.dp))
                                     ShimmerBox(Modifier.fillMaxWidth(0.5f).height(10.dp))

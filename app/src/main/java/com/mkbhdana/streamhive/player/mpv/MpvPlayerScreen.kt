@@ -134,8 +134,8 @@ fun MpvPlayerScreen(
     PlayerWindowMode(restoreOnDispose = !keepWindowModeForHandoff)
 
     // Auto-hide controls (paused while a panel is open)
-    LaunchedEffect(uiState.showControls, uiState.isPlaying, controlsInteractionActive) {
-        if (uiState.showControls && uiState.isPlaying && !uiState.isLocked && !controlsInteractionActive) {
+    LaunchedEffect(uiState.showControls, uiState.isPlaying, uiState.isLocked, controlsInteractionActive) {
+        if (uiState.showControls && uiState.isPlaying && !controlsInteractionActive) {
             delay(8000)
             viewModel.hideControls()
         }

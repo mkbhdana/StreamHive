@@ -23,6 +23,7 @@ import com.mkbhdana.streamhive.navigation.Routes
 fun SettingsScreen(
     onBack: () -> Unit,
     onNavigate: (String) -> Unit,
+    onLogout: () -> Unit,
     viewModel: SettingsViewModel
 ) {
     val state = viewModel.uiState
@@ -48,7 +49,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -157,7 +158,22 @@ fun SettingsScreen(
                 }
             }
 
-            item { Spacer(Modifier.height(32.dp)) }
+            item { SettingsSectionHeader(Icons.Default.AccountCircle, "Account") }
+            item {
+                SettingsCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onLogout)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Log Out", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
         }
     }
 }

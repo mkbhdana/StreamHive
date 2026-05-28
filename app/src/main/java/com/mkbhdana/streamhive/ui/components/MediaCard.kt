@@ -103,7 +103,7 @@ fun MediaCard(
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
-                                    .padding(8.dp)
+                                    .padding(4.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(
                                         when {
@@ -112,7 +112,7 @@ fun MediaCard(
                                             else -> Color(0xFFF44336)
                                         }.copy(alpha = 0.9f)
                                     )
-                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
@@ -184,7 +184,7 @@ fun MediaCard(
                                 Icons.Default.PlayCircleFilled,
                                 contentDescription = "Play",
                                 tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(40.dp)
+                                modifier = Modifier.size(32.dp)
                             )
                         }
                     }
@@ -195,10 +195,10 @@ fun MediaCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(8.dp)
+                            .padding(4.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color.Black.copy(alpha = 0.7f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = FileUtils.formatDuration(file.videoDurationMs),
@@ -219,10 +219,10 @@ fun MediaCard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(8.dp)
+                            .padding(4.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = resolution,

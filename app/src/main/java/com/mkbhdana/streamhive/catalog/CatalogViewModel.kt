@@ -286,6 +286,16 @@ class CatalogViewModel @Inject constructor(
         loadFiles(drive.id, null)
     }
 
+    fun clearSelectedDrive() {
+        _uiState.update {
+            it.copy(
+                selectedDrive = null,
+                folderStack = emptyList(),
+                files = emptyList()
+            )
+        }
+    }
+
     fun openFolder(folderId: String, folderName: String) {
         if (_uiState.value.isNavigating) return
         val currentDrive = _uiState.value.selectedDrive ?: return

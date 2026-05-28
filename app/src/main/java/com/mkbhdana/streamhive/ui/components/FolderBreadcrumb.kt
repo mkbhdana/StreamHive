@@ -26,6 +26,7 @@ fun FolderBreadcrumb(
     folderStack: List<FolderInfo>,
     onNavigateToRoot: () -> Unit,
     onNavigateToIndex: (Int) -> Unit,
+    onNavigateToHome: (() -> Unit)? = null,
     isLoading: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -39,7 +40,7 @@ fun FolderBreadcrumb(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 2.dp),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         tonalElevation = 2.dp
@@ -47,10 +48,27 @@ fun FolderBreadcrumb(
         Row(
             modifier = Modifier
                 .horizontalScroll(scrollState)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Home / root
+            // Very root home
+            if (onNavigateToHome != null) {
+                BreadcrumbChip(
+                    label = "All Drives",
+                    isActive = false,
+                    isLoading = false,
+                    onClick = onNavigateToHome,
+                    showHomeIcon = true
+                )
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Home / root (Drive)
             BreadcrumbChip(
                 label = driveName,
                 isActive = folderStack.isEmpty(),
@@ -58,7 +76,7 @@ fun FolderBreadcrumb(
                 onClick = {
                     if (!isLoading) onNavigateToRoot()
                 },
-                showHomeIcon = true
+                showHomeIcon = onNavigateToHome == null
             )
 
             // Folder stack

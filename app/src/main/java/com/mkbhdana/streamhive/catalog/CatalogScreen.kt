@@ -24,6 +24,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -339,16 +340,6 @@ fun FoldersTab(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Drive selector
-        if (uiState.sharedDrives.isNotEmpty()) {
-            DriveSelector(
-                drives = uiState.sharedDrives,
-                selectedDrive = uiState.selectedDrive,
-                onDriveSelected = { viewModel.selectDrive(it) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
-
         // Breadcrumb
         if (uiState.selectedDrive != null) {
             FolderBreadcrumb(
@@ -356,6 +347,7 @@ fun FoldersTab(
                 folderStack = uiState.folderStack,
                 onNavigateToRoot = viewModel::navigateToRoot,
                 onNavigateToIndex = viewModel::navigateToFolderIndex,
+                onNavigateToHome = viewModel::clearSelectedDrive,
                 isLoading = uiState.isNavigating
             )
         }
@@ -373,30 +365,32 @@ fun FoldersTab(
         ErrorBanner(uiState.error, viewModel::clearError)
 
         // Folder-only external playback toggle.
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = uiState.playFolderFilesExternally,
-                onClick = viewModel::toggleFolderExternalPlayback,
-                label = {
-                    Text("External", style = MaterialTheme.typography.labelSmall)
-                },
-                leadingIcon = {
-                    Icon(Icons.Default.SmartDisplay, null, Modifier.size(16.dp))
-                }
-            )
-            AssistChip(
-                onClick = viewModel::refresh,
-                label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
-                leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
-            )
-            AssistChip(
-                onClick = { viewModel.toggleGridView() },
-                label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
-                leadingIcon = { Icon(if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
-            )
+        if (uiState.selectedDrive != null) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = uiState.playFolderFilesExternally,
+                    onClick = viewModel::toggleFolderExternalPlayback,
+                    label = {
+                        Text("External", style = MaterialTheme.typography.labelSmall)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.SmartDisplay, null, Modifier.size(16.dp))
+                    }
+                )
+                AssistChip(
+                    onClick = viewModel::refresh,
+                    label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
+                )
+                AssistChip(
+                    onClick = { viewModel.toggleGridView() },
+                    label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = { Icon(if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
+                )
+            }
         }
 
         // Files grid - wrapped in PullToRefreshBox (same logic as Refresh chip)
@@ -405,83 +399,136 @@ fun FoldersTab(
             onRefresh = { viewModel.refresh() },
             modifier = Modifier.fillMaxSize()
         ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            when {
-                // Offline with no cached files → centered "No Connectivity"
-                uiState.isOffline && uiState.files.isEmpty() && !uiState.isLoading -> {
-                    NoConnectivityMessage(modifier = Modifier.align(Alignment.Center))
-                }
-                uiState.isLoading && uiState.files.isEmpty() -> {
-                    LoadingIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        message = "Loading catalog..."
-                    )
-                }
-                uiState.files.isEmpty() && !uiState.isLoading -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.VideoLibrary, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "No video files in this folder",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    // Offline with no cached files → centered "No Connectivity"
+                    uiState.isOffline && uiState.files.isEmpty() && uiState.selectedDrive != null && !uiState.isLoading -> {
+                        NoConnectivityMessage(modifier = Modifier.align(Alignment.Center))
+                    }
+                    uiState.isLoading && uiState.files.isEmpty() && uiState.selectedDrive != null -> {
+                        LoadingIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            message = "Loading catalog..."
                         )
                     }
-                }
-                else -> {
-                    if (isGridView) {
+                    uiState.selectedDrive == null -> {
+                        // Show Drives as Folders
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 160.dp),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            columns = GridCells.Adaptive(minSize = 100.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            items(uiState.files, key = { it.id }) { file ->
-                                MediaCard(
-                                    file = file,
-                                    tmdbMetadata = null,
-                                    onClick = {
-                                        if (file.isFolder) {
-                                            viewModel.openFolder(file.id, file.name)
-                                        } else {
-                                            onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
-                                        }
-                                    },
-                                    onLongClick = { tooltipName = file.name }
+                            items(uiState.sharedDrives, key = { it.id }) { drive ->
+                                FolderCard(
+                                    name = drive.name,
+                                    onClick = { viewModel.selectDrive(drive) }
                                 )
                             }
                         }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    }
+                    uiState.files.isEmpty() && !uiState.isLoading -> {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            items(uiState.files, key = { it.id }) { file ->
-                                SearchResultItem(
-                                    file = file,
-                                    onClick = {
-                                        if (file.isFolder) {
-                                            viewModel.openFolder(file.id, file.name)
-                                        } else {
-                                            onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
-                                        }
-                                    },
-                                    onLongClick = { tooltipName = file.name }
-                                )
+                            Icon(
+                                Icons.Default.VideoLibrary, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "No video files in this folder",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    else -> {
+                        if (isGridView) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 100.dp),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(uiState.files, key = { it.id }) { file ->
+                                    if (file.isFolder) {
+                                        FolderCard(
+                                            name = file.name,
+                                            onClick = { viewModel.openFolder(file.id, file.name) },
+                                            onLongClick = { tooltipName = file.name }
+                                        )
+                                    } else {
+                                        MediaCard(
+                                            file = file,
+                                            tmdbMetadata = null,
+                                            onClick = {
+                                                onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
+                                            },
+                                            onLongClick = { tooltipName = file.name }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(uiState.files, key = { it.id }) { file ->
+                                    SearchResultItem(
+                                        file = file,
+                                        onClick = {
+                                            if (file.isFolder) {
+                                                viewModel.openFolder(file.id, file.name)
+                                            } else {
+                                                onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
+                                            }
+                                        },
+                                        onLongClick = { tooltipName = file.name }
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
         } // end PullToRefreshBox
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FolderCard(
+    name: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: () -> Unit = {}
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            Icons.Default.Folder,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(72.dp)
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }
 

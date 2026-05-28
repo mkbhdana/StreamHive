@@ -113,7 +113,7 @@ fun SearchTab(
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -140,79 +140,160 @@ fun SearchTab(
             
             // Hide Search Bar when in See All mode
             if (selectedSection == null) {
-                // Search Bar
-                OutlinedTextField(
-                    value = state.searchQuery,
-                    onValueChange = viewModel::updateSearchQuery,
-                    placeholder = {
-                        Text(
-                            if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else "Search current drive...",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(searchFocusRequester)
-                        .padding(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        cursorColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    trailingIcon = {
-                        if (state.searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                Icon(Icons.Default.Clear, "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                )
+                val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-                // Loading Indicator
-                if (state.isSearchLoading) {
-                    LinearProgressIndicator(
+                if (isLandscape) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(2.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                            .widthIn(max = 800.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = state.searchQuery,
+                            onValueChange = viewModel::updateSearchQuery,
+                            placeholder = {
+                                Text(
+                                    if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else "Search current drive...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(searchFocusRequester),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary)
+                            },
+                            trailingIcon = {
+                                if (state.searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                        Icon(Icons.Default.Clear, "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = state.searchMode == SearchMode.CURRENT_DRIVE,
+                                onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
+                                label = { Text("Current Drive") },
+                                leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = state.searchMode == SearchMode.ALL_DRIVES,
+                                onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
+                                label = { Text("All Drives") },
+                                leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
+                    }
+                    if (state.isSearchLoading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
                 } else {
-                    Spacer(modifier = Modifier.height(2.dp))
-                }
+                    // Portrait Mode Search Layout
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = viewModel::updateSearchQuery,
+                        placeholder = {
+                            Text(
+                                if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else "Search current drive...",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 600.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .focusRequester(searchFocusRequester)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary)
+                        },
+                        trailingIcon = {
+                            if (state.searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                    Icon(Icons.Default.Clear, "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    )
 
-                // Filters
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = state.searchMode == SearchMode.CURRENT_DRIVE,
-                            onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
-                            label = { Text("Current Drive") },
-                            leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
-                                { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                            } else null
+                    // Loading Indicator
+                    if (state.isSearchLoading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
-                        FilterChip(
-                            selected = state.searchMode == SearchMode.ALL_DRIVES,
-                            onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
-                            label = { Text("All Drives") },
-                            leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
-                                { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                            } else null
-                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+
+                    // Filters
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 600.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = state.searchMode == SearchMode.CURRENT_DRIVE,
+                                onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
+                                label = { Text("Current Drive") },
+                                leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = state.searchMode == SearchMode.ALL_DRIVES,
+                                onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
+                                label = { Text("All Drives") },
+                                leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
                     }
                 }
             } else {
@@ -288,7 +369,7 @@ fun SearchTab(
                             // TMDB is always grid
                             LazyVerticalGrid(
                                 columns = GridCells.Adaptive(minSize = 130.dp),
-                                contentPadding = PaddingValues(16.dp),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -307,7 +388,7 @@ fun SearchTab(
                             if (isGridView) {
                                 LazyVerticalGrid(
                                     columns = GridCells.Adaptive(minSize = 160.dp),
-                                    contentPadding = PaddingValues(16.dp),
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
@@ -326,7 +407,7 @@ fun SearchTab(
                                 }
                             } else {
                                 LazyColumn(
-                                    contentPadding = PaddingValues(16.dp),
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     items(itemsToList, key = { it.id }) { file ->
@@ -346,7 +427,7 @@ fun SearchTab(
                     } else {
                         // Main Search View (3 horizontal sections)
                         LazyColumn(
-                            contentPadding = PaddingValues(vertical = 8.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
                             verticalArrangement = Arrangement.spacedBy(24.dp)
                         ) {
                             if (tmdbResults.isNotEmpty()) {
@@ -488,7 +569,7 @@ private fun HorizontalSearchResultSection(
         }
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(files, key = { it.id }) { file ->

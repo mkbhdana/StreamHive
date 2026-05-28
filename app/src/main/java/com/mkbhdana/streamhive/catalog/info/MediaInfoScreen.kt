@@ -72,7 +72,8 @@ fun MediaInfoScreen(
                         model = meta.backdropPath,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter
                     )
                 }
                 Box(

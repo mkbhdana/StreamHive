@@ -12,16 +12,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
-import androidx.compose.material3.adaptive.navigationsuite.ExperimentalMaterial3AdaptiveNavigationSuiteApi
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScope
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.media3.common.util.UnstableApi
@@ -65,7 +67,8 @@ private data class NavItem(
 
 private val TOP_LEVEL_ITEMS = listOf(
     NavItem(HomeRoute, Icons.Default.Home, "Home"),
-    NavItem(FoldersRoute, Icons.Default.Folder, "Folders"),
+    NavItem(FoldersRoute, Icons.Default.VideoLibrary, "Library"),
+    NavItem(SettingsRoute, Icons.Default.Settings, "Settings"),
     NavItem(SearchRoute, Icons.Default.Search, "Search")
 )
 
@@ -138,7 +141,7 @@ fun AppNavigation() {
     }
 }
 
-@OptIn(ExperimentalMaterial3AdaptiveNavigationSuiteApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @UnstableApi
 @Composable
 private fun MainScreen(
@@ -164,8 +167,14 @@ private fun MainScreen(
 
     BackHandler(enabled = isTopLevelRoute) {
         val currentKey = topLevelBackStack.topLevelKey
-        if (currentKey == FoldersRoute && catalogState.folderStack.isNotEmpty()) {
-            catalogViewModel.navigateBack()
+        if (currentKey == FoldersRoute) {
+            if (catalogState.folderStack.isNotEmpty()) {
+                catalogViewModel.navigateBack()
+            } else if (catalogState.selectedDrive != null) {
+                catalogViewModel.clearSelectedDrive()
+            } else {
+                topLevelBackStack.addTopLevel(HomeRoute)
+            }
         } else if (currentKey != HomeRoute) {
             topLevelBackStack.addTopLevel(HomeRoute)
         } else {
@@ -175,46 +184,90 @@ private fun MainScreen(
 
     // Exit dialog
     if (showExitDialog) {
-        AlertDialog(
-            onDismissRequest = { showExitDialog = false },
-            icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Exit App") },
-            text = { Text("Are you sure you want to exit?") },
-            confirmButton = {
-                TextButton(onClick = { activity?.finish() }) {
-                    Text("Exit", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExitDialog = false }) {
-                    Text("Cancel")
+        Dialog(onDismissRequest = { showExitDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("Exit App", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Are you sure you want to exit?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(
+                            onClick = { showExitDialog = false },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Cancel")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = { activity?.finish() },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Exit", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
             }
-        )
+        }
     }
 
     // Logout dialog
     if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Logout") },
-            text = { Text("Are you sure you want to log out of StreamHive? You will need to sign in again.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showLogoutDialog = false
-                    catalogViewModel.logout()
-                    onLogout()
-                }) {
-                    Text("Logout", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Cancel")
+        Dialog(onDismissRequest = { showLogoutDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("Logout", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Are you sure you want to log out of StreamHive? You will need to sign in again.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(
+                            onClick = { showLogoutDialog = false },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Cancel")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                showLogoutDialog = false
+                                catalogViewModel.logout()
+                                onLogout()
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Logout", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
             }
-        )
+        }
     }
 
     // Playback launcher helper
@@ -273,79 +326,73 @@ private fun MainScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isImeVisible = WindowInsets.isImeVisible
+    val showTopBar = !(isLandscape && isImeVisible && topLevelBackStack.topLevelKey == SearchRoute)
+
     // Main UI: NavigationSuiteScaffold wraps NavDisplay
     if (isTopLevelRoute) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painter = androidx.compose.ui.res.painterResource(id = com.mkbhdana.streamhive.R.drawable.ic_launcher_foreground),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "StreamHive",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    actions = {
-                        if (topLevelBackStack.topLevelKey == HomeRoute) {
-                            val scope = rememberCoroutineScope()
-                            val rotation = remember { Animatable(0f) }
-                            IconButton(onClick = {
-                                if (!rotation.isRunning) {
-                                    scope.launch {
-                                        rotation.snapTo(0f)
-                                        rotation.animateTo(
-                                            targetValue = 360f,
-                                            animationSpec = tween(500, easing = LinearEasing)
-                                        )
-                                    }
-                                }
-                                catalogViewModel.refreshHomeContent(fromSwipe = false)
-                            }) {
+                if (showTopBar) {
+                    val titleText = when (topLevelBackStack.topLevelKey) {
+                        SearchRoute -> "Search"
+                        FoldersRoute -> "Library"
+                        SettingsRoute -> "Settings"
+                        else -> "StreamHive"
+                    }
+                    val isHome = topLevelBackStack.topLevelKey == HomeRoute
+                    
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.Refresh, "Refresh",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.rotate(rotation.value)
+                                    painter = androidx.compose.ui.res.painterResource(id = com.mkbhdana.streamhive.R.drawable.ic_launcher_foreground),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    titleText,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
-                        }
-                        IconButton(onClick = { topLevelBackStack.add(SettingsRoute) }) {
-                            Icon(Icons.Default.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                        IconButton(onClick = { showLogoutDialog = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = appBarColor
+                        },
+                        actions = {
+                            if (isHome) {
+                                val scope = rememberCoroutineScope()
+                                val rotation = remember { Animatable(0f) }
+                                IconButton(onClick = {
+                                    if (!rotation.isRunning) {
+                                        scope.launch {
+                                            rotation.snapTo(0f)
+                                            rotation.animateTo(
+                                                targetValue = 360f,
+                                                animationSpec = tween(500, easing = LinearEasing)
+                                            )
+                                        }
+                                    }
+                                    catalogViewModel.refreshHomeContent(fromSwipe = false)
+                                }) {
+                                    Icon(
+                                        Icons.Default.Refresh, "Refresh",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.rotate(rotation.value)
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = appBarColor
+                        )
                     )
-                )
+                }
             }
         ) { topBarPadding ->
-            NavigationSuiteScaffold(
-                layoutType = NavigationSuiteType.NavigationBar,
-                navigationSuiteItems = {
-                    TOP_LEVEL_ITEMS.forEach { navItem ->
-                        item(
-                            selected = navItem.route == topLevelBackStack.topLevelKey,
-                            onClick = {
-                                if (navItem.route == SearchRoute) searchFocusRequest++
-                                topLevelBackStack.addTopLevel(navItem.route)
-                            },
-                            icon = { Icon(navItem.icon, navItem.label) },
-                            label = { Text(navItem.label) }
-                        )
-                    }
-                }
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 // Tab content — rendered directly (not via NavDisplay) since these share ViewModel
                 val scope = rememberCoroutineScope()
                 when (topLevelBackStack.topLevelKey) {
@@ -405,8 +452,69 @@ private fun MainScreen(
                             onNavigateToInfo = { driveFileId, mediaType ->
                                 topLevelBackStack.add(MediaInfoRoute(driveFileId, mediaType))
                             },
-                            modifier = Modifier.padding(top = topBarPadding.calculateTopPadding())
+                            modifier = Modifier
+                                .padding(top = topBarPadding.calculateTopPadding())
+                                .imePadding()
                         )
+                    }
+                    SettingsRoute -> {
+                        SettingsScreen(
+                            onBack = { topLevelBackStack.addTopLevel(HomeRoute) },
+                            onNavigate = { route -> 
+                                when (route) {
+                                    "settings/player" -> topLevelBackStack.add(SettingsPlayerRoute)
+                                    "settings/gestures" -> topLevelBackStack.add(SettingsGesturesRoute)
+                                    "settings/subtitles" -> topLevelBackStack.add(SettingsSubtitlesRoute)
+                                    "settings/tmdb" -> topLevelBackStack.add(SettingsTmdbRoute)
+                                    "settings/storage" -> topLevelBackStack.add(SettingsStorageRoute)
+                                }
+                            },
+                            onLogout = { showLogoutDialog = true },
+                            viewModel = hiltViewModel()
+                        )
+                    }
+                }
+
+                // Floating Bottom Nav Bar
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .padding(horizontal = 24.dp)
+                        .width(300.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TOP_LEVEL_ITEMS.forEach { navItem ->
+                        val selected = navItem.route == topLevelBackStack.topLevelKey
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        if (navItem.route == SearchRoute) searchFocusRequest++
+                                        topLevelBackStack.addTopLevel(navItem.route)
+                                    }
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = navItem.icon,
+                                contentDescription = navItem.label,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = navItem.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -420,54 +528,6 @@ private fun MainScreen(
                 rememberSaveableStateHolderNavEntryDecorator(),
                 rememberViewModelStoreNavEntryDecorator()
             ),
-            transitionSpec = {
-                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
-                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
-
-                if (targetIsPlayer || initialIsPlayer) {
-                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
-                } else {
-                    slideInHorizontally(
-                        initialOffsetX = { it },
-                        animationSpec = tween(300)
-                    ) togetherWith slideOutHorizontally(
-                        targetOffsetX = { -it / 3 },
-                        animationSpec = tween(300)
-                    )
-                }
-            },
-            popTransitionSpec = {
-                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
-                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
-
-                if (targetIsPlayer || initialIsPlayer) {
-                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
-                } else {
-                    slideInHorizontally(
-                        initialOffsetX = { -it / 3 },
-                        animationSpec = tween(300)
-                    ) togetherWith slideOutHorizontally(
-                        targetOffsetX = { it },
-                        animationSpec = tween(300)
-                    )
-                }
-            },
-            predictivePopTransitionSpec = {
-                val targetIsPlayer = targetState is PlayerRoute || targetState is MpvPlayerRoute
-                val initialIsPlayer = initialState is PlayerRoute || initialState is MpvPlayerRoute
-
-                if (targetIsPlayer || initialIsPlayer) {
-                    fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
-                } else {
-                    slideInHorizontally(
-                        initialOffsetX = { -it / 3 },
-                        animationSpec = tween(300)
-                    ) togetherWith slideOutHorizontally(
-                        targetOffsetX = { it },
-                        animationSpec = tween(300)
-                    )
-                }
-            },
             entryProvider = entryProvider {
                 // These entries are only rendered when a child route is on top.
                 // The top-level tab entries (Home/Folders/Search) are rendered
@@ -477,22 +537,7 @@ private fun MainScreen(
                 entry<FoldersRoute> { /* Handled above */ }
                 entry<SearchRoute> { /* Handled above */ }
 
-                entry<SettingsRoute> {
-                    val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()
-                    SettingsScreen(
-                        onBack = { topLevelBackStack.removeLast() },
-                        onNavigate = { route ->
-                            when (route) {
-                                "settings/player" -> topLevelBackStack.add(SettingsPlayerRoute)
-                                "settings/gestures" -> topLevelBackStack.add(SettingsGesturesRoute)
-                                "settings/subtitles" -> topLevelBackStack.add(SettingsSubtitlesRoute)
-                                "settings/tmdb" -> topLevelBackStack.add(SettingsTmdbRoute)
-                                "settings/storage" -> topLevelBackStack.add(SettingsStorageRoute)
-                            }
-                        },
-                        viewModel = settingsVm
-                    )
-                }
+                entry<SettingsRoute> { /* Handled above */ }
 
                 entry<SettingsPlayerRoute> {
                     val settingsVm: com.mkbhdana.streamhive.settings.SettingsViewModel = hiltViewModel()

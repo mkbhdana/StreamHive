@@ -126,9 +126,9 @@ private fun SeeAllPosterCard(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            containerColor = Color.Transparent
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column {
             // Poster image
@@ -166,76 +166,17 @@ private fun SeeAllPosterCard(
                         )
                     }
                 }
-
-                // Type badge
-                metadata?.let { meta ->
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                if (meta.mediaType == "tv") Color(0xFF2196F3).copy(alpha = 0.9f)
-                                else Color(0xFFE91E63).copy(alpha = 0.9f)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (meta.mediaType == "tv") "TV" else "Movie",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Rating badge
-                metadata?.rating?.let { rating ->
-                    if (rating > 0) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(6.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    when {
-                                        rating >= 7f -> Color(0xFF4CAF50)
-                                        rating >= 5f -> Color(0xFFFF9800)
-                                        else -> Color(0xFFF44336)
-                                    }.copy(alpha = 0.9f)
-                                )
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Star, null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(Modifier.width(2.dp))
-                                Text(
-                                    text = "%.1f".format(rating),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
             }
 
-            // Title + Year
             Column(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .height(48.dp)
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = metadata?.title ?: file.name,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Medium
                 )
