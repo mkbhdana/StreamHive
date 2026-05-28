@@ -1035,7 +1035,7 @@ fun TmdbPosterCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 if (metadata?.posterPath != null) {
@@ -1359,7 +1359,7 @@ fun HomeSkeletonLoading(modifier: Modifier = Modifier) {
                             colors = CardDefaults.cardColors(containerColor = Color.Transparent)
                         ) {
                             Column {
-                                ShimmerBox(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)))
+                                ShimmerBox(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
                                 Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
                                     ShimmerBox(Modifier.fillMaxWidth().height(14.dp))
                                     Spacer(Modifier.height(4.dp))
