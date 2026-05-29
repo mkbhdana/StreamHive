@@ -155,6 +155,12 @@ private fun MainScreen(
     val catalogState by catalogViewModel.uiState.collectAsState()
 
     var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+    var isScopedSearchActive by rememberSaveable { mutableStateOf(false) }
+    var scopedSearchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+    val closeScopedSearch = {
+        isScopedSearchActive = false
+        catalogViewModel.clearScopedSearch()
+    }
 
     // Determine if the current route is a top-level tab (show nav bar) or child (hide nav bar)
     val currentRoute = topLevelBackStack.currentRoute
@@ -167,7 +173,9 @@ private fun MainScreen(
 
     BackHandler(enabled = isTopLevelRoute) {
         val currentKey = topLevelBackStack.topLevelKey
-        if (currentKey == FoldersRoute) {
+        if (isScopedSearchActive) {
+            closeScopedSearch()
+        } else if (currentKey == FoldersRoute) {
             if (catalogState.folderStack.isNotEmpty()) {
                 catalogViewModel.navigateBack()
             } else if (catalogState.selectedDrive != null) {
@@ -311,6 +319,9 @@ private fun MainScreen(
         if (topLevelBackStack.topLevelKey == HomeRoute) {
             catalogViewModel.refreshPreferences()
         }
+        if (topLevelBackStack.topLevelKey == SearchRoute) {
+            catalogViewModel.prepareGlobalSearch()
+        }
     }
     LaunchedEffect(Unit) {
         catalogViewModel.refreshPreferences()
@@ -338,7 +349,7 @@ private fun MainScreen(
                 if (showTopBar) {
                     val titleText = when (topLevelBackStack.topLevelKey) {
                         SearchRoute -> "Search"
-                        FoldersRoute -> "Library"
+                        FoldersRoute -> if (isScopedSearchActive) "Search" else "Library"
                         SettingsRoute -> "Settings"
                         else -> "StreamHive"
                     }
@@ -362,7 +373,11 @@ private fun MainScreen(
                             }
                         },
                         actions = {
-                            if (isHome) {
+                            if (isScopedSearchActive) {
+                                IconButton(onClick = closeScopedSearch) {
+                                    Icon(Icons.Default.Close, "Close search", tint = MaterialTheme.colorScheme.onSurface)
+                                }
+                            } else if (isHome) {
                                 val scope = rememberCoroutineScope()
                                 val rotation = remember { Animatable(0f) }
                                 IconButton(onClick = {
@@ -382,6 +397,14 @@ private fun MainScreen(
                                         tint = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.rotate(rotation.value)
                                     )
+                                }
+                            } else if (topLevelBackStack.topLevelKey == FoldersRoute && catalogState.selectedDrive != null) {
+                                IconButton(onClick = {
+                                    catalogViewModel.clearScopedSearch()
+                                    isScopedSearchActive = true
+                                    scopedSearchFocusRequest++
+                                }) {
+                                    Icon(Icons.Default.Search, "Search current folder", tint = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                         },
@@ -429,14 +452,30 @@ private fun MainScreen(
                         }
                     }
                     FoldersRoute -> {
-                        FoldersTab(
-                            uiState = catalogState,
-                            viewModel = catalogViewModel,
-                            onPlayFile = { fileId, fileName, engine ->
-                                launchPlayback(fileId, fileName, engine, null)
-                            },
-                            modifier = Modifier.padding(top = topBarPadding.calculateTopPadding())
-                        )
+                        if (isScopedSearchActive) {
+                            ScopedFolderSearchView(
+                                uiState = catalogState,
+                                viewModel = catalogViewModel,
+                                focusRequestSignal = scopedSearchFocusRequest,
+                                onPlayFile = { fileId, fileName, engine ->
+                                    launchPlayback(fileId, fileName, engine, null)
+                                },
+                                onFolderOpen = { folder ->
+                                    closeScopedSearch()
+                                    catalogViewModel.openFolder(folder.id, folder.name)
+                                },
+                                modifier = Modifier.padding(top = topBarPadding.calculateTopPadding())
+                            )
+                        } else {
+                            FoldersTab(
+                                uiState = catalogState,
+                                viewModel = catalogViewModel,
+                                onPlayFile = { fileId, fileName, engine ->
+                                    launchPlayback(fileId, fileName, engine, null)
+                                },
+                                modifier = Modifier.padding(top = topBarPadding.calculateTopPadding())
+                            )
+                        }
                     }
                     SearchRoute -> {
                         SearchTab(
@@ -447,7 +486,9 @@ private fun MainScreen(
                                 launchPlayback(fileId, fileName, engine, null)
                             },
                             onFolderNavigate = { folder ->
-                                catalogViewModel.openSearchFolder(folder.id, folder.name, folder.driveId)
+                                catalogViewModel.openFolderFromSearch(folder)
+                                closeScopedSearch()
+                                topLevelBackStack.addTopLevel(FoldersRoute)
                             },
                             onNavigateToInfo = { driveFileId, mediaType ->
                                 topLevelBackStack.add(MediaInfoRoute(driveFileId, mediaType))
@@ -497,7 +538,11 @@ private fun MainScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                     onClick = {
-                                        if (navItem.route == SearchRoute) searchFocusRequest++
+                                        closeScopedSearch()
+                                        if (navItem.route == SearchRoute) {
+                                            catalogViewModel.prepareGlobalSearch()
+                                            searchFocusRequest++
+                                        }
                                         topLevelBackStack.addTopLevel(navItem.route)
                                     }
                                 )

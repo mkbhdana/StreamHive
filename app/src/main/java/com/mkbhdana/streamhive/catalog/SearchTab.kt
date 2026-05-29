@@ -49,8 +49,6 @@ fun SearchTab(
     var selectedSection by remember { mutableStateOf<String?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val hasCurrentDriveScope = state.selectedDrive != null
-    val scopedSearchLabel = if (state.folderStack.isNotEmpty()) "Search current folder..." else "Search current drive..."
 
     LaunchedEffect(focusRequestSignal, selectedSection, state.searchFolderStack.isEmpty()) {
         if (selectedSection == null && state.searchFolderStack.isEmpty()) {
@@ -68,11 +66,7 @@ fun SearchTab(
         }
     }
 
-    val allResults = if (state.searchMode == SearchMode.ALL_DRIVES) {
-        state.searchResults.values.flatten()
-    } else {
-        state.currentDriveSearchResults
-    }
+    val allResults = state.searchResults.values.flatten()
 
     // TMDB results now always search the full catalog independent of drive boundaries
     val tmdbResults = state.tmdbSearchResults
@@ -199,7 +193,7 @@ fun SearchTab(
                             onValueChange = viewModel::updateSearchQuery,
                             placeholder = {
                                 Text(
-                                    if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else scopedSearchLabel,
+                                    "Search all drives...",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
@@ -229,23 +223,6 @@ fun SearchTab(
                         Spacer(Modifier.width(16.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
-                                selected = state.searchMode == SearchMode.CURRENT_DRIVE,
-                                onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
-                                enabled = hasCurrentDriveScope,
-                                label = { Text("Current Drive") },
-                                leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                                } else null
-                            )
-                            FilterChip(
-                                selected = state.searchMode == SearchMode.ALL_DRIVES,
-                                onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
-                                label = { Text("All Drives") },
-                                leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                                } else null
-                            )
-                            FilterChip(
                                 selected = state.isExactSearch,
                                 onClick = { viewModel.toggleExactSearch() },
                                 label = { Text("Exact") },
@@ -273,7 +250,7 @@ fun SearchTab(
                         onValueChange = viewModel::updateSearchQuery,
                         placeholder = {
                             Text(
-                                if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else scopedSearchLabel,
+                                "Search all drives...",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
@@ -328,23 +305,6 @@ fun SearchTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = state.searchMode == SearchMode.CURRENT_DRIVE,
-                                onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
-                                enabled = hasCurrentDriveScope,
-                                label = { Text("Current Drive") },
-                                leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                                } else null
-                            )
-                            FilterChip(
-                                selected = state.searchMode == SearchMode.ALL_DRIVES,
-                                onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
-                                label = { Text("All Drives") },
-                                leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
-                                } else null
-                            )
                             FilterChip(
                                 selected = state.isExactSearch,
                                 onClick = { viewModel.toggleExactSearch() },

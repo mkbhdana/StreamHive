@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -23,15 +24,20 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.ui.components.*
 import androidx.compose.ui.res.painterResource
@@ -41,9 +47,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 
 @OptIn(ExperimentalMaterial3Api::class)
 
@@ -66,6 +74,8 @@ fun CatalogScreen(
     // showSearch has been migrated to SearchTab
     var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0=Home, 1=Folders
     var searchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
+    var isScopedSearchActive by rememberSaveable { mutableStateOf(false) }
+    var scopedSearchFocusRequest by rememberSaveable { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val screenContext = LocalContext.current
     val homeListState = rememberLazyListState()
@@ -90,6 +100,9 @@ fun CatalogScreen(
         if (selectedTab == 0) {
             viewModel.refreshPreferences()
         }
+        if (selectedTab == 2) {
+            viewModel.prepareGlobalSearch()
+        }
     }
 
     // Re-read prefs every time screen recomposes (e.g. returning from Settings)
@@ -113,9 +126,15 @@ fun CatalogScreen(
     var showExitDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     val activity = (screenContext as? android.app.Activity)
+    val closeScopedSearch = {
+        isScopedSearchActive = false
+        viewModel.clearScopedSearch()
+    }
 
     BackHandler(enabled = true) {
-        if (uiState.folderStack.isNotEmpty() && selectedTab == 1) {
+        if (isScopedSearchActive) {
+            closeScopedSearch()
+        } else if (uiState.folderStack.isNotEmpty() && selectedTab == 1) {
             viewModel.navigateBack()
         } else if (selectedTab == 1 || selectedTab == 2) {
             selectedTab = 0
@@ -129,23 +148,35 @@ fun CatalogScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
+                    if (isScopedSearchActive) {
                         Text(
-                            "StreamHive",
+                            "Search",
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold
                         )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "StreamHive",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 },
                 actions = {
-                    if (selectedTab == 0) {
+                    if (isScopedSearchActive) {
+                        IconButton(onClick = closeScopedSearch) {
+                            Icon(Icons.Default.Close, "Close search", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                    } else if (selectedTab == 0) {
                         // Animated refresh button for Home tab
                         val scope = rememberCoroutineScope()
                         val rotation = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -169,11 +200,22 @@ fun CatalogScreen(
                             )
                         }
                     }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurface)
-                    }
-                    IconButton(onClick = { showLogoutDialog = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
+                    if (!isScopedSearchActive) {
+                        if (selectedTab == 1 && uiState.selectedDrive != null) {
+                            IconButton(onClick = {
+                                viewModel.clearScopedSearch()
+                                isScopedSearchActive = true
+                                scopedSearchFocusRequest++
+                            }) {
+                                Icon(Icons.Default.Search, "Search current folder", tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(Icons.Default.Settings, "Settings", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        IconButton(onClick = { showLogoutDialog = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -188,20 +230,27 @@ fun CatalogScreen(
             ) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
+                    onClick = {
+                        closeScopedSearch()
+                        selectedTab = 0
+                    },
                     icon = { Icon(Icons.Default.Home, "Home") },
                     label = { Text("Home") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
+                    onClick = {
+                        closeScopedSearch()
+                        selectedTab = 1
+                    },
                     icon = { Icon(Icons.Default.Folder, "Folders") },
                     label = { Text("Folders") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = {
-                        viewModel.prepareSearchForCurrentLibraryPath()
+                        closeScopedSearch()
+                        viewModel.prepareGlobalSearch()
                         selectedTab = 2
                         searchFocusRequest++
                     },
@@ -294,11 +343,24 @@ fun CatalogScreen(
                 }
                 1 -> {
                     Box(modifier = Modifier.padding(paddingValues)) {
-                        FoldersTab(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            onPlayFile = onPlayFile
-                        )
+                        if (isScopedSearchActive) {
+                            ScopedFolderSearchView(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                focusRequestSignal = scopedSearchFocusRequest,
+                                onPlayFile = onPlayFile,
+                                onFolderOpen = { folder ->
+                                    closeScopedSearch()
+                                    viewModel.openFolder(folder.id, folder.name)
+                                }
+                            )
+                        } else {
+                            FoldersTab(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                onPlayFile = onPlayFile
+                            )
+                        }
                     }
                 }
                 2 -> {
@@ -309,7 +371,8 @@ fun CatalogScreen(
                             focusRequestSignal = searchFocusRequest,
                             onPlayFile = onPlayFile,
                             onFolderNavigate = { folder ->
-                                viewModel.openSearchFolder(folder.id, folder.name, folder.driveId)
+                                viewModel.openFolderFromSearch(folder)
+                                selectedTab = 1
                             },
                             onNavigateToInfo = onNavigateToInfo
                         )
@@ -317,6 +380,289 @@ fun CatalogScreen(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+fun ScopedFolderSearchView(
+    uiState: CatalogUiState,
+    viewModel: CatalogViewModel,
+    focusRequestSignal: Int,
+    onPlayFile: (String, String, PlayerEngine) -> Unit,
+    onFolderOpen: (MediaFileEntity) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isGridView = uiState.isGridView
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var itemDetails by remember { mutableStateOf<Pair<String, Long?>?>(null) }
+    val folderResults = uiState.scopedSearchResults.filter { it.isFolder }
+    val fileResults = uiState.scopedSearchResults.filter { !it.isFolder }
+
+    LaunchedEffect(focusRequestSignal) {
+        delay(120)
+        searchFocusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    itemDetails?.let { details ->
+        val sizeText = FileUtils.formatFileSize(details.second).takeIf { it.isNotBlank() }
+        AlertDialog(
+            onDismissRequest = { itemDetails = null },
+            title = { Text("Details", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(details.first, style = MaterialTheme.typography.bodyMedium)
+                    if (sizeText != null) {
+                        Text(
+                            "Size: $sizeText",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { itemDetails = null }) { Text("OK") } },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        val currentScopeName = uiState.folderStack.lastOrNull()?.name
+            ?: uiState.selectedDrive?.name
+            ?: "current folder"
+
+        OutlinedTextField(
+            value = uiState.scopedSearchQuery,
+            onValueChange = viewModel::updateScopedSearchQuery,
+            placeholder = {
+                Text(
+                    "Search $currentScopeName...",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 600.dp)
+                .align(Alignment.CenterHorizontally)
+                .focusRequester(searchFocusRequester)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true,
+            leadingIcon = {
+                Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary)
+            },
+            trailingIcon = {
+                if (uiState.scopedSearchQuery.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.updateScopedSearchQuery("") }) {
+                        Icon(Icons.Default.Clear, "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 600.dp)
+                .align(Alignment.CenterHorizontally)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = uiState.isExactSearch,
+                onClick = viewModel::toggleScopedExactSearch,
+                label = { Text("Exact") },
+                leadingIcon = if (uiState.isExactSearch) {
+                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                } else null
+            )
+        }
+
+        if (uiState.isScopedSearchLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        } else {
+            Spacer(modifier = Modifier.height(2.dp))
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                !uiState.isScopedSearching -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ManageSearch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(72.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Search current folder",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+                uiState.isScopedSearchLoading && uiState.scopedSearchResults.isEmpty() -> {
+                    LoadingIndicator(
+                        modifier = Modifier.fillMaxSize(),
+                        message = "Searching..."
+                    )
+                }
+                uiState.scopedSearchResults.isEmpty() -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.SearchOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "No results found",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+                isGridView -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 110.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (folderResults.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                SearchSectionHeader(
+                                    title = "Folders",
+                                    icon = Icons.Default.Folder,
+                                    count = folderResults.size
+                                )
+                            }
+                            items(folderResults, key = { "folder-${it.id}" }) { file ->
+                                FolderCard(
+                                    name = file.name,
+                                    onClick = { onFolderOpen(file) },
+                                    onLongClick = { itemDetails = file.name to null }
+                                )
+                            }
+                        }
+
+                        if (fileResults.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                SearchSectionHeader(
+                                    title = "Files",
+                                    icon = Icons.Default.VideoFile,
+                                    count = fileResults.size
+                                )
+                            }
+                            items(fileResults, key = { "file-${it.id}" }) { file ->
+                                MediaCard(
+                                    file = file,
+                                    tmdbMetadata = null,
+                                    onClick = { onPlayFile(file.id, file.name, viewModel.getPreferredEngine()) },
+                                    onLongClick = { itemDetails = file.name to file.size }
+                                )
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (folderResults.isNotEmpty()) {
+                            item {
+                                SearchSectionHeader(
+                                    title = "Folders",
+                                    icon = Icons.Default.Folder,
+                                    count = folderResults.size
+                                )
+                            }
+                            items(folderResults, key = { "folder-${it.id}" }) { file ->
+                                SearchResultItem(
+                                    file = file,
+                                    onClick = { onFolderOpen(file) },
+                                    onLongClick = { itemDetails = file.name to null }
+                                )
+                            }
+                        }
+
+                        if (fileResults.isNotEmpty()) {
+                            item {
+                                SearchSectionHeader(
+                                    title = "Files",
+                                    icon = Icons.Default.VideoFile,
+                                    count = fileResults.size
+                                )
+                            }
+                        }
+                        items(fileResults, key = { "file-${it.id}" }) { file ->
+                            SearchResultItem(
+                                file = file,
+                                onClick = {
+                                    onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
+                                },
+                                onLongClick = { itemDetails = file.name to file.size }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchSectionHeader(
+    title: String,
+    icon: ImageVector,
+    count: Int
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            "$count items",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

@@ -84,6 +84,10 @@ data class CatalogUiState(
     val searchFolderStack: List<SearchFolderInfo> = emptyList(),
     val searchFolderFiles: List<MediaFileEntity> = emptyList(),
     val isSearchFolderLoading: Boolean = false,
+    val scopedSearchQuery: String = "",
+    val scopedSearchResults: List<MediaFileEntity> = emptyList(),
+    val isScopedSearchLoading: Boolean = false,
+    val isScopedSearching: Boolean = false,
 
     // Connectivity
     val isOffline: Boolean = false
@@ -337,6 +341,26 @@ class CatalogViewModel @Inject constructor(
             )
         }
         loadFiles(currentDrive.id, folderId)
+    }
+
+    fun openFolderFromSearch(file: MediaFileEntity) {
+        if (!file.isFolder || _uiState.value.isNavigating) return
+        val drive = _uiState.value.sharedDrives.find { it.id == file.driveId }
+            ?: SharedDrive(file.driveId, getDriveName(file.driveId))
+
+        appPreferences.selectedDriveId = drive.id
+        clearSearchFolderStack()
+        clearScopedSearch()
+        _uiState.update {
+            it.copy(
+                selectedDrive = drive,
+                folderStack = listOf(FolderInfo(file.id, file.name)),
+                files = emptyList(),
+                isNavigating = true,
+                searchMode = SearchMode.ALL_DRIVES
+            )
+        }
+        loadFiles(drive.id, file.id)
     }
 
     fun navigateBack(): Boolean {
@@ -833,6 +857,7 @@ class CatalogViewModel @Inject constructor(
     // ──── Search ────
 
     private var searchJob: kotlinx.coroutines.Job? = null
+    private var scopedSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query, isSearching = query.isNotBlank()) }
@@ -850,6 +875,52 @@ class CatalogViewModel @Inject constructor(
                     tmdbSearchResults = emptyList(),
                     isSearchLoading = false
                 )
+            }
+        }
+    }
+
+    fun updateScopedSearchQuery(query: String) {
+        _uiState.update {
+            it.copy(
+                scopedSearchQuery = query,
+                isScopedSearching = query.isNotBlank()
+            )
+        }
+        scopedSearchJob?.cancel()
+        if (query.isNotBlank()) {
+            scopedSearchJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(600)
+                performScopedSearch(query)
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    scopedSearchResults = emptyList(),
+                    isScopedSearchLoading = false
+                )
+            }
+        }
+    }
+
+    fun clearScopedSearch() {
+        scopedSearchJob?.cancel()
+        _uiState.update {
+            it.copy(
+                scopedSearchQuery = "",
+                scopedSearchResults = emptyList(),
+                isScopedSearchLoading = false,
+                isScopedSearching = false
+            )
+        }
+    }
+
+    fun toggleScopedExactSearch() {
+        _uiState.update { it.copy(isExactSearch = !it.isExactSearch) }
+        val query = _uiState.value.scopedSearchQuery
+        if (query.isNotBlank()) {
+            scopedSearchJob?.cancel()
+            scopedSearchJob = viewModelScope.launch {
+                performScopedSearch(query)
             }
         }
     }
@@ -965,6 +1036,56 @@ class CatalogViewModel @Inject constructor(
         }
     }
 
+    private suspend fun performScopedSearch(query: String) {
+        val state = _uiState.value
+        val driveId = state.selectedDrive?.id ?: run {
+            clearScopedSearch()
+            return
+        }
+        val folderId = state.folderStack.lastOrNull()?.id
+
+        _uiState.update {
+            it.copy(
+                scopedSearchResults = emptyList(),
+                isScopedSearchLoading = true
+            )
+        }
+
+        val apiResult = driveRepository.searchFilesViaApi(query, driveId, folderId)
+        if (apiResult.isSuccess) {
+            val results = apiResult.getOrNull()?.map { file ->
+                MediaFileEntity(
+                    id = file.id,
+                    name = file.name,
+                    mimeType = file.mimeType,
+                    size = file.size,
+                    thumbnailLink = file.thumbnailLink,
+                    modifiedTime = file.modifiedTime,
+                    createdTime = file.createdTime,
+                    parentId = file.parents?.firstOrNull() ?: folderId ?: driveId,
+                    driveId = driveId,
+                    fileExtension = file.fileExtension,
+                    isFolder = file.isFolder
+                )
+            } ?: emptyList()
+            val filtered = applyExactFilter(results, query)
+            _uiState.update {
+                it.copy(
+                    scopedSearchResults = filtered,
+                    isScopedSearchLoading = false
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    scopedSearchResults = emptyList(),
+                    isScopedSearchLoading = false,
+                    error = if (it.isOffline) null else apiResult.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
     fun setSearchMode(mode: SearchMode) {
         val resolvedMode = if (mode == SearchMode.CURRENT_DRIVE && _uiState.value.selectedDrive == null) {
             SearchMode.ALL_DRIVES
@@ -1054,6 +1175,36 @@ class CatalogViewModel @Inject constructor(
                     searchResults = emptyMap(),
                     currentDriveSearchResults = emptyList(),
                     tmdbSearchResults = emptyList()
+                )
+            }
+        }
+        val query = _uiState.value.searchQuery
+        if (query.isNotBlank()) {
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                performSearch(query)
+            }
+        }
+    }
+
+    fun prepareGlobalSearch() {
+        if (_uiState.value.searchMode != SearchMode.ALL_DRIVES) {
+            _uiState.update {
+                it.copy(
+                    searchMode = SearchMode.ALL_DRIVES,
+                    searchResults = emptyMap(),
+                    currentDriveSearchResults = emptyList(),
+                    searchFolderStack = emptyList(),
+                    searchFolderFiles = emptyList(),
+                    isSearchFolderLoading = false
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    searchFolderStack = emptyList(),
+                    searchFolderFiles = emptyList(),
+                    isSearchFolderLoading = false
                 )
             }
         }
