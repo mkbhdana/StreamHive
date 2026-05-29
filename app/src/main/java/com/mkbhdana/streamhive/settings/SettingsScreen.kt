@@ -29,6 +29,55 @@ fun SettingsScreen(
     val state = viewModel.uiState
     val screenContext = LocalContext.current
 
+    LaunchedEffect(state.updateStatusMessage) {
+        state.updateStatusMessage?.let { message ->
+            Toast.makeText(screenContext, message, Toast.LENGTH_LONG).show()
+            viewModel.clearUpdateStatusMessage()
+        }
+    }
+
+    state.availableUpdate?.let { update ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!state.isDownloadingUpdate) viewModel.dismissUpdatePrompt()
+            },
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Update Available") },
+            text = {
+                Text(
+                    buildString {
+                        append("StreamHive v${update.versionName} is available.")
+                        if (update.targetAbi.isNotBlank()) {
+                            append("\nAPK: ${update.targetAbi}")
+                        }
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !state.isDownloadingUpdate,
+                    onClick = viewModel::downloadAndInstallUpdate
+                ) {
+                    Text(
+                        if (state.isDownloadingUpdate) {
+                            "Downloading ${state.updateDownloadProgress}%"
+                        } else {
+                            "Download & Install"
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !state.isDownloadingUpdate,
+                    onClick = viewModel::dismissUpdatePrompt
+                ) {
+                    Text("Later")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
