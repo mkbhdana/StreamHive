@@ -149,6 +149,10 @@ class TmdbRepository @Inject constructor(
         return tmdbMetadataDao.getByDriveFileId(driveFileId)
     }
 
+    suspend fun searchLocalCatalog(query: String): List<TmdbMetadataEntity> {
+        return tmdbMetadataDao.searchByTitle(query)
+    }
+
     suspend fun getMetadataForFiles(driveFileIds: List<String>): List<TmdbMetadataEntity> {
         return tmdbMetadataDao.getByDriveFileIds(driveFileIds)
     }

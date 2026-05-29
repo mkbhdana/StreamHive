@@ -33,6 +33,66 @@ fun MediaCard(
     subtitle: String? = null,
     onLongClick: () -> Unit = {}
 ) {
+    if (file.isFolder) {
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top half
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(64.dp)
+                    )
+                }
+                
+                // Bottom half
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Column {
+                        Text(
+                            text = file.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (subtitle != null) {
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -48,33 +108,11 @@ fun MediaCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(if (tmdbMetadata?.posterPath != null && !file.isFolder) 2f / 3f else 16f / 9f)
+                    .aspectRatio(if (tmdbMetadata?.posterPath != null) 2f / 3f else 16f / 9f)
                     .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                if (file.isFolder) {
-                    // Folder icon with gradient
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Folder,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                    }
-                } else if (tmdbMetadata?.posterPath != null) {
+                if (tmdbMetadata?.posterPath != null) {
                     // TMDB poster
                     AsyncImage(
                         model = tmdbMetadata.posterPath,
@@ -291,12 +329,16 @@ fun MediaCard(
                             Text(
                                 text = FileUtils.formatFileSize(file.size),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
                         if (file.fileExtension != null) {
                             Box(
                                 modifier = Modifier
+                                    .widthIn(min = 36.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -305,7 +347,9 @@ fun MediaCard(
                                     text = file.fileExtension.uppercase(),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.tertiary,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }

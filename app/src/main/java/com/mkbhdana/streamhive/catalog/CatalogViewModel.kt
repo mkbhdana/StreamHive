@@ -51,14 +51,17 @@ data class CatalogUiState(
     val folderStack: List<FolderInfo> = emptyList(),
     val searchQuery: String = "",
     val isSearching: Boolean = false,
-    val searchMode: SearchMode = SearchMode.CURRENT_DRIVE,
+    val searchMode: SearchMode = SearchMode.ALL_DRIVES,
+    val isExactSearch: Boolean = false,
     val searchResults: Map<String, List<MediaFileEntity>> = emptyMap(), // driveId -> files for grouped search
-    val currentDriveSearchResults: List<MediaFileEntity> = emptyList(), // For CURRENT_DRIVE mode
+    val currentDriveSearchResults: List<MediaFileEntity> = emptyList(),
+    val tmdbSearchResults: List<MediaFileEntity> = emptyList(),
     val isSearchLoading: Boolean = false,
     val error: String? = null,
     val playFolderFilesExternally: Boolean = false,
     val isMpvAvailable: Boolean = false,
     val isNavigating: Boolean = false,
+    val isOAuthUser: Boolean = false,
 
     // TMDB
     val tmdbMetadata: Map<String, TmdbMetadataEntity> = emptyMap(),
@@ -147,8 +150,28 @@ class CatalogViewModel @Inject constructor(
         }
         observeNetworkConnectivity()
         appPreferences.registerOnSharedPreferenceChangeListener(prefChangeListener)
-        loadSharedDrives()
-        loadContinuePlaying()
+
+        viewModelScope.launch {
+            authRepository.authState.collect { state ->
+                if (state is com.mkbhdana.streamhive.data.model.AuthState.Unauthenticated) {
+                    val tmdbKeyExists = appPreferences.tmdbApiKey.isNotEmpty()
+                    _uiState.update { CatalogUiState(
+                        isMpvAvailable = appPreferences.isMpvAvailable(),
+                        hasTmdbSetup = tmdbKeyExists,
+                        tmdbConfiguredFolderIds = appPreferences.tmdbMovieFolders + appPreferences.tmdbTvFolders + appPreferences.tmdbRecentFolders,
+                        isGridView = appPreferences.isGridView,
+                        isHomeLoading = tmdbKeyExists
+                    ) }
+                    lastLoadedTimestamps.clear()
+                    continueMetadataFetchAttempted.clear()
+                } else if (state is com.mkbhdana.streamhive.data.model.AuthState.Authenticated) {
+                    val isOAuth = state.credentials is com.mkbhdana.streamhive.data.model.AuthCredentials.OAuth2Credentials
+                    _uiState.update { it.copy(isOAuthUser = isOAuth) }
+                    loadSharedDrives()
+                    loadContinuePlaying()
+                }
+            }
+        }
     }
 
     /**
@@ -241,18 +264,18 @@ class CatalogViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             driveRepository.listSharedDrives().fold(
                 onSuccess = { drives ->
-                    // Restore saved drive
-                    val savedDriveId = appPreferences.selectedDriveId
-                    val restoredDrive = if (savedDriveId.isNotEmpty()) {
-                        drives.find { it.id == savedDriveId }
-                    } else null
-                    val selectedDrive = restoredDrive ?: drives.firstOrNull()
+                    val selectedDrive = _uiState.value.selectedDrive
+                        ?.let { selected -> drives.find { it.id == selected.id } }
+                    if (selectedDrive == null) {
+                        appPreferences.selectedDriveId = ""
+                    }
 
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             sharedDrives = drives,
-                            selectedDrive = selectedDrive
+                            selectedDrive = selectedDrive,
+                            searchMode = if (selectedDrive == null) SearchMode.ALL_DRIVES else SearchMode.CURRENT_DRIVE
                         )
                     }
                     selectedDrive?.let { selectDrive(it, isInitial = true) }
@@ -280,18 +303,21 @@ class CatalogViewModel @Inject constructor(
                 selectedDrive = drive,
                 folderStack = emptyList(),
                 files = emptyList(),
-                isLoading = true
+                isLoading = true,
+                searchMode = SearchMode.CURRENT_DRIVE
             )
         }
         loadFiles(drive.id, null)
     }
 
     fun clearSelectedDrive() {
+        appPreferences.selectedDriveId = ""
         _uiState.update {
             it.copy(
                 selectedDrive = null,
                 folderStack = emptyList(),
-                files = emptyList()
+                files = emptyList(),
+                searchMode = SearchMode.ALL_DRIVES
             )
         }
     }
@@ -306,7 +332,8 @@ class CatalogViewModel @Inject constructor(
             it.copy(
                 folderStack = it.folderStack + FolderInfo(folderId, folderName),
                 isNavigating = true,
-                files = emptyList()
+                files = emptyList(),
+                searchMode = SearchMode.CURRENT_DRIVE
             )
         }
         loadFiles(currentDrive.id, folderId)
@@ -784,20 +811,10 @@ class CatalogViewModel @Inject constructor(
         if (!tmdbRepository.isConfigured()) return
 
         viewModelScope.launch {
-            val movieFolders = appPreferences.tmdbMovieFolders
-            val tvFolders = appPreferences.tmdbTvFolders
-            val currentParent = _uiState.value.folderStack.lastOrNull()?.id
-                ?: _uiState.value.selectedDrive?.id ?: return@launch
-
-            val mediaType = when (currentParent) {
-                in movieFolders -> "movie"
-                in tvFolders -> "tv"
-                else -> "auto"
-            }
-
             val metadataMap = mutableMapOf<String, TmdbMetadataEntity>()
             files.forEach { file ->
                 if (!file.isFolder) {
+                    val mediaType = inferMediaTypeForParent(file.parentId)
                     val metadata = tmdbRepository.fetchAndCacheMetadata(
                         driveFileId = file.id,
                         name = file.name,
@@ -823,106 +840,322 @@ class CatalogViewModel @Inject constructor(
         if (query.isNotBlank()) {
             searchJob = viewModelScope.launch {
                 kotlinx.coroutines.delay(600)
-                _uiState.update { it.copy(currentDriveSearchResults = emptyList(), searchResults = emptyMap(), isSearchLoading = true) }
-                when (_uiState.value.searchMode) {
-                    SearchMode.CURRENT_DRIVE -> {
-                        val driveId = _uiState.value.selectedDrive?.id ?: return@launch
-                        // Search Drive API directly for fresh results, then cache to DB
-                        val apiResult = driveRepository.searchFilesViaApi(query, driveId)
-                        if (apiResult.isSuccess) {
-                            // Cache results to database
-                            val entities = apiResult.getOrNull()?.map { file ->
-                                MediaFileEntity(
-                                    id = file.id,
-                                    name = file.name,
-                                    mimeType = file.mimeType,
-                                    size = file.size,
-                                    thumbnailLink = file.thumbnailLink,
-                                    modifiedTime = file.modifiedTime,
-                                    createdTime = file.createdTime,
-                                    parentId = file.parents?.firstOrNull() ?: driveId,
-                                    driveId = driveId,
-                                    fileExtension = file.fileExtension,
-                                    isFolder = file.isFolder
-                                )
-                            } ?: emptyList()
-                            // Results are no longer cached to database to prevent polluting Folder tab
-                            _uiState.update {
-                                it.copy(
-                                    currentDriveSearchResults = entities,
-                                    searchResults = emptyMap()
-                                )
-                            }
-                        } else {
-                            // Fallback to cache if API fails
-                            driveRepository.searchFilesInDrive(query, driveId).first().let { results ->
-                                _uiState.update { it.copy(currentDriveSearchResults = results, searchResults = emptyMap()) }
-                            }
-                        }
-                        _uiState.update { it.copy(isSearchLoading = false) }
-                    }
-                    SearchMode.ALL_DRIVES -> {
-                        // Search Drive API directly across all drives
-                        val apiResult = driveRepository.searchFilesViaApi(query, null)
-                        if (apiResult.isSuccess) {
-                            val results = apiResult.getOrNull()?.map { file ->
-                                MediaFileEntity(
-                                    id = file.id,
-                                    name = file.name,
-                                    mimeType = file.mimeType,
-                                    size = file.size,
-                                    thumbnailLink = file.thumbnailLink,
-                                    modifiedTime = file.modifiedTime,
-                                    createdTime = file.createdTime,
-                                    parentId = file.parents?.firstOrNull() ?: file.driveId ?: "",
-                                    driveId = file.driveId ?: "",
-                                    fileExtension = file.fileExtension,
-                                    isFolder = file.isFolder
-                                )
-                            } ?: emptyList()
-                            // Results are no longer cached to database to prevent polluting Folder tab
-                            // Group by driveId
-                            val grouped = results.groupBy { it.driveId }
-                            _uiState.update {
-                                it.copy(
-                                    currentDriveSearchResults = results,
-                                    searchResults = grouped
-                                )
-                            }
-                        } else {
-                            // Fallback to cache if API fails
-                            driveRepository.searchAllFiles(query).first().let { results ->
-                                val grouped = results.groupBy { it.driveId }
-                                _uiState.update {
-                                    it.copy(
-                                        currentDriveSearchResults = results,
-                                        searchResults = grouped
-                                    )
-                                }
-                            }
-                        }
-                        _uiState.update { it.copy(isSearchLoading = false) }
-                    }
-                }
+                performSearch(query)
             }
         } else {
-            _uiState.update { it.copy(searchResults = emptyMap(), currentDriveSearchResults = emptyList()) }
-            refresh()
+            _uiState.update {
+                it.copy(
+                    currentDriveSearchResults = emptyList(),
+                    searchResults = emptyMap(),
+                    tmdbSearchResults = emptyList(),
+                    isSearchLoading = false
+                )
+            }
+        }
+    }
+
+    private suspend fun performSearch(query: String) {
+        _uiState.update { it.copy(currentDriveSearchResults = emptyList(), searchResults = emptyMap(), tmdbSearchResults = emptyList(), isSearchLoading = true) }
+
+        // TMDB catalog search is independent from Drive API/current folder scope.
+        // It only searches cached TMDB metadata for user-added catalog folders.
+        val tmdbMatches = searchTmdbCatalog(query)
+        _uiState.update { it.copy(tmdbSearchResults = tmdbMatches) }
+
+        when (_uiState.value.searchMode) {
+            SearchMode.CURRENT_DRIVE -> {
+                val state = _uiState.value
+                val driveId = state.selectedDrive?.id ?: run {
+                    _uiState.update { it.copy(searchMode = SearchMode.ALL_DRIVES, isSearchLoading = false) }
+                    return
+                }
+                val folderId = state.folderStack.lastOrNull()?.id
+                android.util.Log.d("SearchDebug", "performSearch CURRENT_DRIVE: driveId=$driveId, folderId=$folderId, query=$query")
+                // Search Drive API directly for fresh results. If a folder is open,
+                // search only that folder tree.
+                val apiResult = driveRepository.searchFilesViaApi(query, driveId, folderId)
+                if (apiResult.isSuccess) {
+                    android.util.Log.d("SearchDebug", "API call succeeded for CURRENT_DRIVE")
+                    val entities = apiResult.getOrNull()?.map { file ->
+                        MediaFileEntity(
+                            id = file.id,
+                            name = file.name,
+                            mimeType = file.mimeType,
+                            size = file.size,
+                            thumbnailLink = file.thumbnailLink,
+                            modifiedTime = file.modifiedTime,
+                            createdTime = file.createdTime,
+                            parentId = file.parents?.firstOrNull() ?: folderId ?: driveId,
+                            driveId = driveId,
+                            fileExtension = file.fileExtension,
+                            isFolder = file.isFolder
+                        )
+                    } ?: emptyList()
+                    val filtered = applyExactFilter(entities, query)
+                    fetchTmdbForFiles(filtered)
+                    _uiState.update {
+                        it.copy(
+                            currentDriveSearchResults = filtered,
+                            searchResults = emptyMap(),
+                            tmdbSearchResults = tmdbMatches
+                        )
+                    }
+                } else {
+                    android.util.Log.e("SearchDebug", "API call failed for CURRENT_DRIVE. Error: ${apiResult.exceptionOrNull()?.message}", apiResult.exceptionOrNull())
+                    // Fallback to cache if API fails
+                    searchCachedCurrentPath(query, driveId, folderId).let { results ->
+                        android.util.Log.d("SearchDebug", "Fallback cache returned ${results.size} files")
+                        val filtered = applyExactFilter(results, query)
+                        fetchTmdbForFiles(filtered)
+                        _uiState.update { it.copy(currentDriveSearchResults = filtered, searchResults = emptyMap(), tmdbSearchResults = tmdbMatches) }
+                    }
+                }
+                _uiState.update { it.copy(isSearchLoading = false) }
+            }
+            SearchMode.ALL_DRIVES -> {
+                android.util.Log.d("SearchDebug", "performSearch ALL_DRIVES: query=$query")
+                // Search Drive API directly across all drives
+                val apiResult = driveRepository.searchFilesViaApi(query, null)
+                if (apiResult.isSuccess) {
+                    android.util.Log.d("SearchDebug", "API call succeeded for ALL_DRIVES")
+                    val results = apiResult.getOrNull()?.map { file ->
+                        val resolvedDriveId = file.driveId?.takeIf { it.isNotBlank() } ?: "my_drive"
+                        MediaFileEntity(
+                            id = file.id,
+                            name = file.name,
+                            mimeType = file.mimeType,
+                            size = file.size,
+                            thumbnailLink = file.thumbnailLink,
+                            modifiedTime = file.modifiedTime,
+                            createdTime = file.createdTime,
+                            parentId = file.parents?.firstOrNull() ?: resolvedDriveId,
+                            driveId = resolvedDriveId,
+                            fileExtension = file.fileExtension,
+                            isFolder = file.isFolder
+                        )
+                    } ?: emptyList()
+                    // Results are no longer cached to database to prevent polluting Folder tab
+                    // Group by driveId
+                    val filtered = applyExactFilter(results, query)
+                    fetchTmdbForFiles(filtered)
+                    val grouped = filtered.groupBy { it.driveId }
+                    _uiState.update {
+                        it.copy(
+                            currentDriveSearchResults = filtered,
+                            searchResults = grouped
+                        )
+                    }
+                } else {
+                    android.util.Log.e("SearchDebug", "API call failed for ALL_DRIVES. Error: ${apiResult.exceptionOrNull()?.message}", apiResult.exceptionOrNull())
+                    // Fallback to cache if API fails
+                    val results = driveRepository.searchAllFiles(query).first()
+                    android.util.Log.d("SearchDebug", "Fallback cache returned ${results.size} files")
+                    val filtered = applyExactFilter(results, query)
+                    fetchTmdbForFiles(filtered)
+                    val grouped = filtered.groupBy { it.driveId }
+                    _uiState.update {
+                        it.copy(
+                            currentDriveSearchResults = filtered,
+                            searchResults = grouped
+                        )
+                    }
+                }
+                _uiState.update { it.copy(isSearchLoading = false) }
+            }
         }
     }
 
     fun setSearchMode(mode: SearchMode) {
-        _uiState.update { it.copy(searchMode = mode) }
+        val resolvedMode = if (mode == SearchMode.CURRENT_DRIVE && _uiState.value.selectedDrive == null) {
+            SearchMode.ALL_DRIVES
+        } else {
+            mode
+        }
+        _uiState.update { it.copy(searchMode = resolvedMode) }
         // Re-run search if there's a query
         val query = _uiState.value.searchQuery
         if (query.isNotBlank()) {
-            updateSearchQuery(query)
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                performSearch(query)
+            }
         }
+    }
+
+    fun toggleExactSearch() {
+        _uiState.update { it.copy(isExactSearch = !it.isExactSearch) }
+        val query = _uiState.value.searchQuery
+        if (query.isNotBlank()) {
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                performSearch(query)
+            }
+        }
+    }
+
+    /** 
+     * Media-aware Exact phrase filter.
+     * Handles cases where files use dots/punctuation (e.g. "Look.Back.2024.mkv" matches "Look Back")
+     * but prevents "From" from matching "From.Ground.Zero" by analyzing the word immediately following the query.
+     */
+    private fun applyExactFilter(files: List<MediaFileEntity>, query: String): List<MediaFileEntity> {
+        if (!_uiState.value.isExactSearch) return files
+        
+        // Split query into words
+        val queryTokens = query.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+        if (queryTokens.isEmpty()) return files
+        
+        return files.filter { file ->
+            // Split filename into words
+            val fileTokens = file.name.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+            
+            // File must have at least as many words as the query
+            if (fileTokens.size < queryTokens.size) return@filter false
+            
+            // Check if the filename starts with the exact query words
+            var startsWithQuery = true
+            for (i in queryTokens.indices) {
+                if (fileTokens[i] != queryTokens[i]) {
+                    startsWithQuery = false
+                    break
+                }
+            }
+            
+            if (!startsWithQuery) return@filter false
+            
+            // If the query is the entire filename, it's an exact match
+            if (fileTokens.size == queryTokens.size) return@filter true
+            
+            // Look at the very next word in the filename after the title
+            val nextWord = fileTokens[queryTokens.size]
+            
+            // Is it a known media metadata tag?
+            val isYear = nextWord.matches(Regex("^(19|20)\\d{2}$"))
+            val isSeasonEpisode = nextWord.matches(Regex("^(s\\d{1,2}|e\\d{1,2}|season|episode|ep|part|pt).*"))
+            val isResolution = nextWord.matches(Regex("^(1080p|720p|4k|2160p|480p)$"))
+            val isExtension = nextWord.matches(Regex("^(mkv|mp4|avi|srt|sub|txt|jpg|png)$"))
+            
+            // If the next word is metadata, the query was exactly the title.
+            // If it's a regular word (like "ground" in "From Ground Zero"), the title isn't finished yet.
+            isYear || isSeasonEpisode || isResolution || isExtension
+        }
+    }
+
+    fun prepareSearchForCurrentLibraryPath() {
+        val mode = if (_uiState.value.selectedDrive == null) {
+            SearchMode.ALL_DRIVES
+        } else {
+            SearchMode.CURRENT_DRIVE
+        }
+        if (_uiState.value.searchMode != mode) {
+            _uiState.update {
+                it.copy(
+                    searchMode = mode,
+                    searchResults = emptyMap(),
+                    currentDriveSearchResults = emptyList(),
+                    tmdbSearchResults = emptyList()
+                )
+            }
+        }
+        val query = _uiState.value.searchQuery
+        if (query.isNotBlank()) {
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                performSearch(query)
+            }
+        }
+    }
+
+    private suspend fun searchCachedCurrentPath(
+        query: String,
+        driveId: String,
+        folderId: String?
+    ): List<MediaFileEntity> {
+        if (folderId == null) {
+            return driveRepository.searchFilesInDrive(query, driveId).first()
+        }
+
+        val allFiles = mediaFileDao.getFilesByDriveSync(driveId)
+        val descendants = mutableListOf<MediaFileEntity>()
+        val pendingFolders = ArrayDeque<String>()
+        pendingFolders.add(folderId)
+
+        while (pendingFolders.isNotEmpty()) {
+            val currentFolderId = pendingFolders.removeFirst()
+            val children = allFiles.filter { it.parentId == currentFolderId }
+            descendants.addAll(children)
+            children.filter { it.isFolder }.forEach { pendingFolders.add(it.id) }
+        }
+
+        return descendants
+            .filter { it.name.contains(query, ignoreCase = true) }
+            .sortedWith(compareByDescending<MediaFileEntity> { it.isFolder }.thenBy { it.name.lowercase() })
+    }
+
+    private suspend fun searchTmdbCatalog(query: String): List<MediaFileEntity> {
+        val metadataMatches = applyExactTmdbFilter(
+            tmdbRepository.searchLocalCatalog(query),
+            query
+        )
+            .distinctBy { it.driveFileId }
+        if (metadataMatches.isEmpty()) return emptyList()
+
+        val metadataByFileId = metadataMatches.associateBy { it.driveFileId }
+        _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + metadataByFileId) }
+
+        val loadedCatalogFiles = (
+            _uiState.value.homeSections.flatMap { it.items } +
+                _uiState.value.homeRecentlyAdded
+            ).distinctBy { it.id }
+
+        val loadedMatches = loadedCatalogFiles.filter { it.id in metadataByFileId }
+        val loadedIds = loadedMatches.map { it.id }.toSet()
+        val configuredFolderIds = appPreferences.tmdbMovieFolders +
+            appPreferences.tmdbTvFolders +
+            appPreferences.tmdbRecentFolders
+        val cachedMatches = if (configuredFolderIds.isEmpty()) {
+            emptyList()
+        } else {
+            metadataMatches
+                .filter { it.driveFileId !in loadedIds }
+                .mapNotNull { mediaFileDao.getFileById(it.driveFileId) }
+                .filter { it.parentId in configuredFolderIds }
+        }
+        val matches = (loadedMatches + cachedMatches).distinctBy { it.id }
+
+        val orderByMetadata = metadataMatches
+            .mapIndexed { index, metadata -> metadata.driveFileId to index }
+            .toMap()
+        return matches.sortedBy { orderByMetadata[it.id] ?: Int.MAX_VALUE }
+    }
+
+    private fun applyExactTmdbFilter(
+        metadata: List<TmdbMetadataEntity>,
+        query: String
+    ): List<TmdbMetadataEntity> {
+        if (!_uiState.value.isExactSearch) return metadata
+
+        val queryTokens = query.normalizedSearchTokens()
+        if (queryTokens.isEmpty()) return metadata
+
+        return metadata.filter { item ->
+            item.title.normalizedSearchTokens() == queryTokens
+        }
+    }
+
+    private fun String.normalizedSearchTokens(): List<String> {
+        return lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.isNotEmpty() }
     }
 
     fun getDriveName(driveId: String): String {
         if (driveId.isBlank()) return "Unknown Drive"
-        if (driveId == "system_root") return "My Drive"
+        if (driveId == "my_drive") return "My Drive"
+        if (driveId == "shared_with_me") return "Shared with me"
+        if (driveId == "starred") return "Starred"
+        if (driveId == "trashed") return "Trashed"
+        if (driveId == "recent") return "Recent"
         return _uiState.value.sharedDrives.find { it.id == driveId }?.name ?: driveId
     }
 

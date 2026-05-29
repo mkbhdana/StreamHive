@@ -29,6 +29,7 @@ import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.ui.components.LoadingIndicator
 import com.mkbhdana.streamhive.ui.components.MediaCard
 import com.mkbhdana.streamhive.ui.components.FolderBreadcrumb
+import com.mkbhdana.streamhive.util.FileUtils
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.delay
 
@@ -44,10 +45,12 @@ fun SearchTab(
     modifier: Modifier = Modifier
 ) {
     val isGridView = state.isGridView
-    var tooltipName by remember { mutableStateOf<String?>(null) }
+    var itemDetails by remember { mutableStateOf<Triple<String, Long?, String?>?>(null) }
     var selectedSection by remember { mutableStateOf<String?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val hasCurrentDriveScope = state.selectedDrive != null
+    val scopedSearchLabel = if (state.folderStack.isNotEmpty()) "Search current folder..." else "Search current drive..."
 
     LaunchedEffect(focusRequestSignal, selectedSection, state.searchFolderStack.isEmpty()) {
         if (selectedSection == null && state.searchFolderStack.isEmpty()) {
@@ -71,25 +74,38 @@ fun SearchTab(
         state.currentDriveSearchResults
     }
 
-    // Process TMDB, Folders, Files using cached TMDB metadata
-    // Only show files in TMDB section if they belong to a TMDB-configured folder
-    val tmdbFolderIds = state.tmdbConfiguredFolderIds
-    val tmdbResults = allResults.filter {
-        state.tmdbMetadata.containsKey(it.id) && it.parentId in tmdbFolderIds
-    }
-    val folderResults = allResults.filter { it.isFolder && it !in tmdbResults }
-    val fileResults = allResults.filter { !it.isFolder && it !in tmdbResults }
+    // TMDB results now always search the full catalog independent of drive boundaries
+    val tmdbResults = state.tmdbSearchResults
+    val tmdbResultIds = tmdbResults.map { it.id }.toSet()
+    val hasAnySearchResults = tmdbResults.isNotEmpty() || allResults.isNotEmpty()
+
+    // Normal results (folders and files) are still bound to the current drive search results
+    val folderResults = allResults.filter { it.isFolder && it.id !in tmdbResultIds }
+    val fileResults = allResults.filter { !it.isFolder && it.id !in tmdbResultIds }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (state.searchFolderStack.isNotEmpty()) {
             // Render Isolated Folder Browser
             Column(modifier = Modifier.fillMaxSize()) {
-                FolderBreadcrumb(
-                    driveName = "Search Results",
-                    folderStack = state.searchFolderStack.map { FolderInfo(it.id, it.name) },
-                    onNavigateToRoot = { viewModel.clearSearchFolderStack() },
-                    onNavigateToIndex = { viewModel.navigateToSearchFolderIndex(it) }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FolderBreadcrumb(
+                        driveName = "Search Results",
+                        folderStack = state.searchFolderStack.map { FolderInfo(it.id, it.name) },
+                        onNavigateToRoot = { viewModel.clearSearchFolderStack() },
+                        onNavigateToIndex = { viewModel.navigateToSearchFolderIndex(it) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { viewModel.toggleGridView() }) {
+                        Icon(
+                            imageVector = if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = "Toggle View",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
 
                 if (state.isSearchFolderLoading) {
                     LoadingIndicator(modifier = Modifier.fillMaxSize(), message = "Loading folder...")
@@ -111,26 +127,52 @@ fun SearchTab(
                         }
                     }
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(state.searchFolderFiles, key = { it.id }) { file ->
-                            MediaCard(
-                                file = file,
-                                tmdbMetadata = null,
-                                onClick = {
-                                    if (file.isFolder) {
-                                        viewModel.openSearchFolder(file.id, file.name, file.driveId)
-                                    } else {
-                                        onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
-                                    }
-                                },
-                                onLongClick = { tooltipName = file.name },
-                                subtitle = null
-                            )
+                    if (isGridView) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 110.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(state.searchFolderFiles, key = { it.id }) { file ->
+                                MediaCard(
+                                    file = file,
+                                    tmdbMetadata = null,
+                                    onClick = {
+                                        if (file.isFolder) {
+                                            viewModel.openSearchFolder(file.id, file.name, file.driveId)
+                                        } else {
+                                            onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
+                                        }
+                                    },
+                                    onLongClick = {
+                                        itemDetails = Triple(file.name, if (!file.isFolder) file.size else null, viewModel.getDriveName(file.driveId))
+                                    },
+                                    subtitle = viewModel.getDriveName(file.driveId)
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.searchFolderFiles, key = { it.id }) { file ->
+                                SearchResultItem(
+                                    file = file,
+                                    onClick = {
+                                        if (file.isFolder) {
+                                            viewModel.openSearchFolder(file.id, file.name, file.driveId)
+                                        } else {
+                                            onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
+                                        }
+                                    },
+                                    onLongClick = {
+                                        itemDetails = Triple(file.name, if (!file.isFolder) file.size else null, viewModel.getDriveName(file.driveId))
+                                    },
+                                    subtitle = viewModel.getDriveName(file.driveId)
+                                )
+                            }
                         }
                     }
                 }
@@ -157,7 +199,7 @@ fun SearchTab(
                             onValueChange = viewModel::updateSearchQuery,
                             placeholder = {
                                 Text(
-                                    if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else "Search current drive...",
+                                    if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else scopedSearchLabel,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
@@ -189,6 +231,7 @@ fun SearchTab(
                             FilterChip(
                                 selected = state.searchMode == SearchMode.CURRENT_DRIVE,
                                 onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
+                                enabled = hasCurrentDriveScope,
                                 label = { Text("Current Drive") },
                                 leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
                                     { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
@@ -199,6 +242,14 @@ fun SearchTab(
                                 onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
                                 label = { Text("All Drives") },
                                 leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = state.isExactSearch,
+                                onClick = { viewModel.toggleExactSearch() },
+                                label = { Text("Exact") },
+                                leadingIcon = if (state.isExactSearch) {
                                     { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
                                 } else null
                             )
@@ -222,7 +273,7 @@ fun SearchTab(
                         onValueChange = viewModel::updateSearchQuery,
                         placeholder = {
                             Text(
-                                if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else "Search current drive...",
+                                if (state.searchMode == SearchMode.ALL_DRIVES) "Search all drives..." else scopedSearchLabel,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
@@ -280,6 +331,7 @@ fun SearchTab(
                             FilterChip(
                                 selected = state.searchMode == SearchMode.CURRENT_DRIVE,
                                 onClick = { viewModel.setSearchMode(SearchMode.CURRENT_DRIVE) },
+                                enabled = hasCurrentDriveScope,
                                 label = { Text("Current Drive") },
                                 leadingIcon = if (state.searchMode == SearchMode.CURRENT_DRIVE) {
                                     { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
@@ -290,6 +342,14 @@ fun SearchTab(
                                 onClick = { viewModel.setSearchMode(SearchMode.ALL_DRIVES) },
                                 label = { Text("All Drives") },
                                 leadingIcon = if (state.searchMode == SearchMode.ALL_DRIVES) {
+                                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                            FilterChip(
+                                selected = state.isExactSearch,
+                                onClick = { viewModel.toggleExactSearch() },
+                                label = { Text("Exact") },
+                                leadingIcon = if (state.isExactSearch) {
                                     { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
                                 } else null
                             )
@@ -333,7 +393,7 @@ fun SearchTab(
 
             // Search Results Content
             if (state.isSearching || selectedSection != null) {
-                if (allResults.isEmpty() && !state.isSearchLoading && selectedSection == null) {
+                if (!hasAnySearchResults && !state.isSearchLoading && selectedSection == null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
@@ -350,7 +410,7 @@ fun SearchTab(
                             )
                         }
                     }
-                } else if (state.isSearchLoading && allResults.isEmpty() && selectedSection == null) {
+                } else if (state.isSearchLoading && !hasAnySearchResults && selectedSection == null) {
                     LoadingIndicator(
                         modifier = Modifier.fillMaxSize(),
                         message = "Searching..."
@@ -387,7 +447,7 @@ fun SearchTab(
                             // Folders or Files (support toggle)
                             if (isGridView) {
                                 LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 160.dp),
+                                    columns = GridCells.Adaptive(minSize = 110.dp),
                                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -400,8 +460,10 @@ fun SearchTab(
                                                 if (file.isFolder) onFolderNavigate(file)
                                                 else onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
                                             },
-                                            onLongClick = { tooltipName = file.name },
-                                            subtitle = if (state.searchMode == SearchMode.ALL_DRIVES) viewModel.getDriveName(file.driveId) else null
+                                            onLongClick = {
+                                                itemDetails = Triple(file.name, if (!file.isFolder) file.size else null, viewModel.getDriveName(file.driveId))
+                                            },
+                                            subtitle = viewModel.getDriveName(file.driveId)
                                         )
                                     }
                                 }
@@ -417,8 +479,10 @@ fun SearchTab(
                                                 if (file.isFolder) onFolderNavigate(file)
                                                 else onPlayFile(file.id, file.name, viewModel.getPreferredEngine())
                                             },
-                                            onLongClick = { tooltipName = file.name },
-                                            subtitle = if (state.searchMode == SearchMode.ALL_DRIVES) viewModel.getDriveName(file.driveId) else null
+                                            onLongClick = {
+                                                itemDetails = Triple(file.name, if (!file.isFolder) file.size else null, viewModel.getDriveName(file.driveId))
+                                            },
+                                            subtitle = viewModel.getDriveName(file.driveId)
                                         )
                                     }
                                 }
@@ -428,7 +492,7 @@ fun SearchTab(
                         // Main Search View (3 horizontal sections)
                         LazyColumn(
                             contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
-                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (tmdbResults.isNotEmpty()) {
                                 item {
@@ -454,8 +518,8 @@ fun SearchTab(
                                         totalCount = folderResults.size,
                                         onSeeAll = { selectedSection = "folders" },
                                         onClick = { onFolderNavigate(it) },
-                                        onLongClick = { tooltipName = it.name },
-                                        showDriveName = state.searchMode == SearchMode.ALL_DRIVES,
+                                        onLongClick = { itemDetails = Triple(it.name, null, viewModel.getDriveName(it.driveId)) },
+                                        showDriveName = true,
                                         getDriveName = viewModel::getDriveName
                                     )
                                 }
@@ -470,8 +534,8 @@ fun SearchTab(
                                         totalCount = fileResults.size,
                                         onSeeAll = { selectedSection = "files" },
                                         onClick = { onPlayFile(it.id, it.name, viewModel.getPreferredEngine()) },
-                                        onLongClick = { tooltipName = it.name },
-                                        showDriveName = state.searchMode == SearchMode.ALL_DRIVES,
+                                        onLongClick = { itemDetails = Triple(it.name, it.size, viewModel.getDriveName(it.driveId)) },
+                                        showDriveName = true,
                                         getDriveName = viewModel::getDriveName
                                     )
                                 }
@@ -503,24 +567,33 @@ fun SearchTab(
         } // closes Column
         } // closes else block
 
-        tooltipName?.let { name ->
-            androidx.compose.ui.window.Popup(
-                alignment = Alignment.Center,
-                onDismissRequest = { tooltipName = null }
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shadowElevation = 4.dp
-                ) {
-                    Text(
-                        text = name,
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+        itemDetails?.let { details ->
+            val sizeText = FileUtils.formatFileSize(details.second).takeIf { it.isNotBlank() }
+            AlertDialog(
+                onDismissRequest = { itemDetails = null },
+                title = { Text("Details", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(details.first, style = MaterialTheme.typography.bodyMedium)
+                        if (sizeText != null) {
+                            Text(
+                                "Size: $sizeText",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (details.third != null) {
+                            Text(
+                                "Location: ${details.third}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { itemDetails = null }) { Text("OK") } },
+                shape = RoundedCornerShape(16.dp)
+            )
         }
     }
 }
@@ -569,7 +642,7 @@ private fun HorizontalSearchResultSection(
         }
 
         LazyRow(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(files, key = { it.id }) { file ->

@@ -40,6 +40,21 @@ class AuthViewModel @Inject constructor(
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            authRepository.authState.collect { state ->
+                if (state is com.mkbhdana.streamhive.data.model.AuthState.Unauthenticated) {
+                    _clientId.value = ""
+                    _clientSecret.value = ""
+                    _redirectUri.value = ""
+                    _authCode.value = ""
+                    _serviceAccountJson.value = ""
+                    _authUrl.value = null
+                }
+            }
+        }
+    }
+
     fun updateClientId(value: String) { _clientId.value = value }
     fun updateClientSecret(value: String) { _clientSecret.value = value }
     fun updateRedirectUri(value: String) { _redirectUri.value = value }

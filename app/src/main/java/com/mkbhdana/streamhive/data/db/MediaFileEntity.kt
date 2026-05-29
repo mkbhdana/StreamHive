@@ -1,11 +1,17 @@
 package com.mkbhdana.streamhive.data.db
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
+import androidx.room.Index
 
-@Entity(tableName = "media_files")
+@Entity(
+    tableName = "media_files",
+    primaryKeys = ["id", "driveId", "parentId"],
+    indices = [
+        Index(value = ["driveId", "parentId"]),
+        Index(value = ["id"])
+    ]
+)
 data class MediaFileEntity(
-    @PrimaryKey
     val id: String,
     val name: String,
     val mimeType: String,
@@ -13,7 +19,7 @@ data class MediaFileEntity(
     val thumbnailLink: String? = null,
     val modifiedTime: String? = null,
     val createdTime: String? = null,
-    val parentId: String? = null,
+    val parentId: String = "",
     val driveId: String,
     val fileExtension: String? = null,
     val isFolder: Boolean = false,

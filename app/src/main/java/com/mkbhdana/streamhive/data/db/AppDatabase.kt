@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [MediaFileEntity::class, TmdbMetadataEntity::class, PlaybackHistoryEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_6_7)
                     .addMigrations(MIGRATION_7_8)
                     .addMigrations(MIGRATION_8_9)
+                    .addMigrations(MIGRATION_9_10)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
@@ -54,6 +55,51 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE playback_history ADD COLUMN savedPlayerSettings TEXT")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS media_files_new (
+                        id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        mimeType TEXT NOT NULL,
+                        size INTEGER,
+                        thumbnailLink TEXT,
+                        modifiedTime TEXT,
+                        createdTime TEXT,
+                        parentId TEXT NOT NULL,
+                        driveId TEXT NOT NULL,
+                        fileExtension TEXT,
+                        isFolder INTEGER NOT NULL,
+                        videoWidth INTEGER,
+                        videoHeight INTEGER,
+                        videoDurationMs INTEGER,
+                        lastSyncTime INTEGER NOT NULL,
+                        PRIMARY KEY(id, driveId, parentId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT OR REPLACE INTO media_files_new (
+                        id, name, mimeType, size, thumbnailLink, modifiedTime,
+                        createdTime, parentId, driveId, fileExtension, isFolder,
+                        videoWidth, videoHeight, videoDurationMs, lastSyncTime
+                    )
+                    SELECT
+                        id, name, mimeType, size, thumbnailLink, modifiedTime,
+                        createdTime, COALESCE(parentId, ''), driveId, fileExtension,
+                        isFolder, videoWidth, videoHeight, videoDurationMs, lastSyncTime
+                    FROM media_files
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE media_files")
+                db.execSQL("ALTER TABLE media_files_new RENAME TO media_files")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_media_files_driveId_parentId ON media_files(driveId, parentId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_media_files_id ON media_files(id)")
             }
         }
     }

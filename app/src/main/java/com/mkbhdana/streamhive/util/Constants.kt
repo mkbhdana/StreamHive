@@ -8,8 +8,12 @@ object Constants {
     const val DRIVE_DRIVES_URL = "${DRIVE_API_BASE}drives"
     const val DEFAULT_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 
-    const val VIDEO_MIME_TYPES_QUERY = "(mimeType contains 'video/' or mimeType = 'application/vnd.google-apps.folder')"
-    const val DRIVE_FILE_FIELDS = "files(id,name,mimeType,size,thumbnailLink,modifiedTime,createdTime,parents,videoMediaMetadata,fileExtension,driveId)"
+    const val MIME_TYPE_FOLDER = "application/vnd.google-apps.folder"
+    const val MIME_TYPE_SHORTCUT = "application/vnd.google-apps.shortcut"
+    const val MIME_TYPE_MATROSKA = "application/x-matroska"
+
+    const val VIDEO_MIME_TYPES_QUERY = "(mimeType contains 'video/' or mimeType = '$MIME_TYPE_FOLDER' or mimeType = '$MIME_TYPE_MATROSKA' or mimeType = '$MIME_TYPE_SHORTCUT')"
+    const val DRIVE_FILE_FIELDS = "files(id,name,mimeType,size,thumbnailLink,modifiedTime,createdTime,parents,videoMediaMetadata,fileExtension,driveId,shortcutDetails(targetId,targetMimeType))"
     const val DRIVE_LIST_FIELDS = "nextPageToken,$DRIVE_FILE_FIELDS"
 
     val SUPPORTED_VIDEO_EXTENSIONS = setOf(

@@ -309,7 +309,7 @@ private fun OAuth2Form(
     )
 
     AuthTextField(value = redirectUri, onValueChange = onRedirectUriChange, label = "Redirect URI", icon = Icons.Default.Link)
-    AuthTextField(value = scope, onValueChange = onScopeChange, label = "Scope", icon = Icons.Default.Security)
+    AuthTextField(value = scope, onValueChange = onScopeChange, label = "Scope", icon = Icons.Default.Security, enabled = false)
 
     Button(
         onClick = onGenerateUrl,
@@ -484,12 +484,14 @@ private fun AuthTextField(
     onValueChange: (String) -> Unit,
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: @Composable (() -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
         leadingIcon = {

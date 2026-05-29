@@ -23,11 +23,21 @@ interface MediaFileDao {
     @Query("SELECT * FROM media_files WHERE name LIKE '%' || :query || '%' AND isFolder = 0 ORDER BY name ASC")
     fun searchFiles(query: String): Flow<List<MediaFileEntity>>
 
-    @Query("SELECT * FROM media_files WHERE id = :fileId")
+    @Query(
+        """
+        SELECT * FROM media_files
+        WHERE id = :fileId
+        ORDER BY lastSyncTime DESC
+        LIMIT 1
+        """
+    )
     suspend fun getFileById(fileId: String): MediaFileEntity?
 
     @Query("SELECT * FROM media_files WHERE driveId = :driveId AND parentId = :parentId ORDER BY isFolder DESC, name ASC")
     suspend fun getFilesByFolderSync(driveId: String, parentId: String?): List<MediaFileEntity>
+
+    @Query("SELECT * FROM media_files WHERE driveId = :driveId ORDER BY isFolder DESC, name ASC")
+    suspend fun getFilesByDriveSync(driveId: String): List<MediaFileEntity>
 
     @Query("SELECT * FROM media_files WHERE isFolder = 1 ORDER BY name ASC")
     fun getAllFolders(): Flow<List<MediaFileEntity>>

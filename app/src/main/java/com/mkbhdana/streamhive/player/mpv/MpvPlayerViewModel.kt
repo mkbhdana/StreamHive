@@ -154,7 +154,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
         val driveId = apiFile.driveId?.takeIf { it.isNotBlank() }
             ?: history?.driveId?.takeIf { it.isNotBlank() }
             ?: appPreferences.selectedDriveId.takeIf { it.isNotBlank() }
-            ?: "system_root"
+            ?: "my_drive"
 
         val entity = apiFile.toMediaFileEntity(
             driveId = driveId,

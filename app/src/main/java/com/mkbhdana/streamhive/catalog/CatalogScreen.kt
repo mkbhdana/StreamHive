@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -35,6 +36,7 @@ import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.ui.components.*
 import androidx.compose.ui.res.painterResource
 import com.mkbhdana.streamhive.R
+import com.mkbhdana.streamhive.util.FileUtils
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -199,6 +201,7 @@ fun CatalogScreen(
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = {
+                        viewModel.prepareSearchForCurrentLibraryPath()
                         selectedTab = 2
                         searchFocusRequest++
                     },
@@ -326,31 +329,41 @@ fun FoldersTab(
     modifier: Modifier = Modifier
 ) {
     val isGridView = uiState.isGridView
-    var tooltipName by remember { mutableStateOf<String?>(null) }
+    var itemDetails by remember { mutableStateOf<Pair<String, Long?>?>(null) }
 
     // Long-press tooltip dialog
-    if (tooltipName != null) {
+    itemDetails?.let { details ->
+        val sizeText = FileUtils.formatFileSize(details.second).takeIf { it.isNotBlank() }
         AlertDialog(
-            onDismissRequest = { tooltipName = null },
-            title = { Text("Full Name", fontWeight = FontWeight.Bold) },
-            text = { Text(tooltipName ?: "", style = MaterialTheme.typography.bodyMedium) },
-            confirmButton = { TextButton(onClick = { tooltipName = null }) { Text("OK") } },
+            onDismissRequest = { itemDetails = null },
+            title = { Text("Details", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(details.first, style = MaterialTheme.typography.bodyMedium)
+                    if (sizeText != null) {
+                        Text(
+                            "Size: $sizeText",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { itemDetails = null }) { Text("OK") } },
             shape = RoundedCornerShape(16.dp)
         )
     }
 
     Column(modifier = modifier.fillMaxSize()) {
         // Breadcrumb
-        if (uiState.selectedDrive != null) {
-            FolderBreadcrumb(
-                driveName = uiState.selectedDrive!!.name,
-                folderStack = uiState.folderStack,
-                onNavigateToRoot = viewModel::navigateToRoot,
-                onNavigateToIndex = viewModel::navigateToFolderIndex,
-                onNavigateToHome = viewModel::clearSelectedDrive,
-                isLoading = uiState.isNavigating
-            )
-        }
+        FolderBreadcrumb(
+            driveName = uiState.selectedDrive?.name ?: "All Drives",
+            folderStack = uiState.folderStack,
+            onNavigateToRoot = viewModel::navigateToRoot,
+            onNavigateToIndex = viewModel::navigateToFolderIndex,
+            onNavigateToHome = if (uiState.selectedDrive != null) viewModel::clearSelectedDrive else null,
+            isLoading = uiState.isNavigating
+        )
 
         // Refreshing indicator (subtle)
         AnimatedVisibility(visible = uiState.isRefreshing) {
@@ -365,11 +378,11 @@ fun FoldersTab(
         ErrorBanner(uiState.error, viewModel::clearError)
 
         // Folder-only external playback toggle.
-        if (uiState.selectedDrive != null) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (uiState.selectedDrive != null) {
                 FilterChip(
                     selected = uiState.playFolderFilesExternally,
                     onClick = viewModel::toggleFolderExternalPlayback,
@@ -385,20 +398,16 @@ fun FoldersTab(
                     label = { Text("Refresh", style = MaterialTheme.typography.labelSmall) },
                     leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)) }
                 )
-                AssistChip(
-                    onClick = { viewModel.toggleGridView() },
-                    label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
-                    leadingIcon = { Icon(if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
-                )
             }
+            AssistChip(
+                onClick = { viewModel.toggleGridView() },
+                label = { Text(if (isGridView) "List View" else "Grid View", style = MaterialTheme.typography.labelSmall) },
+                leadingIcon = { Icon(if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, null, Modifier.size(16.dp)) }
+            )
         }
 
-        // Files grid - wrapped in PullToRefreshBox (same logic as Refresh chip)
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = { viewModel.refresh() },
-            modifier = Modifier.fillMaxSize()
-        ) {
+        // Files grid - conditionally wrapped in PullToRefreshBox
+        val filesGridContent = @Composable {
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
                     // Offline with no cached files → centered "No Connectivity"
@@ -413,17 +422,38 @@ fun FoldersTab(
                     }
                     uiState.selectedDrive == null -> {
                         // Show Drives as Folders
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 100.dp),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(uiState.sharedDrives, key = { it.id }) { drive ->
-                                FolderCard(
-                                    name = drive.name,
-                                    onClick = { viewModel.selectDrive(drive) }
-                                )
+                        if (isGridView) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 100.dp),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(uiState.sharedDrives, key = { it.id }) { drive ->
+                                    FolderCard(
+                                        name = drive.name,
+                                        onClick = { viewModel.selectDrive(drive) }
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(uiState.sharedDrives, key = { it.id }) { drive ->
+                                    SearchResultItem(
+                                        file = com.mkbhdana.streamhive.data.db.MediaFileEntity(
+                                            id = drive.id,
+                                            name = drive.name,
+                                            mimeType = "application/vnd.google-apps.folder",
+                                            driveId = drive.id,
+                                            isFolder = true
+                                        ),
+                                        onClick = { viewModel.selectDrive(drive) },
+                                        onLongClick = { itemDetails = drive.name to null }
+                                    )
+                                }
                             }
                         }
                     }
@@ -458,7 +488,7 @@ fun FoldersTab(
                                         FolderCard(
                                             name = file.name,
                                             onClick = { viewModel.openFolder(file.id, file.name) },
-                                            onLongClick = { tooltipName = file.name }
+                                            onLongClick = { itemDetails = file.name to null }
                                         )
                                     } else {
                                         MediaCard(
@@ -467,7 +497,7 @@ fun FoldersTab(
                                             onClick = {
                                                 onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
                                             },
-                                            onLongClick = { tooltipName = file.name }
+                                            onLongClick = { itemDetails = file.name to file.size }
                                         )
                                     }
                                 }
@@ -487,7 +517,9 @@ fun FoldersTab(
                                                 onPlayFile(file.id, file.name, folderPlaybackEngine(uiState, viewModel))
                                             }
                                         },
-                                        onLongClick = { tooltipName = file.name }
+                                        onLongClick = {
+                                            itemDetails = file.name to if (!file.isFolder) file.size else null
+                                        }
                                     )
                                 }
                             }
@@ -495,7 +527,19 @@ fun FoldersTab(
                     }
                 }
             }
-        } // end PullToRefreshBox
+        } // end filesGridContent
+
+        if (uiState.selectedDrive == null) {
+            filesGridContent()
+        } else {
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                filesGridContent()
+            }
+        }
     }
 }
 
@@ -507,28 +551,50 @@ fun FolderCard(
     modifier: Modifier = Modifier,
     onLongClick: () -> Unit = {}
 ) {
-    Column(
+    Card(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Icon(
-            Icons.Default.Folder,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(72.dp)
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top half
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    modifier = Modifier.size(64.dp)
+                )
+            }
+            
+            // Bottom half
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 
