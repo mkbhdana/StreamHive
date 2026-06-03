@@ -16,9 +16,9 @@ Stream your video files directly from Google Drive with this specialized client.
   <a href="https://github.com/mkbhdana/StreamHive/releases/latest">
     <img alt="GitHub release" src="https://img.shields.io/github/v/release/mkbhdana/StreamHive?style=flat-square">
   </a>
-  <a href="https://github.com/mkbhdana/StreamHive/releases">
-    <img alt="GitHub downloads" src="https://img.shields.io/github/downloads/mkbhdana/StreamHive/total?style=flat-square">
-  </a>
+  
+<img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/mkbhdana/Streamhive/total?style=flat-square&link=https%3A%2F%2Fgithub.com%2Fmkbhdana%2FStreamHive%2Freleases">
+
   <a href="https://github.com/mkbhdana/StreamHive/blob/master/LICENSE">
     <img alt="GitHub License" src="https://img.shields.io/github/license/mkbhdana/StreamHive?style=flat-square">
   </a>
