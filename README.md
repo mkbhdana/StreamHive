@@ -14,13 +14,15 @@ Stream your video files directly from Google Drive with this specialized client.
 
 <div align="center">
   <a href="https://github.com/mkbhdana/StreamHive/releases/latest">
-    <img alt="GitHub release" src="https://img.shields.io/github/v/release/mkbhdana/StreamHive?style=flat-square">
+    <img alt="GitHub release" src="https://img.shields.io/github/v/release/mkbhdana/StreamHive">
   </a>
-  
-<img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/mkbhdana/Streamhive/total?style=flat-square&link=https%3A%2F%2Fgithub.com%2Fmkbhdana%2FStreamHive%2Freleases">
+   <a href="https://github.com/mkbhdana/StreamHive/releases">
+    <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/mkbhdana/Streamhive/total">
+  </a>
+
 
   <a href="https://github.com/mkbhdana/StreamHive/blob/master/LICENSE">
-    <img alt="GitHub License" src="https://img.shields.io/github/license/mkbhdana/StreamHive?style=flat-square">
+    <img alt="GitHub License" src="https://img.shields.io/github/license/mkbhdana/StreamHive">
   </a>
 </div>
 
@@ -64,35 +66,33 @@ the [Issues](https://github.com/mkbhdana/StreamHive/issues) section.**
   <img src="https://github.com/user-attachments/assets/1b3746a0-25ab-4a51-806a-40e34d155dde" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/12a67155-5449-4b3f-beeb-aa9f6535e446" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/a41c1b4d-3f43-4860-a39b-f4903bec3da4" width="23.5%"/>
-   <img src="https://github.com/user-attachments/assets/8ae98084-c982-49c1-aed9-739557b4f670" width="23.5%"/>
+   <img src="https://github.com/user-attachments/assets/a404d892-09e7-45c9-9510-21186fb96932" width="23.5%"/>
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
   
-  <img src="https://github.com/user-attachments/assets/7afb8faf-db5c-468c-b908-a154f829e750" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/a408d657-3d17-433f-9993-647e7dc07bfd" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/8ef6b333-d9ef-4c60-8cb3-c89f1bfe15fb" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/4b0240c0-3e65-4b0e-9021-3bd41cba5009" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/adac9455-6663-4c4d-afb8-35420ed20739" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/aedbfff4-d3e3-4167-a1c9-22d07b70780a" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/3b2607f7-9685-4d18-aece-a7e3a0f30ac0" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/d7f9aad9-124b-48a2-b5e9-55933b47a354" width="23.5%"/>
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
    
-  <img src="https://github.com/user-attachments/assets/7382d7ec-f2e1-4354-afd7-073ac022d1ff" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/0ac13a67-eed7-44c1-a3dc-3477daeaf36b" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/9c427784-462a-4e2c-b330-90f1a481ce15" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/1120c701-46b7-4de9-8ed3-1845e862b8fe" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/12013dd3-3fe0-46ec-91f7-e3b8dea2cfec" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/719afc3b-ed60-49c0-a8c3-4182a01d0bf4" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/51da2035-506c-41ad-b88d-fa4b4bc98931" width="23.5%"/>
   
 </div>
 
 <div class="image-row" align="center" justify-content="space-between">
    
-  <img src="https://github.com/user-attachments/assets/975bd335-cd39-4aa1-b70e-b6a54d720057" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/a87b4b10-a219-489e-b463-1afe0db82b92" width="23.5%"/>
   <img src="https://github.com/user-attachments/assets/f91e90ae-bddb-48ac-9cbe-effac63054bb" width="23.5%"/>
-  <img src="https://github.com/user-attachments/assets/33ec76f2-a0b6-4e9f-a8d3-5df538405f29" width="23.5%"/>
+  <img src="https://github.com/user-attachments/assets/7f029e6b-e421-44c5-b01f-f7407e2f07a0" width="23.5%"/>
   
 </div>
-
-
 
 
 ## 📂 How to Create a Catalog
