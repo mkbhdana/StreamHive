@@ -113,4 +113,24 @@ object EpisodeMatcher {
     fun extractSeason(fileName: String): Int? {
         return extractSeasonEpisode(fileName)?.first
     }
+
+    /**
+     * Stable key that buckets multiple *sources of the same episode* together so
+     * source-priority filtering can pick the best variant per episode. Files with
+     * no detectable SxxExx get their own unique key (the file id) so they are never
+     * dropped as a "duplicate" of another episode.
+     */
+    fun sourceGroupKey(file: MediaFileEntity): String {
+        val se = extractSeasonEpisode(file.name)
+        return if (se != null) "s${se.first}e${se.second}" else "id:${file.id}"
+    }
+
+    /**
+     * Sort comparator key for ordering episodes by (season, episode). Files without
+     * a detectable marker sort last, then alphabetically by name at the call site.
+     */
+    fun orderKey(file: MediaFileEntity): Int {
+        val se = extractSeasonEpisode(file.name) ?: return Int.MAX_VALUE
+        return se.first * 1000 + se.second
+    }
 }

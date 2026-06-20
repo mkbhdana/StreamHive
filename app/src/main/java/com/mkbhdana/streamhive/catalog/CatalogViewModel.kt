@@ -1354,13 +1354,25 @@ class CatalogViewModel @Inject constructor(
         if (items.isEmpty()) return emptyMap()
 
         val metadataByFileId = mutableMapOf<String, TmdbMetadataEntity>()
+
+        // Highest priority: an existing cached entry matched by title. This is where manual
+        // IMDb/TMDB id matches live, so an episode reuses the show's correct poster instead
+        // of whatever (possibly wrong) per-file match it may have. "If cache has the title,
+        // use it; else fall back to title search."
+        items.forEach { item ->
+            tmdbRepository.findCachedMetadataByName(item.fileName)?.let { metadataByFileId[item.fileId] = it }
+        }
+
         val directMetadata = tmdbRepository.getMetadataForFiles(items.map { it.fileId })
         val missingOriginalLanguageIds = directMetadata
             .filter { it.originalLanguage.isNullOrBlank() }
             .map { it.driveFileId }
             .toMutableSet()
         directMetadata.forEach { metadata ->
-            metadataByFileId[metadata.driveFileId] = metadata
+            // Don't overwrite a title-cache match (above) with a per-file match.
+            if (metadata.driveFileId !in metadataByFileId) {
+                metadataByFileId[metadata.driveFileId] = metadata
+            }
         }
 
         val missingItems = items.filter {
@@ -1386,13 +1398,19 @@ class CatalogViewModel @Inject constructor(
             }
 
             if (tmdbRepository.isConfigured()) {
-                filesById.forEach { (fileId, file) ->
+                // Fetch by title for EVERY still-missing item — even ones not in the
+                // local file cache (e.g. played from search), using the history item's
+                // own fileName. This gives continue cards a real TMDB poster instead of
+                // a black-frame thumbnail.
+                missingItems.forEach { item ->
+                    val fileId = item.fileId
                     val needsMetadataFetch = fileId !in metadataByFileId || fileId in missingOriginalLanguageIds
                     if (needsMetadataFetch && continueMetadataFetchAttempted.add(fileId)) {
+                        val file = filesById[fileId]
                         val metadata = tmdbRepository.fetchAndCacheMetadata(
                             driveFileId = fileId,
-                            name = file.name,
-                            mediaType = inferMediaTypeForParent(file.parentId)
+                            name = file?.name ?: item.fileName,
+                            mediaType = file?.parentId?.let { inferMediaTypeForParent(it) } ?: "auto"
                         )
                         metadata?.let { metadataByFileId[fileId] = it }
                     }

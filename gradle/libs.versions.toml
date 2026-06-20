@@ -47,6 +47,9 @@ coroutines = "1.9.0"
 # Serialization
 kotlinxSerialization = "1.7.3"
 
+# QR code (TV second-screen login)
+zxingCore = "3.5.3"
+
 # Core
 coreKtx = "1.15.0"
 coreSplashscreen = "1.0.1"
@@ -136,6 +139,9 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# QR code (TV second-screen login)
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

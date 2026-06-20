@@ -299,18 +299,18 @@ class DriveRepository @Inject constructor(
             val token = authRepository.getValidAccessToken()
                 ?: return@withContext Result.failure(Exception("Not authenticated"))
 
-            if (folderId != null) {
-                return@withContext Result.success(
-                    searchFilesInFolderTree(token, query, folderId, driveId)
-                )
-            }
-
             val allFiles = mutableListOf<DriveFile>()
             var pageToken: String? = null
 
             // Build search query
             val searchQuery = StringBuilder()
             val escapedQuery = query.replace("'", "\\'")
+            // When browsing inside a folder, scope the search to that folder's direct
+            // children (one efficient query) instead of recursively walking the whole
+            // subtree — which made one API call per folder and could hang on large trees.
+            if (folderId != null) {
+                searchQuery.append("'${folderId.escapeDriveQueryValue()}' in parents and ")
+            }
             searchQuery.append("(name contains '$escapedQuery')")
             searchQuery.append(" and ${Constants.VIDEO_MIME_TYPES_QUERY}")
 
@@ -391,101 +391,6 @@ class DriveRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
-    }
-
-    private fun searchFilesInFolderTree(
-        token: String,
-        query: String,
-        rootFolderId: String,
-        driveId: String?
-    ): List<DriveFile> {
-        val results = mutableListOf<DriveFile>()
-        val pendingFolders = ArrayDeque<String>()
-        pendingFolders.add(rootFolderId)
-
-        while (pendingFolders.isNotEmpty()) {
-            val currentFolderId = pendingFolders.removeFirst()
-            val children = listSearchFolderChildren(token, query, currentFolderId, driveId)
-            children.forEach { file ->
-                if (file.isFolder) {
-                    pendingFolders.add(file.id)
-                }
-                if (file.name.contains(query, ignoreCase = true)) {
-                    results.add(file)
-                }
-            }
-        }
-
-        return results.distinctBy { it.id }
-    }
-
-    private fun listSearchFolderChildren(token: String, query: String, folderId: String, driveId: String?): List<DriveFile> {
-        val files = mutableListOf<DriveFile>()
-        var pageToken: String? = null
-        
-        var corpora = "allDrives"
-        var requestDriveId: String? = null
-        var includeItemsFromAllDrives = true
-        when (driveId) {
-            null -> {}
-            "my_drive" -> {
-                corpora = "user"
-                includeItemsFromAllDrives = false
-            }
-            "shared_with_me" -> corpora = "user"
-            "starred" -> corpora = "user"
-            "trashed" -> {
-                corpora = "user"
-                includeItemsFromAllDrives = false
-            }
-            else -> {
-                corpora = "drive"
-                requestDriveId = driveId
-            }
-        }
-        
-        val apiQuery = "'${folderId.escapeDriveQueryValue()}' in parents and trashed = false and ${Constants.VIDEO_MIME_TYPES_QUERY}"
-
-        do {
-            val urlBuilder = StringBuilder("${Constants.DRIVE_FILES_URL}?")
-            urlBuilder.append("corpora=$corpora")
-            requestDriveId?.let {
-                urlBuilder.append("&driveId=${java.net.URLEncoder.encode(it, "UTF-8")}")
-            }
-            if (includeItemsFromAllDrives) {
-                urlBuilder.append("&includeItemsFromAllDrives=true")
-            }
-            urlBuilder.append("&supportsAllDrives=true")
-            urlBuilder.append("&q=${java.net.URLEncoder.encode(apiQuery, "UTF-8")}")
-            urlBuilder.append("&fields=${java.net.URLEncoder.encode(Constants.DRIVE_LIST_FIELDS, "UTF-8")}")
-            urlBuilder.append("&pageSize=100")
-            urlBuilder.append("&orderBy=${java.net.URLEncoder.encode("folder,name", "UTF-8")}")
-            if (pageToken != null) {
-                urlBuilder.append("&pageToken=$pageToken")
-            }
-
-            val requestUrl = urlBuilder.toString()
-            android.util.Log.d("SearchDebug", "listSearchFolderChildren Request URL: $requestUrl")
-            val request = Request.Builder()
-                .url(requestUrl)
-                .header("Authorization", "Bearer $token")
-                .get()
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errorBody = response.body?.string()
-                    throw IllegalStateException("Search failed: ${response.code} - $errorBody")
-                }
-
-                val body = response.body ?: throw IllegalStateException("Search failed: empty body")
-                val fileListResponse = gson.fromJson(body.charStream(), DriveFileListResponse::class.java)
-                files.addAll(fileListResponse.files.mapNotNull { it.toDisplayableDriveFile() })
-                pageToken = fileListResponse.nextPageToken
-            }
-        } while (pageToken != null)
-
-        return files.distinctBy { it.id }
     }
 
     fun getAllFolders(): Flow<List<MediaFileEntity>> {

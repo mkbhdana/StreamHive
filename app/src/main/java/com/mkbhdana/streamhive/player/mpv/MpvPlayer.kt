@@ -119,6 +119,8 @@ class MpvPlayer(private val context: Context) {
         fun onError(message: String)
         fun onBuffering(isBuffering: Boolean)
         fun onTracksChanged() {}
+        /** Fired once when the current file plays through to its end. */
+        fun onEndFile() {}
     }
 
     private var eventListener: EventListener? = null
@@ -777,7 +779,10 @@ class MpvPlayer(private val context: Context) {
                     eventListener?.onBuffering(buffering)
                 }
                 "eof-reached" -> {
-                    if (value as? Boolean == true) _isPlaying.value = false
+                    if (value as? Boolean == true) {
+                        _isPlaying.value = false
+                        eventListener?.onEndFile()
+                    }
                 }
                 "track-list/count" -> {
                     eventListener?.onTracksChanged()
