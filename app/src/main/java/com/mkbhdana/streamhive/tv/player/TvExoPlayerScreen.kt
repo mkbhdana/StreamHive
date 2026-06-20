@@ -1,0 +1,291 @@
+package com.mkbhdana.streamhive.tv.player
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import com.mkbhdana.streamhive.navigation.PlayerRoute
+import com.mkbhdana.streamhive.player.ExternalPlayerLauncher
+import com.mkbhdana.streamhive.player.PlayerSwitchingOverlay
+import com.mkbhdana.streamhive.player.PlayerViewModel
+import com.mkbhdana.streamhive.player.proxy.StreamProxyService
+import com.mkbhdana.streamhive.player.ui.NextEpisodeOverlay
+import kotlinx.coroutines.delay
+
+@UnstableApi
+private fun aspectResizeMode(mode: String): Int = when (mode) {
+    "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    "16:9" -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+    "4:3" -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+}
+
+private val RESIZE_MODES = listOf("fit" to "Fit", "fill" to "Fill", "zoom" to "Zoom", "16:9" to "16:9", "4:3" to "4:3")
+private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+private val DECODERS = listOf("hw" to "Hardware", "hw+" to "Hardware+", "auto" to "Auto", "sw" to "Software")
+
+private enum class ExoPanel { Subtitles, Audio, Resize, Speed, Decoder, Episodes, SubtitleStyle }
+
+@UnstableApi
+@Composable
+fun TvExoPlayerScreen(
+    navKey: PlayerRoute,
+    onBack: () -> Unit,
+    onSwitchEngine: (resizeMode: String, speed: Float) -> Unit = { _, _ -> },
+    viewModel: PlayerViewModel = hiltViewModel<PlayerViewModel, PlayerViewModel.Factory>(
+        key = "exo_${navKey.instanceId}",
+        creationCallback = { factory -> factory.create(navKey) }
+    )
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val seekFocus = remember { FocusRequester() }
+    val rootFocus = remember { FocusRequester() }
+    var panel by remember { mutableStateOf<ExoPanel?>(null) }
+    var interaction by remember { mutableIntStateOf(0) }
+    var switching by remember { mutableStateOf(navKey.handoff) }
+    var engineSwitchTried by remember { mutableStateOf(false) }
+
+    // Auto-advance / close when playback finishes.
+    LaunchedEffect(uiState.requestClose) {
+        if (uiState.requestClose) { viewModel.consumeCloseRequest(); onBack() }
+    }
+    // On a fatal error, fall back to the other engine once (Exo → MPV).
+    LaunchedEffect(uiState.error) {
+        if (uiState.error != null && !navKey.handoff && !engineSwitchTried && viewModel.isMpvAvailable()) {
+            engineSwitchTried = true
+            onSwitchEngine(uiState.resizeMode, uiState.playbackSpeed)
+        }
+    }
+
+    LaunchedEffect(uiState.isPlaying) {
+        while (uiState.isPlaying) {
+            viewModel.updatePosition()
+            delay(500)
+        }
+    }
+    LaunchedEffect(switching, uiState.isLoading, uiState.duration, uiState.currentPosition, uiState.isPlaying) {
+        val ready = !uiState.isLoading && (uiState.duration > 0L || uiState.currentPosition > 0L || uiState.isPlaying)
+        if (switching && ready) {
+            // Carry the resize mode / speed over from the previous engine.
+            if (navKey.resizeMode.isNotBlank()) viewModel.setResizeMode(navKey.resizeMode)
+            if (navKey.playbackSpeed > 0f) viewModel.setPlaybackSpeed(navKey.playbackSpeed)
+            delay(250); switching = false
+        }
+    }
+    LaunchedEffect(uiState.showControls, panel) {
+        if (uiState.showControls && panel == null) runCatching { seekFocus.requestFocus() }
+        else if (!uiState.showControls) runCatching { rootFocus.requestFocus() }
+    }
+    LaunchedEffect(uiState.showControls, uiState.isPlaying, interaction, panel) {
+        if (uiState.showControls && uiState.isPlaying && panel == null) {
+            delay(6000)
+            viewModel.hideControls()
+        }
+    }
+    DisposableEffect(Unit) { onDispose { viewModel.releasePlayer() } }
+
+    // Pause playback immediately when the app is backgrounded.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.player?.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    BackHandler {
+        when {
+            panel != null -> panel = null
+            uiState.showControls -> viewModel.hideControls()
+            else -> onBack()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .focusRequester(rootFocus)
+            .focusable()
+            .onKeyEvent { event ->
+                if (!uiState.showControls && panel == null && event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionCenter, Key.Enter, Key.DirectionLeft, Key.DirectionRight,
+                        Key.DirectionUp, Key.DirectionDown -> {
+                            viewModel.showControls(); interaction++; true
+                        }
+                        Key.MediaPlayPause -> { viewModel.togglePlayPause(); true }
+                        else -> false
+                    }
+                } else false
+            }
+    ) {
+        viewModel.player?.let { player ->
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = false
+                        keepScreenOn = true // prevent the screen turning off during playback
+                    }
+                },
+                // Read uiState.resizeMode inside update() so Compose re-applies it on change.
+                update = { view -> view.resizeMode = aspectResizeMode(uiState.resizeMode) },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (uiState.isLoading && !switching) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.Center))
+        }
+        uiState.error?.let { err ->
+            Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center).padding(48.dp))
+        }
+
+        TvPlayerControls(
+            visible = uiState.showControls && uiState.error == null && panel == null,
+            fileName = uiState.fileName,
+            sourceLabel = "ExoPlayer · ${uiState.decoderMode}",
+            isPlaying = uiState.isPlaying,
+            currentPosition = uiState.currentPosition,
+            duration = uiState.duration,
+            baseStepMs = uiState.tapSeekDuration * 1000L,
+            hasEpisodes = uiState.episodeList.size > 1,
+            canSwitchEngine = viewModel.isMpvAvailable(),
+            seekFocusRequester = seekFocus,
+            onPlayPause = { viewModel.togglePlayPause(); interaction++ },
+            onSeekTo = { viewModel.seekTo(it); interaction++ },
+            onSubtitles = { panel = ExoPanel.Subtitles },
+            onAudio = { panel = ExoPanel.Audio },
+            onEpisodes = { panel = ExoPanel.Episodes },
+            onSubtitleStyle = { panel = ExoPanel.SubtitleStyle },
+            onResize = { panel = ExoPanel.Resize },
+            onSpeed = { panel = ExoPanel.Speed },
+            onDecoder = { panel = ExoPanel.Decoder },
+            onSwitchEngine = { onSwitchEngine(uiState.resizeMode, uiState.playbackSpeed) },
+            onExternal = {
+                viewModel.getProxyUrl()?.let { url ->
+                    StreamProxyService.start(context)
+                    ExternalPlayerLauncher.launch(context, url, uiState.fileName)
+                }
+            },
+            onInteraction = { interaction++ }
+        )
+
+        NextEpisodeOverlay(
+            nextEpisode = uiState.nextEpisode,
+            currentPosition = uiState.currentPosition,
+            duration = uiState.duration,
+            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
+            autoFocus = true,
+            returnFocus = rootFocus
+        )
+
+        if (switching) {
+            PlayerSwitchingOverlay(message = "Switching to ExoPlayer")
+        }
+    }
+
+    when (panel) {
+        ExoPanel.Subtitles -> TvOptionsPanel(
+            title = "Subtitles",
+            options = buildList {
+                add(TvOption("Off", selected = uiState.subtitleTracks.none { it.isSelected }) {
+                    viewModel.selectSubtitleTrack(-1); panel = null
+                })
+                uiState.subtitleTracks.forEach { t ->
+                    add(TvOption(t.name, t.language, t.isSelected) { viewModel.selectSubtitleTrack(t.index, t.trackIndex); panel = null })
+                }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.Audio -> TvOptionsPanel(
+            title = "Audio",
+            options = uiState.audioTracks.map { t ->
+                TvOption(t.name, t.language, t.isSelected) { viewModel.selectAudioTrack(t.index, t.trackIndex); panel = null }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.Resize -> TvOptionsPanel(
+            title = "Resize Mode",
+            options = RESIZE_MODES.map { (v, label) ->
+                TvOption(label, selected = uiState.resizeMode == v) { viewModel.setResizeMode(v); panel = null }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.Speed -> TvOptionsPanel(
+            title = "Playback Speed",
+            options = SPEEDS.map { s ->
+                TvOption("${s}x", selected = kotlin.math.abs(uiState.playbackSpeed - s) < 0.01f) { viewModel.setPlaybackSpeed(s); panel = null }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.Decoder -> TvOptionsPanel(
+            title = "Decoder",
+            options = DECODERS.map { (v, label) ->
+                TvOption(label, selected = uiState.decoderMode == v) { viewModel.setDecoderMode(v); panel = null }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.Episodes -> TvOptionsPanel(
+            title = "Episodes",
+            options = uiState.episodeList.map { ep ->
+                TvOption(ep.name, selected = ep.name == uiState.fileName) { viewModel.playEpisode(ep.id, ep.name); panel = null }
+            },
+            onDismiss = { panel = null }
+        )
+        ExoPanel.SubtitleStyle -> TvSubtitleStylePanel(
+            fontSize = uiState.subtitleFontSize,
+            onFontSize = viewModel::setSubtitleFontSize,
+            color = uiState.subtitleColor,
+            onColor = viewModel::setSubtitleColor,
+            position = uiState.subtitlePosition,
+            onPosition = viewModel::setSubtitlePosition,
+            bgOpacity = uiState.subtitleBgOpacity,
+            onBgOpacity = viewModel::setSubtitleBgOpacity,
+            scale = uiState.subtitleScale,
+            onScale = viewModel::setSubtitleScale,
+            onDismiss = { panel = null }
+        )
+        null -> Unit
+    }
+}

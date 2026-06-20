@@ -201,6 +201,9 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // QR code generation (TV second-screen login)
+    implementation(libs.zxing.core)
+
     // MPV Player (community artifact by abdallahmehiz)
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
 

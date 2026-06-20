@@ -106,7 +106,12 @@ data class PlayerUiState(
     val decoderMode: String = "auto",
 
     // Series episodes
-    val episodeList: List<MediaFileEntity> = emptyList()
+    val episodeList: List<MediaFileEntity> = emptyList(),
+    // The next episode after the current one (null for movies / last episode).
+    val nextEpisode: MediaFileEntity? = null,
+    // Set when playback finished and there is nothing left to auto-play — the
+    // screen should close the player (movie ended, or last episode of a series).
+    val requestClose: Boolean = false
 )
 
 @UnstableApi
@@ -220,11 +225,13 @@ class PlayerViewModel @AssistedInject constructor(
                 val currentFile = resolveCurrentFileForEpisodes() ?: return@launch
                 val allFiles = loadEpisodeSiblings(currentFile)
                 val seriesName = extractSeriesName(currentFileName)
-                val episodes = allFiles.filter { 
-                    !it.isFolder && 
-                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true) 
+                val matched = allFiles.filter {
+                    !it.isFolder &&
+                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true)
                 }
-                _uiState.update { it.copy(episodeList = episodes) }
+                val episodes = EpisodePlaylist.build(matched, appPreferences.sourcePriorityConfig)
+                val next = EpisodePlaylist.next(episodes, currentFileId, currentFileName)
+                _uiState.update { it.copy(episodeList = episodes, nextEpisode = next) }
             } catch (e: Exception) {
                 Log.e("PlayerVM", "Failed to fetch episodes", e)
             }
@@ -358,6 +365,26 @@ class PlayerViewModel @AssistedInject constructor(
         _player?.release()
         _player = null
         initializePlayer()
+    }
+
+    /**
+     * Called when the current item finishes. For a series, auto-advance to the next
+     * episode; for a movie / final episode, ask the screen to close the player.
+     */
+    private fun onPlaybackEnded() {
+        val next = _uiState.value.nextEpisode
+        if (next != null) {
+            // playEpisode() saves the current (finished) position on its own.
+            playEpisode(next.id, next.name)
+        } else {
+            savePlaybackPosition()
+            _uiState.update { it.copy(requestClose = true) }
+        }
+    }
+
+    /** The screen calls this after it has handled [PlayerUiState.requestClose]. */
+    fun consumeCloseRequest() {
+        _uiState.update { it.copy(requestClose = false) }
     }
 
     /**
@@ -500,6 +527,8 @@ class PlayerViewModel @AssistedInject constructor(
                             }
                             updateTrackInfo()
 
+                        } else if (playbackState == Player.STATE_ENDED) {
+                            onPlaybackEnded()
                         }
                     }
 

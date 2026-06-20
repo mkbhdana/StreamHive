@@ -141,9 +141,20 @@ object SourcePriorityOptions {
 }
 
 object SourcePriorityFilter {
+    /**
+     * Apply the configured source priority to [files].
+     *
+     * When [groupBy] is supplied, files are first bucketed by that key (e.g. one
+     * bucket per episode) and the priority is applied **within each bucket**. This
+     * keeps an item whose only source is a lower-priority one — a single-source
+     * episode is never dropped just because another episode has a better source.
+     * When [groupBy] is null the whole list is treated as alternatives for one item
+     * (movie behaviour): only the single best variant survives.
+     */
     fun filter(
         files: List<MediaFileEntity>,
-        config: SourcePriorityConfig
+        config: SourcePriorityConfig,
+        groupBy: ((MediaFileEntity) -> String)? = null
     ): SourcePriorityResult {
         if (!config.hasAnyPriority || files.size <= 1) {
             return SourcePriorityResult(
@@ -151,6 +162,40 @@ object SourcePriorityFilter {
                 totalFiles = files.size,
                 isConfigured = config.hasAnyPriority
             )
+        }
+
+        if (groupBy == null) {
+            return filterGroup(files, config, totalFiles = files.size)
+        }
+
+        // Preserve the first-seen order of both buckets and files within them.
+        val buckets = LinkedHashMap<String, MutableList<MediaFileEntity>>()
+        for (file in files) buckets.getOrPut(groupBy(file)) { mutableListOf() }.add(file)
+
+        val resultFiles = mutableListOf<MediaFileEntity>()
+        val applied = mutableListOf<AppliedSourcePriority>()
+        for (bucket in buckets.values) {
+            val bucketResult = filterGroup(bucket, config, totalFiles = bucket.size)
+            resultFiles.addAll(bucketResult.files)
+            applied.addAll(bucketResult.applied)
+        }
+
+        return SourcePriorityResult(
+            files = resultFiles,
+            totalFiles = files.size,
+            isConfigured = true,
+            applied = applied.distinctBy { it.categoryLabel to it.valueLabel }
+        )
+    }
+
+    /** Apply every configured category to a single set of alternatives. */
+    private fun filterGroup(
+        files: List<MediaFileEntity>,
+        config: SourcePriorityConfig,
+        totalFiles: Int
+    ): SourcePriorityResult {
+        if (files.size <= 1) {
+            return SourcePriorityResult(files = files, totalFiles = totalFiles, isConfigured = true)
         }
 
         var current = files
@@ -191,7 +236,7 @@ object SourcePriorityFilter {
 
         return SourcePriorityResult(
             files = current,
-            totalFiles = files.size,
+            totalFiles = totalFiles,
             isConfigured = true,
             applied = applied
         )

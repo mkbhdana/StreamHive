@@ -19,20 +19,29 @@ class TmdbRepository @Inject constructor(
      * Removes year patterns, quality tags, codec info etc.
      */
     private fun cleanNameForSearch(name: String): String {
-        return name
+        val normalized = name
             // Remove file extensions
             .replace(Regex("""\.(?:mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts|mts|srt|sub|ass|ssa|idx)$""", RegexOption.IGNORE_CASE), "")
-            // Remove content in brackets [...]
-            .replace(Regex("""\[.*?]"""), " ")
-            // Remove content in parentheses (...)
+            // Remove content in brackets [...], parentheses (...), and braces {...}
+            .replace(Regex("""\[.*?\]"""), " ")
             .replace(Regex("""\(.*?\)"""), " ")
-            // Remove quality, codec, and release tags
-            .replace(Regex("""(?:720p|1080p|2160p|4K|UHD|HDR|HDR10|DV|DoVi|Dolby\.?Vision|BluRay|Blu-Ray|BRRip|BDRip|WEBRip|WEB-DL|WEB|DVDRip|HDTV|PDTV|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC|DTS|FLAC|AC3|EAC3|Atmos|TrueHD|REMUX|PROPER|REPACK|EXTENDED|UNRATED|DC|Directors\.?Cut|10bit|8bit|SDR|AMZN|NF|DSNP|HMAX|ATVP|PCOK)""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\{.*?\}"""), " ")
+            // Remove quality, codec, language, and release tags
+            .replace(Regex("""(?:720p|1080p|2160p|4K|UHD|HDR\w*|DoVi|Dolby\.?Vision|BluRay|Blu-Ray|BRRip|BDRip|WEBRip|WEB-DL|WEB|DVDRip|HDTV|PDTV|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC\w*|DDP?\d?|DTS\w*|FLAC|AC3|EAC3|Atmos|TrueHD|REMUX|PROPER|REPACK|EXTENDED|UNRATED|10bit|8bit|SDR|AMZN|NF|DSNP|HMAX|ATVP|PCOK|Dual[._\s-]?Audio|Dubbed|ESubs?|MSubs?|Multi|Subbed|HQ)""", RegexOption.IGNORE_CASE), " ")
             // Replace separators with spaces
             .replace(Regex("""[._-]+"""), " ")
-            // Collapse multiple spaces
             .replace(Regex("""\s{2,}"""), " ")
             .trim()
+
+        // The title is everything BEFORE the first season/episode marker or release year,
+        // e.g. "Rick and Morty S9E4 1080p ENG" -> "Rick and Morty", "Dacoit 2026 Hindi" ->
+        // "Dacoit". This drops the marker and all the trailing language/codec/release junk.
+        val cut = Regex("""(?i)\b(?:s\d{1,2}\s*e\d{1,3}|\d{1,2}x\d{1,3}|season\s*\d{1,2}|episode\s*\d{1,3}|(?:19|20)\d{2})\b""")
+            .find(normalized)
+        val title = if (cut != null && cut.range.first > 1) {
+            normalized.substring(0, cut.range.first).trim()
+        } else normalized
+        return title.ifBlank { normalized }
     }
 
     /**
@@ -56,16 +65,31 @@ class TmdbRepository @Inject constructor(
             return@withContext cached
         }
 
+        // Title parameters are optional: use the year to disambiguate when present, and
+        // treat anything with a season/episode marker as a TV show.
+        val year = extractYear(name)
+        val resolvedType = when {
+            mediaType == "movie" || mediaType == "tv" -> mediaType
+            hasEpisodeMarker(name) -> "tv"
+            else -> mediaType
+        }
         val query = cleanNameForSearch(name)
         if (query.isBlank()) return@withContext null
 
         try {
-            val entity = when (mediaType) {
-                "movie" -> searchMovie(apiKey, query, driveFileId)
+            val entity = when (resolvedType) {
+                "movie" -> searchMovie(apiKey, query, driveFileId, year)
                     ?: searchMulti(apiKey, query, driveFileId) // fallback to multi if typed search fails
-                "tv" -> searchTvShow(apiKey, query, driveFileId)
+                "tv" -> searchTvShow(apiKey, query, driveFileId, year)
                     ?: searchMulti(apiKey, query, driveFileId) // fallback to multi if typed search fails
-                else -> searchMulti(apiKey, query, driveFileId)
+                else -> if (year != null) {
+                    // With a year, try the typed (year-filtered) searches before multi.
+                    searchMovie(apiKey, query, driveFileId, year)
+                        ?: searchTvShow(apiKey, query, driveFileId, year)
+                        ?: searchMulti(apiKey, query, driveFileId)
+                } else {
+                    searchMulti(apiKey, query, driveFileId)
+                }
             }
 
             if (entity != null) {
@@ -113,16 +137,32 @@ class TmdbRepository @Inject constructor(
         return results.first()
     }
 
-    private suspend fun searchMovie(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
-        val response = tmdbApiService.searchMovies(apiKey, query)
-        val movie = bestMatch(response.results, query) { it.displayTitle } ?: return null
-        return movie.toMetadataEntity(driveFileId)
+    /** First 4-digit year (prefers one in parentheses) found in the raw name, else null. */
+    private fun extractYear(name: String): String? {
+        Regex("""\((19|20)\d{2}\)""").find(name)?.let { return it.value.drop(1).dropLast(1) }
+        return Regex("""\b(19|20)\d{2}\b""").findAll(name).map { it.value }.lastOrNull()
     }
 
-    private suspend fun searchTvShow(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
-        val response = tmdbApiService.searchTvShows(apiKey, query)
-        val show = bestMatch(response.results, query) { it.displayTitle } ?: return null
-        return show.toMetadataEntity(driveFileId)
+    /** Whether the name contains a season/episode marker (SxxEyy, NxNN, Season/Episode N). */
+    private fun hasEpisodeMarker(name: String): Boolean =
+        Regex("""(?i)\b(s\d{1,2}\s*e\d{1,3}|\d{1,2}x\d{1,3}|season\s*\d{1,2}|episode\s*\d{1,3})\b""")
+            .containsMatchIn(name)
+
+    private suspend fun searchMovie(apiKey: String, query: String, driveFileId: String, year: String? = null): TmdbMetadataEntity? {
+        var movie = bestMatch(tmdbApiService.searchMovies(apiKey, query, year = year).results, query) { it.displayTitle }
+        if (movie == null && year != null) {
+            // The year may be off (re-release etc.) — retry without it.
+            movie = bestMatch(tmdbApiService.searchMovies(apiKey, query).results, query) { it.displayTitle }
+        }
+        return movie?.toMetadataEntity(driveFileId)
+    }
+
+    private suspend fun searchTvShow(apiKey: String, query: String, driveFileId: String, year: String? = null): TmdbMetadataEntity? {
+        var show = bestMatch(tmdbApiService.searchTvShows(apiKey, query, year = year).results, query) { it.displayTitle }
+        if (show == null && year != null) {
+            show = bestMatch(tmdbApiService.searchTvShows(apiKey, query).results, query) { it.displayTitle }
+        }
+        return show?.toMetadataEntity(driveFileId)
     }
 
     private suspend fun searchMulti(apiKey: String, query: String, driveFileId: String): TmdbMetadataEntity? {
@@ -151,6 +191,25 @@ class TmdbRepository @Inject constructor(
 
     suspend fun searchLocalCatalog(query: String): List<TmdbMetadataEntity> {
         return tmdbMetadataDao.searchByTitle(query)
+    }
+
+    /**
+     * Find an already-cached metadata entry (including manual IMDb/TMDB id matches) by the
+     * title parsed from a file name. Returns only a strong match that already has a poster,
+     * so callers can reuse it instead of doing a fresh search that might match the wrong title.
+     */
+    suspend fun findCachedMetadataByName(name: String): TmdbMetadataEntity? = withContext(Dispatchers.IO) {
+        val query = cleanNameForSearch(name)
+        if (query.length < 2) return@withContext null
+        val q = query.lowercase().trim()
+        // Exact title, or the title followed by extra tokens (e.g. "Fallout" matches a query
+        // "Fallout") — a strong match safe enough to override a per-episode mismatch.
+        tmdbMetadataDao.searchByTitle(query)
+            .filter { !it.posterPath.isNullOrBlank() }
+            .firstOrNull {
+                val t = it.title.lowercase().trim()
+                t.isNotEmpty() && (q == t || q.startsWith("$t "))
+            }
     }
 
     suspend fun getMetadataForFiles(driveFileIds: List<String>): List<TmdbMetadataEntity> {

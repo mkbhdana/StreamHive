@@ -50,6 +50,12 @@ fun Activity.enterPlayerWindowMode() {
 fun Activity.exitPlayerWindowMode() {
     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    // Restore system brightness. The gesture brightness override is applied to the
+    // window, so (in this single-Activity app) it would otherwise persist and leak
+    // to the rest of the UI after leaving the player.
+    window.attributes = window.attributes.apply {
+        screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+    }
     WindowCompat.setDecorFitsSystemWindows(window, false)
     val controller = WindowInsetsControllerCompat(window, window.decorView)
     controller.show(WindowInsetsCompat.Type.systemBars())

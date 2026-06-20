@@ -16,6 +16,7 @@ import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.settings.AppPreferences
 import com.mkbhdana.streamhive.settings.SourcePriorityFilter
 import com.mkbhdana.streamhive.settings.SourcePriorityResult
+import com.mkbhdana.streamhive.util.EpisodeMatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -88,6 +89,15 @@ class MediaInfoViewModel @AssistedInject constructor(
     fun getPreferredEngine(): com.mkbhdana.streamhive.player.mpv.PlayerEngine = appPreferences.preferredEngine
 
     init {
+        loadMediaInfo()
+    }
+
+    /**
+     * Force a fresh reload of files + metadata. The TV detail screen reuses a
+     * keyed ViewModel across navigations, so without this it would keep showing the
+     * snapshot captured the first time the item was opened.
+     */
+    fun refresh() {
         loadMediaInfo()
     }
 
@@ -487,7 +497,13 @@ class MediaInfoViewModel @AssistedInject constructor(
         val config = appPreferences.sourcePriorityConfig
         val isConfigured = sourcePriorityFilteringEnabled && config.hasAnyPriority
         val priorityResult = if (isConfigured && !_uiState.value.sourcePriorityTemporarilyDisabled) {
-            SourcePriorityFilter.filter(allFiles, config)
+            // For series, group by episode so a single-source episode is never dropped;
+            // for movies the whole folder is one set of alternatives.
+            SourcePriorityFilter.filter(
+                allFiles,
+                config,
+                groupBy = if (isTv) EpisodeMatcher::sourceGroupKey else null
+            )
         } else {
             SourcePriorityResult(
                 files = allFiles,

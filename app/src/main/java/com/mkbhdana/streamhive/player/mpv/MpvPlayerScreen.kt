@@ -36,6 +36,7 @@ import com.mkbhdana.streamhive.player.exitPlayerWindowMode
 import com.mkbhdana.streamhive.player.gesture.GestureIndicatorOverlay
 import com.mkbhdana.streamhive.player.gesture.GestureState
 import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
+import com.mkbhdana.streamhive.player.ui.NextEpisodeOverlay
 import com.mkbhdana.streamhive.player.ui.PlayerControlsOverlay
 import com.mkbhdana.streamhive.ui.theme.AccentCyan
 import kotlinx.coroutines.delay
@@ -201,10 +202,14 @@ fun MpvPlayerScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
                     stopSpeedHold()
+                    // Pause playback when backgrounded (parity with ExoPlayer); video
+                    // output is also suspended so MPV stops rendering to the surface.
+                    viewModel.pause()
                     viewModel.suspendVideoOutputForTransientView()
                 }
                 Lifecycle.Event.ON_STOP -> {
                     stopSpeedHold()
+                    viewModel.pause()
                     viewModel.suspendVideoOutputForTransientView()
                 }
                 Lifecycle.Event.ON_RESUME -> {
@@ -218,6 +223,11 @@ fun MpvPlayerScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    // When playback finishes with nothing to auto-play (movie / last episode), close.
+    LaunchedEffect(uiState.requestClose) {
+        if (uiState.requestClose) { viewModel.consumeCloseRequest(); handleBack() }
     }
 
     BackHandler { handleBack() }
@@ -404,5 +414,12 @@ fun MpvPlayerScreen(
                 onPanelClosed = { controlsInteractionActive = false }
             )
         }
+
+        NextEpisodeOverlay(
+            nextEpisode = uiState.nextEpisode,
+            currentPosition = uiState.currentPosition,
+            duration = uiState.duration,
+            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } }
+        )
     }
 }

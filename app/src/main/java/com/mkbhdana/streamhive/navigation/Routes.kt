@@ -23,6 +23,9 @@ data class PlayerRoute(
     val allowFallback: Boolean = true,
     val handoff: Boolean = false,
     val decoder: String = "",
+    // Carried across an engine switch so resize/speed persist (TV). Defaults are inert.
+    val resizeMode: String = "",
+    val playbackSpeed: Float = 0f,
     val instanceId: Long = System.nanoTime() // Unique per play to force fresh ViewModel
 )
 
@@ -32,6 +35,9 @@ data class MpvPlayerRoute(
     val allowFallback: Boolean = true,
     val handoff: Boolean = false,
     val decoder: String = "",
+    // Carried across an engine switch so resize/speed persist (TV). Defaults are inert.
+    val resizeMode: String = "",
+    val playbackSpeed: Float = 0f,
     val instanceId: Long = System.nanoTime() // Unique per play to force fresh ViewModel
 )
 

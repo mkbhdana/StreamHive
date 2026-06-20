@@ -103,6 +103,8 @@ class MpvPlayerViewModel @AssistedInject constructor(
     // Error retry mechanism
     private var retryCount = 0
     private val MAX_RETRIES = 3
+    // Guards against handling end-of-file more than once per loaded file.
+    private var playbackEndHandled = false
     private var preferredTracksApplied = false
     private var pendingExternalSubtitleTrackRefresh = false
     private var tmdbOriginalAudioLanguage: String? = null
@@ -134,11 +136,15 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 val currentFile = resolveCurrentFileForEpisodes() ?: return@launch
                 val allFiles = loadEpisodeSiblings(currentFile)
                 val seriesName = extractSeriesName(currentFileName)
-                val episodes = allFiles.filter { 
-                    !it.isFolder && 
-                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true) 
+                val matched = allFiles.filter {
+                    !it.isFolder &&
+                    extractSeriesName(it.name).equals(seriesName, ignoreCase = true)
                 }
-                _uiState.update { it.copy(episodeList = episodes) }
+                val episodes = com.mkbhdana.streamhive.player.EpisodePlaylist
+                    .build(matched, appPreferences.sourcePriorityConfig)
+                val next = com.mkbhdana.streamhive.player.EpisodePlaylist
+                    .next(episodes, currentFileId, currentFileName)
+                _uiState.update { it.copy(episodeList = episodes, nextEpisode = next) }
             } catch (e: Exception) {
                 // Log or handle error
             }
@@ -218,6 +224,7 @@ class MpvPlayerViewModel @AssistedInject constructor(
         pendingExternalSubtitleTrackRefresh = false
         preferredTracksApplied = false
         preferredSubtitleTracksApplied = false
+        playbackEndHandled = false
         rememberPlaybackSelection()
         fetchEpisodeList()
 
@@ -235,6 +242,25 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Called when the current file finishes. For a series, auto-advance to the
+     * next episode; for a movie / final episode, ask the screen to close.
+     */
+    private fun onPlaybackEnded() {
+        val next = _uiState.value.nextEpisode
+        if (next != null) {
+            playEpisode(next.id, next.name)
+        } else {
+            savePlaybackPosition()
+            _uiState.update { it.copy(requestClose = true) }
+        }
+    }
+
+    /** The screen calls this after it has handled [PlayerUiState.requestClose]. */
+    fun consumeCloseRequest() {
+        _uiState.update { it.copy(requestClose = false) }
     }
 
     private fun setupPlayer() {
@@ -341,6 +367,12 @@ class MpvPlayerViewModel @AssistedInject constructor(
 
                     override fun onTracksChanged() {
                         updateTrackInfo()
+                    }
+
+                    override fun onEndFile() {
+                        if (playbackEndHandled) return
+                        playbackEndHandled = true
+                        onPlaybackEnded()
                     }
                 })
 
@@ -524,6 +556,13 @@ class MpvPlayerViewModel @AssistedInject constructor(
 
     private fun maybeApplyPreferredSubtitleTrack(subtitleTracks: List<TrackInfo>): TrackInfo? {
         if (preferredSubtitleTracksApplied || subtitleTracks.isEmpty()) return null
+
+        // Carry over an explicit "subtitles off" choice to the next episode.
+        if (sessionSubtitleLanguage == "__none__") {
+            preferredSubtitleTracksApplied = true
+            mpvPlayer.disableSubtitles()
+            return null
+        }
 
         // Session overrides (from per-file saved settings) take priority
         if (sessionSubtitleLanguage != null) {
@@ -715,6 +754,11 @@ class MpvPlayerViewModel @AssistedInject constructor(
     fun selectAudioTrack(trackId: Int) {
         preferredTracksApplied = true
         mpvPlayer.setAudioTrack(trackId)
+        // Remember the choice so the next episode in a series carries it over.
+        _uiState.value.audioTracks.firstOrNull { it.index == trackId }?.let {
+            sessionAudioLanguage = it.language
+            sessionAudioLabel = it.name
+        }
         updateTrackInfo()
         debounceSaveFileSettings()
     }
@@ -724,8 +768,14 @@ class MpvPlayerViewModel @AssistedInject constructor(
         preferredSubtitleTracksApplied = true
         if (trackId < 0) {
             mpvPlayer.disableSubtitles()
+            sessionSubtitleLanguage = "__none__"
+            sessionSubtitleLabel = null
         } else {
             mpvPlayer.setSubtitleTrack(trackId)
+            _uiState.value.subtitleTracks.firstOrNull { it.index == trackId }?.let {
+                sessionSubtitleLanguage = it.language
+                sessionSubtitleLabel = it.name
+            }
         }
         updateTrackInfo()
         debounceSaveFileSettings()
