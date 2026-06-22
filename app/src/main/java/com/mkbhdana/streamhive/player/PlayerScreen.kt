@@ -57,6 +57,7 @@ fun PlayerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val gestureState = remember { mutableStateOf(GestureState()) }
     var controlsInteractionActive by remember { mutableStateOf(false) }
+    var controlsActivity by remember { mutableIntStateOf(0) }
     var seekPillSignal by remember { mutableIntStateOf(0) }
     var speedHoldRestoreSpeed by remember { mutableStateOf<Float?>(null) }
     var engineFallbackRequested by remember { mutableStateOf(false) }
@@ -202,7 +203,9 @@ fun PlayerScreen(
     }
 
     // Auto-hide controls (paused while a panel is open)
-    LaunchedEffect(uiState.showControls, uiState.isPlaying, uiState.isLocked, controlsInteractionActive) {
+    // Auto-hide restarts on every control interaction (controlsActivity), so the
+    // 8s timeout only counts from the user's last activity, not from when shown.
+    LaunchedEffect(uiState.showControls, uiState.isPlaying, uiState.isLocked, controlsInteractionActive, controlsActivity) {
         if (uiState.showControls && uiState.isPlaying && !controlsInteractionActive) {
             delay(8000)
             viewModel.hideControls()
@@ -557,7 +560,8 @@ fun PlayerScreen(
                 episodeList = uiState.episodeList,
                 onEpisodeSelect = viewModel::playEpisode,
                 onPanelOpened = { controlsInteractionActive = true },
-                onPanelClosed = { controlsInteractionActive = false }
+                onPanelClosed = { controlsInteractionActive = false },
+                onUserInteraction = { controlsActivity++ }
             )
         }
 

@@ -274,7 +274,7 @@ private fun TmdbSection(
     Column {
         SectionHeader("Catalog matches")
         LazyRow(
-            modifier = Modifier.focusGroup().focusProperties { enter = { first } },
+            modifier = Modifier.focusGroup().focusProperties { onEnter = { first.requestFocus() } },
             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -308,7 +308,7 @@ private fun ResultRow(
     Column {
         SectionHeader(title)
         LazyRow(
-            modifier = Modifier.focusGroup().focusProperties { enter = { first } },
+            modifier = Modifier.focusGroup().focusProperties { onEnter = { first.requestFocus() } },
             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

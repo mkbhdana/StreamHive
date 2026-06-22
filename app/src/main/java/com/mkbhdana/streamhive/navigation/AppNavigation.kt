@@ -299,12 +299,20 @@ private fun MainScreen(
         }
     }
 
-    // Home tab scroll state and app bar opacity
+    // Home tab scroll state and app bar opacity. With no hero (nothing full-bleed behind
+    // the bar), keep the header solid instead of transitioning transparent→solid on scroll.
+    // While the home skeleton is loading, keep it transparent.
     val homeListState = rememberLazyListState()
-    val appBarAlpha by remember {
+    val noHero = catalogState.homeRecentlyAdded.isEmpty()
+    val homeHasContent = catalogState.homeSections.isNotEmpty() || catalogState.homeRecentlyAdded.isNotEmpty()
+    val homeSkeletonLoading = catalogState.isHomeRefreshing || catalogState.isHomeLoading ||
+        (catalogState.isLoading && !homeHasContent)
+    val appBarAlpha by remember(noHero, homeSkeletonLoading) {
         derivedStateOf {
-            if (topLevelBackStack.topLevelKey != HomeRoute) 1f
-            else when {
+            when {
+                topLevelBackStack.topLevelKey != HomeRoute -> 1f
+                homeSkeletonLoading -> 0f
+                noHero -> 1f
                 homeListState.firstVisibleItemIndex > 0 -> 1f
                 else -> (homeListState.firstVisibleItemScrollOffset / 400f).coerceIn(0f, 1f)
             }

@@ -37,6 +37,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -160,6 +162,7 @@ fun PlayerControlsOverlay(
     onEpisodeSelect: (String, String) -> Unit = { _, _ -> },
     onPanelOpened: () -> Unit = {},
     onPanelClosed: () -> Unit = {},
+    onUserInteraction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Local seek state to prevent seekbar stutter
@@ -348,6 +351,15 @@ fun PlayerControlsOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
+                // Touching the bottom controls (seekbar / buttons) resets the parent's
+                // auto-hide timer. Scoped to this cluster so it never blocks the gesture
+                // layer in the rest of the screen.
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        onUserInteraction()
+                    }
+                }
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))

@@ -263,7 +263,7 @@ fun TvPosterRow(
         CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoView) {
             LazyRow(
                 // Entering the row (vertical nav) always lands on the first card.
-                modifier = Modifier.focusGroup().focusProperties { enter = { firstReq } },
+                modifier = Modifier.focusGroup().focusProperties { onEnter = { firstReq.requestFocus() } },
                 contentPadding = PaddingValues(start = RowLeadInset, end = endPad),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -307,7 +307,7 @@ fun TvContinueRow(
         CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoView) {
         LazyRow(
             // Entering the row (vertical nav) always lands on the first card.
-            modifier = Modifier.focusGroup().focusProperties { enter = { firstReq } },
+            modifier = Modifier.focusGroup().focusProperties { onEnter = { firstReq.requestFocus() } },
             contentPadding = PaddingValues(start = RowLeadInset, end = endPad),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {

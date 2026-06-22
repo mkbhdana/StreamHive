@@ -110,13 +110,12 @@ fun TvNavDrawer(
                 .focusRequester(drawerRequester)
                 .focusRestorer()
                 .focusGroup()
-                .padding(vertical = TvDimens.Overscan, horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(vertical = TvDimens.Overscan, horizontal = 8.dp)
         ) {
-            // App header — logo fixed, name fades in.
+            // App header — logo fixed at the top, name fades in.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().height(48.dp).padding(bottom = 4.dp)
+                modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_streamhive_logo),
@@ -134,14 +133,19 @@ fun TvNavDrawer(
                 )
             }
 
-            TvDestination.entries.forEach { dest ->
-                TvDrawerItem(
-                    destination = dest,
-                    selected = dest == selected,
-                    labelAlpha = labelAlpha,
-                    onClick = { onSelect(dest) }
-                )
+            // Nav items centered in the remaining height.
+            Spacer(Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                TvDestination.entries.forEach { dest ->
+                    TvDrawerItem(
+                        destination = dest,
+                        selected = dest == selected,
+                        labelAlpha = labelAlpha,
+                        onClick = { onSelect(dest) }
+                    )
+                }
             }
+            Spacer(Modifier.weight(1f))
         }
     }
 }

@@ -150,29 +150,29 @@ fun TvPlayerControls(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TvBigPlayButton(isPlaying = isPlaying, onClick = { onPlayPause(); onInteraction() })
+                    TvBigPlayButton(isPlaying = isPlaying, onInteraction = onInteraction, onClick = { onPlayPause(); onInteraction() })
                     Spacer(Modifier.width(18.dp))
-                    TvIconButton(Icons.Default.ClosedCaption, "Subtitles") { onSubtitles(); onInteraction() }
+                    TvIconButton(Icons.Default.ClosedCaption, "Subtitles", onInteraction) { onSubtitles(); onInteraction() }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.Default.GraphicEq, "Audio") { onAudio(); onInteraction() }
+                    TvIconButton(Icons.Default.GraphicEq, "Audio", onInteraction) { onAudio(); onInteraction() }
                     if (hasEpisodes) {
                         Spacer(Modifier.width(10.dp))
-                        TvIconButton(Icons.AutoMirrored.Filled.PlaylistPlay, "Episodes") { onEpisodes(); onInteraction() }
+                        TvIconButton(Icons.AutoMirrored.Filled.PlaylistPlay, "Episodes", onInteraction) { onEpisodes(); onInteraction() }
                     }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.Default.Brush, "Subtitle style") { onSubtitleStyle(); onInteraction() }
+                    TvIconButton(Icons.Default.Brush, "Subtitle style", onInteraction) { onSubtitleStyle(); onInteraction() }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.Default.AspectRatio, "Resize") { onResize(); onInteraction() }
+                    TvIconButton(Icons.Default.AspectRatio, "Resize", onInteraction) { onResize(); onInteraction() }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.Default.Speed, "Speed") { onSpeed(); onInteraction() }
+                    TvIconButton(Icons.Default.Speed, "Speed", onInteraction) { onSpeed(); onInteraction() }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.Default.Memory, "Decoder") { onDecoder(); onInteraction() }
+                    TvIconButton(Icons.Default.Memory, "Decoder", onInteraction) { onDecoder(); onInteraction() }
                     if (canSwitchEngine) {
                         Spacer(Modifier.width(10.dp))
-                        TvIconButton(Icons.Default.SwapHoriz, "Switch player") { onSwitchEngine(); onInteraction() }
+                        TvIconButton(Icons.Default.SwapHoriz, "Switch player", onInteraction) { onSwitchEngine(); onInteraction() }
                     }
                     Spacer(Modifier.width(10.dp))
-                    TvIconButton(Icons.AutoMirrored.Filled.OpenInNew, "External player") { onExternal(); onInteraction() }
+                    TvIconButton(Icons.AutoMirrored.Filled.OpenInNew, "External player", onInteraction) { onExternal(); onInteraction() }
                 }
             }
         }
@@ -248,14 +248,14 @@ private fun TvThinSeekBar(
 }
 
 @Composable
-private fun TvBigPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
+private fun TvBigPlayButton(isPlaying: Boolean, onInteraction: () -> Unit = {}, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .size(56.dp)
             .clip(CircleShape)
             .background(if (focused) Color.White else Color.White.copy(alpha = 0.16f))
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onInteraction() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -273,14 +273,14 @@ private fun TvBigPlayButton(isPlaying: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TvIconButton(icon: ImageVector, description: String, onClick: () -> Unit) {
+private fun TvIconButton(icon: ImageVector, description: String, onInteraction: () -> Unit = {}, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
             .background(if (focused) Color.White else Color.White.copy(alpha = 0.12f))
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onInteraction() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
