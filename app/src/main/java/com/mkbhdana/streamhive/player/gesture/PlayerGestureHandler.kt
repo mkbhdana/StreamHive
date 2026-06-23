@@ -334,7 +334,10 @@ fun PlayerGestureHandler(
                                 if (isDragging || isPinching) {
                                     scheduleHide()
                                 }
-                                if (!isDragging && !isPinching && !consumed) {
+                                // Ignore taps already consumed by an overlay drawn on top
+                                // (e.g. the floating Next-Episode pill or control buttons), so
+                                // clicking them doesn't also toggle controls / play-pause.
+                                if (!isDragging && !isPinching && !consumed && changes.none { it.isConsumed }) {
                                     // It was a tap — compute tap metrics
                                     val upTime = System.currentTimeMillis()
                                     val tapDuration = upTime - downTime

@@ -77,6 +77,8 @@ private val TOP_LEVEL_ITEMS = listOf(
 fun AppNavigation() {
     // Auth state: start as not authenticated, switch after auth success
     var isAuthenticated by rememberSaveable { mutableStateOf(false) }
+    // Suppress the update prompt while a player screen is in front (set by MainScreen).
+    var onPlayerScreen by remember { mutableStateOf(false) }
     val updateViewModel: AppUpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -88,7 +90,7 @@ fun AppNavigation() {
         }
     }
 
-    updateState.availableUpdate?.let { update ->
+    if (!onPlayerScreen) updateState.availableUpdate?.let { update ->
         AlertDialog(
             onDismissRequest = {
                 if (!updateState.isDownloadingUpdate) updateViewModel.dismissUpdatePrompt()
@@ -136,7 +138,8 @@ fun AppNavigation() {
         )
     } else {
         MainScreen(
-            onLogout = { isAuthenticated = false }
+            onLogout = { isAuthenticated = false },
+            onPlayerScreenChange = { onPlayerScreen = it }
         )
     }
 }
@@ -145,7 +148,8 @@ fun AppNavigation() {
 @UnstableApi
 @Composable
 private fun MainScreen(
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onPlayerScreenChange: (Boolean) -> Unit = {}
 ) {
     val topLevelBackStack = remember { TopLevelBackStack<Any>(HomeRoute) }
     val context = LocalContext.current
@@ -165,6 +169,11 @@ private fun MainScreen(
     // Determine if the current route is a top-level tab (show nav bar) or child (hide nav bar)
     val currentRoute = topLevelBackStack.currentRoute
     val isTopLevelRoute = currentRoute in TOP_LEVEL_ITEMS.map { it.route }
+
+    // Tell the parent when a player screen is in front, so it can hide the update prompt.
+    LaunchedEffect(currentRoute) {
+        onPlayerScreenChange(currentRoute is PlayerRoute || currentRoute is MpvPlayerRoute)
+    }
 
     // Back handler for app exit and tab switching
     var showExitDialog by remember { mutableStateOf(false) }

@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -85,16 +87,19 @@ fun TvMediaInfoScreen(
 
     BackHandler { onBack() }
     LaunchedEffect(Unit) {
+        // The keyed ViewModel loads once on creation and is reused across navigations.
+        // Returning from playback no longer auto-refreshes; the user pulls fresh data
+        // on demand with the refresh button (top-right).
         viewModel.setSourcePriorityFilteringEnabled(true)
-        // TV reuses a keyed ViewModel across navigations — always pull fresh data.
-        viewModel.refresh()
     }
     LaunchedEffect(state.isLoading, state.driveFiles) {
         if (!state.isLoading && state.driveFiles.isNotEmpty()) runCatching { playFocus.requestFocus() }
     }
 
     val isSeries = state.fileSeasons.isNotEmpty()
-    var selectedSeason by remember(state.fileSeasons) { mutableStateOf(state.fileSeasons.firstOrNull()?.seasonNumber) }
+    // Read the season from the ViewModel (not local state) so it survives the refresh()
+    // and re-composition that happen when returning from playback.
+    val selectedSeason = state.expandedSeason ?: state.fileSeasons.firstOrNull()?.seasonNumber
     val episodes = if (isSeries) {
         state.fileSeasons.firstOrNull { it.seasonNumber == selectedSeason }?.files.orEmpty()
     } else {
@@ -196,7 +201,7 @@ fun TvMediaInfoScreen(
                         TvSeasonChip(
                             label = season.label,
                             selected = season.seasonNumber == selectedSeason,
-                            onClick = { selectedSeason = season.seasonNumber }
+                            onClick = { viewModel.selectSeason(season.seasonNumber) }
                         )
                     }
                 }
@@ -221,6 +226,37 @@ fun TvMediaInfoScreen(
                 TvFileInfoCard(file)
             }
         }
+
+        // Manual refresh — re-fetch files/metadata on demand if something is missing.
+        TvRefreshButton(
+            onClick = { viewModel.refresh() },
+            modifier = Modifier.align(Alignment.TopEnd).padding(TvDimens.Overscan)
+        )
+    }
+}
+
+@Composable
+private fun TvRefreshButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(if (focused) Color.White else Color.Black.copy(alpha = 0.45f))
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.Refresh,
+            contentDescription = "Refresh",
+            tint = if (focused) Color.Black else Color.White,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 

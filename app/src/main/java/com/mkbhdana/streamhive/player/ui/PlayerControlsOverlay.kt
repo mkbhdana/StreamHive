@@ -160,6 +160,8 @@ fun PlayerControlsOverlay(
     onOpenExternal: () -> Unit = {},
     episodeList: List<com.mkbhdana.streamhive.data.db.MediaFileEntity> = emptyList(),
     onEpisodeSelect: (String, String) -> Unit = { _, _ -> },
+    hasNext: Boolean = false,
+    onNext: () -> Unit = {},
     onPanelOpened: () -> Unit = {},
     onPanelClosed: () -> Unit = {},
     onUserInteraction: () -> Unit = {},
@@ -382,7 +384,9 @@ fun PlayerControlsOverlay(
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ControlIconButton(Icons.Default.Lock, "Lock", true) { onLockToggle() }
                     ControlIconButton(Icons.Default.Speed, "Speed", true) { showSpeedSelector = true }
-
+                    if (hasNext) {
+                        ControlIconButton(Icons.Default.SkipNext, "Next episode", true) { onNext() }
+                    }
                 }
                 
                 // Right Group
@@ -497,11 +501,37 @@ fun PlayerControlsOverlay(
             }
         }
 
+        // Scrim behind the side panels: dims and absorbs touches so the controls and
+        // gesture layer underneath stay inert while a panel is open. Tapping it closes
+        // whichever side panel is showing.
+        AnimatedVisibility(
+            visible = showEpisodeList || showSubtitleStyleSidebar || showSubtitleDelaySidebar,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            showEpisodeList = false
+                            showSubtitleStyleSidebar = false
+                            showSubtitleDelaySidebar = false
+                        }
+                    }
+            )
+        }
+
         AnimatedVisibility(
             visible = showSubtitleStyleSidebar,
             enter = slideInHorizontally(initialOffsetX = { it }),
             exit = slideOutHorizontally(targetOffsetX = { it }),
-            modifier = Modifier.align(Alignment.CenterEnd)
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                // Absorb taps inside the panel so they don't fall through to the scrim.
+                .pointerInput(Unit) { detectTapGestures {} }
         ) {
             SubtitleStyleSidebar(
                 isMpv = engineLabel == "MPV" || engineLabel.lowercase().contains("mpv"),
@@ -533,7 +563,9 @@ fun PlayerControlsOverlay(
             visible = showSubtitleDelaySidebar,
             enter = slideInHorizontally(initialOffsetX = { it }),
             exit = slideOutHorizontally(targetOffsetX = { it }),
-            modifier = Modifier.align(Alignment.CenterEnd)
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .pointerInput(Unit) { detectTapGestures {} }
         ) {
             SubtitleDelaySidebar(
                 currentPosition = currentPosition,
@@ -550,7 +582,9 @@ fun PlayerControlsOverlay(
             visible = showEpisodeList,
             enter = slideInHorizontally(initialOffsetX = { it }),
             exit = slideOutHorizontally(targetOffsetX = { it }),
-            modifier = Modifier.align(Alignment.CenterEnd)
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .pointerInput(Unit) { detectTapGestures {} }
         ) {
             Box(
                 modifier = Modifier

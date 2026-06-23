@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Icon
@@ -79,6 +80,7 @@ fun TvPlayerControls(
     duration: Long,
     baseStepMs: Long,
     hasEpisodes: Boolean,
+    hasNext: Boolean,
     canSwitchEngine: Boolean,
     seekFocusRequester: FocusRequester,
     onPlayPause: () -> Unit,
@@ -86,6 +88,7 @@ fun TvPlayerControls(
     onSubtitles: () -> Unit,
     onAudio: () -> Unit,
     onEpisodes: () -> Unit,
+    onNext: () -> Unit,
     onSubtitleStyle: () -> Unit,
     onResize: () -> Unit,
     onSpeed: () -> Unit,
@@ -151,6 +154,10 @@ fun TvPlayerControls(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TvBigPlayButton(isPlaying = isPlaying, onInteraction = onInteraction, onClick = { onPlayPause(); onInteraction() })
+                    if (hasNext) {
+                        Spacer(Modifier.width(12.dp))
+                        TvIconButton(Icons.Default.SkipNext, "Next episode", onInteraction) { onNext(); onInteraction() }
+                    }
                     Spacer(Modifier.width(18.dp))
                     TvIconButton(Icons.Default.ClosedCaption, "Subtitles", onInteraction) { onSubtitles(); onInteraction() }
                     Spacer(Modifier.width(10.dp))

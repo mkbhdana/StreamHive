@@ -413,6 +413,8 @@ fun MpvPlayerScreen(
                 },
                 episodeList = uiState.episodeList,
                 onEpisodeSelect = viewModel::playEpisode,
+                hasNext = uiState.nextEpisode != null,
+                onNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
                 onPanelOpened = { controlsInteractionActive = true },
                 onPanelClosed = { controlsInteractionActive = false },
                 onUserInteraction = { controlsActivity++ }
@@ -423,7 +425,9 @@ fun MpvPlayerScreen(
             nextEpisode = uiState.nextEpisode,
             currentPosition = uiState.currentPosition,
             duration = uiState.duration,
-            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } }
+            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
         )
     }
 }
