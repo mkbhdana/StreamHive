@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -36,12 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.focusable
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import kotlinx.coroutines.delay
 
-private const val END_ZONE_MS = 45_000L
+private const val SHOW_AT_FRACTION = 0.92f
 private const val AUTO_HIDE_MS = 12_000L
+private const val SWITCH_SUPPRESS_MS = 2500L
 
 /**
  * Floating "Next Episode" button that surfaces near the end of a series episode and
@@ -57,20 +56,31 @@ fun BoxScope.NextEpisodeOverlay(
     duration: Long,
     onPlayNext: () -> Unit,
     autoFocus: Boolean = false,
-    returnFocus: FocusRequester? = null
+    returnFocus: FocusRequester? = null,
+    containerColor: Color = Color.White,
+    contentColor: Color = Color.Black
 ) {
     if (nextEpisode == null || duration <= 0L) return
 
-    val remaining = duration - currentPosition
-    val inEndZone = remaining in 0..END_ZONE_MS
+    // Show once playback passes 92% of the episode.
+    val nearEnd = currentPosition in 0..duration && currentPosition >= (duration * SHOW_AT_FRACTION).toLong()
 
     var visible by remember(nextEpisode.id) { mutableStateOf(false) }
     var focused by remember(nextEpisode.id) { mutableStateOf(false) }
     val focusRequester = remember(nextEpisode.id) { FocusRequester() }
 
-    // Reveal once when entering the end zone, then auto-hide.
-    LaunchedEffect(inEndZone, nextEpisode.id) {
-        if (inEndZone) {
+    // Suppress briefly right after an episode switch, so the auto-advance at end-of-video
+    // doesn't flash this button for the freshly-loaded next episode.
+    var justSwitched by remember(nextEpisode.id) { mutableStateOf(true) }
+    LaunchedEffect(nextEpisode.id) {
+        justSwitched = true
+        delay(SWITCH_SUPPRESS_MS)
+        justSwitched = false
+    }
+
+    // Reveal once when crossing the threshold, then auto-hide.
+    LaunchedEffect(nearEnd, justSwitched, nextEpisode.id) {
+        if (nearEnd && !justSwitched) {
             visible = true
             delay(AUTO_HIDE_MS)
             visible = false
@@ -88,21 +98,28 @@ fun BoxScope.NextEpisodeOverlay(
             .align(Alignment.BottomEnd)
             .padding(end = 32.dp, bottom = 120.dp)
     ) {
-        // Grab focus once the button is actually on screen (TV remotes).
+        // Keep focus on the button while it's shown, so OK clicks it immediately and
+        // neither the controls' seekbar nor the root view can steal focus back —
+        // regardless of whether the controls were visible when it appeared.
         if (autoFocus) {
-            LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    if (visible && !focused) runCatching { focusRequester.requestFocus() }
+                    delay(150)
+                }
+            }
         }
         Surface(
-            color = Color.Black.copy(alpha = 0.78f),
-            contentColor = Color.White,
-            shape = RoundedCornerShape(28.dp),
-            border = if (focused) BorderStroke(2.dp, Color.White) else null,
+            color = containerColor,
+            contentColor = contentColor,
+            shape = RoundedCornerShape(percent = 50),
+            border = if (focused) BorderStroke(2.dp, contentColor) else null,
             modifier = Modifier
-                .scale(if (focused) 1.05f else 1f)
-                .let { base ->
-                    if (autoFocus) base.focusRequester(focusRequester).focusable() else base
-                }
+                .scale(if (focused) 1.08f else 1f)
+                .then(if (autoFocus) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { focused = it.isFocused }
+                // clickable is itself focusable AND handles DPAD-CENTER/Enter, so the
+                // focus request lands on the same node that consumes OK → onPlayNext.
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -111,7 +128,7 @@ fun BoxScope.NextEpisodeOverlay(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.background(Color.Transparent).padding(horizontal = 20.dp, vertical = 12.dp)
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 11.dp)
             ) {
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(22.dp))
                 Text("Next Episode", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)

@@ -70,6 +70,27 @@ fun TvMpvPlayerScreen(
     var switching by remember { mutableStateOf(navKey.handoff) }
     var engineSwitchTried by remember { mutableStateOf(false) }
 
+    // Quick-seek with LEFT/RIGHT while the full controls are hidden — shows only a seekbar.
+    var quickSeekTarget by remember { mutableStateOf<Long?>(null) }
+    var seekBarTick by remember { mutableIntStateOf(0) }
+    var showSeekBarOnly by remember { mutableStateOf(false) }
+    LaunchedEffect(seekBarTick) {
+        if (seekBarTick > 0) {
+            showSeekBarOnly = true
+            delay(1500)
+            showSeekBarOnly = false
+            quickSeekTarget = null
+        }
+    }
+    val baseStepMs = (uiState.tapSeekDuration * 1000L).coerceAtLeast(1000L)
+    val quickSeek: (Long) -> Unit = { delta ->
+        val base = quickSeekTarget ?: uiState.currentPosition
+        val target = (base + delta).coerceIn(0L, uiState.duration.coerceAtLeast(0L))
+        quickSeekTarget = target
+        viewModel.seekTo(target)
+        seekBarTick++
+    }
+
     // Auto-advance / close when playback finishes.
     LaunchedEffect(uiState.requestClose) {
         if (uiState.requestClose) { viewModel.consumeCloseRequest(); onBack() }
@@ -135,11 +156,16 @@ fun TvMpvPlayerScreen(
             .onKeyEvent { event ->
                 if (!uiState.showControls && panel == null && event.type == KeyEventType.KeyDown) {
                     when (event.key) {
-                        Key.DirectionCenter, Key.Enter, Key.DirectionLeft, Key.DirectionRight,
-                        Key.DirectionUp, Key.DirectionDown -> {
+                        // LEFT/RIGHT scrub without unhiding the full controls (seekbar only).
+                        Key.DirectionLeft -> { quickSeek(-baseStepMs); true }
+                        Key.DirectionRight -> { quickSeek(baseStepMs); true }
+                        // OK toggles play/pause and reveals controls; DOWN/UP just reveal.
+                        Key.DirectionCenter, Key.Enter, Key.MediaPlayPause -> {
+                            viewModel.togglePlayPause(); viewModel.showControls(); interaction++; true
+                        }
+                        Key.DirectionDown, Key.DirectionUp -> {
                             viewModel.showControls(); interaction++; true
                         }
-                        Key.MediaPlayPause -> { viewModel.togglePlayPause(); true }
                         else -> false
                     }
                 } else false
@@ -166,6 +192,7 @@ fun TvMpvPlayerScreen(
             duration = uiState.duration,
             baseStepMs = uiState.tapSeekDuration * 1000L,
             hasEpisodes = uiState.episodeList.size > 1,
+            hasNext = uiState.nextEpisode != null,
             canSwitchEngine = true,
             seekFocusRequester = seekFocus,
             onPlayPause = { viewModel.togglePlayPause(); interaction++ },
@@ -173,6 +200,7 @@ fun TvMpvPlayerScreen(
             onSubtitles = { panel = MpvPanel.Subtitles },
             onAudio = { panel = MpvPanel.Audio },
             onEpisodes = { panel = MpvPanel.Episodes },
+            onNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) }; interaction++ },
             onSubtitleStyle = { panel = MpvPanel.SubtitleStyle },
             onResize = { panel = MpvPanel.Resize },
             onSpeed = { panel = MpvPanel.Speed },
@@ -186,6 +214,12 @@ fun TvMpvPlayerScreen(
                 }
             },
             onInteraction = { interaction++ }
+        )
+
+        TvSeekBarOnly(
+            visible = showSeekBarOnly && !uiState.showControls && panel == null,
+            position = quickSeekTarget ?: uiState.currentPosition,
+            duration = uiState.duration
         )
 
         NextEpisodeOverlay(

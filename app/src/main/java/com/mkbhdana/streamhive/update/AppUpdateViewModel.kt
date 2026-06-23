@@ -32,14 +32,9 @@ class AppUpdateViewModel @Inject constructor(
     val uiState: StateFlow<AppUpdateUiState> = _uiState.asStateFlow()
 
     init {
-        checkForUpdate()
-        // Periodically re-check for updates so in-app users get notified promptly
-        viewModelScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(PERIODIC_CHECK_INTERVAL_MS)
-                checkForUpdate()
-            }
-        }
+        // Check once at app start (ViewModel creation). No continuous polling — the
+        // update prompt only appears on a fresh launch/restart.
+        checkForUpdate(force = true)
     }
 
     fun checkForUpdate(force: Boolean = false) {
@@ -143,6 +138,5 @@ class AppUpdateViewModel @Inject constructor(
 
     private companion object {
         private const val UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
-        private const val PERIODIC_CHECK_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
     }
 }

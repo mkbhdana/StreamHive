@@ -93,6 +93,9 @@ fun PlayerGestureHandler(
     val dragThreshold = with(density) { (24.dp * sensitivityInverse).toPx() }
     val tapMaxMovement = with(density) { (12.dp).toPx() }
     val doubleTapProximity = with(density) { (60.dp).toPx() }
+    // Small fixed side buffer (just past the system back-gesture strip) instead of a
+    // wide 10% margin, so volume/brightness/pinch work right up to the left/right edges.
+    val edgeExclusionXPx = with(density) { (16.dp).toPx() }
 
     // Use rememberUpdatedState so currentPosition is read inside the gesture
     // without being part of the pointerInput key (which would restart the coroutine)
@@ -228,9 +231,10 @@ fun PlayerGestureHandler(
                         var isLockPressActive = false
                         var lockPressJob: kotlinx.coroutines.Job? = null
 
-                        // Edge exclusion: 10% on sides, 12% on top/bottom
+                        // Edge exclusion: small fixed buffer on sides (so far-left/right
+                        // gestures work), 12% on top/bottom (status/nav bars + controls).
                         var ignoreGesture = false
-                        val edgeMarginX = screenWidthPx * 0.10f
+                        val edgeMarginX = edgeExclusionXPx
                         val edgeMarginY = screenHeightPx * 0.12f
                         if (downPos.x < edgeMarginX || downPos.x > screenWidthPx - edgeMarginX ||
                             downPos.y < edgeMarginY || downPos.y > screenHeightPx - edgeMarginY) {
@@ -330,7 +334,10 @@ fun PlayerGestureHandler(
                                 if (isDragging || isPinching) {
                                     scheduleHide()
                                 }
-                                if (!isDragging && !isPinching && !consumed) {
+                                // Ignore taps already consumed by an overlay drawn on top
+                                // (e.g. the floating Next-Episode pill or control buttons), so
+                                // clicking them doesn't also toggle controls / play-pause.
+                                if (!isDragging && !isPinching && !consumed && changes.none { it.isConsumed }) {
                                     // It was a tap — compute tap metrics
                                     val upTime = System.currentTimeMillis()
                                     val tapDuration = upTime - downTime

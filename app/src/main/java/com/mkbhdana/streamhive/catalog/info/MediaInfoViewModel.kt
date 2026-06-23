@@ -368,6 +368,15 @@ class MediaInfoViewModel @AssistedInject constructor(
         }
     }
 
+    /**
+     * Select a season without toggling it off. Used by the TV detail screen, where the
+     * season chip row always keeps exactly one season active. Stored in the ViewModel so
+     * the choice survives a refresh()/re-composition after returning from playback.
+     */
+    fun selectSeason(seasonNumber: Int) {
+        _uiState.update { it.copy(expandedSeason = seasonNumber) }
+    }
+
     fun fixMetadata(idInput: String) {
         viewModelScope.launch {
             metadataRevision += 1

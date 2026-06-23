@@ -144,28 +144,8 @@ object ManageBackup {
                 obj.remove("tmdb_folder_names")
             }
 
-            if (obj.has("playback_history")) {
-                val arr = obj.getJSONArray("playback_history")
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    playbackHistoryDao.upsert(
-                        PlaybackHistoryEntity(
-                            fileId = o.getString("fileId"),
-                            fileName = o.getString("fileName"),
-                            driveId = o.getString("driveId"),
-                            lastPosition = o.getLong("lastPosition"),
-                            duration = o.getLong("duration"),
-                            lastPlayedAt = o.getLong("lastPlayedAt"),
-                            posterPath = o.optString("posterPath").ifBlank { null },
-                            thumbnailUrl = o.optString("thumbnailUrl").ifBlank { null },
-                            lastPlayerEngine = o.optString("lastPlayerEngine").ifBlank { null },
-                            lastDecoderMode = o.optString("lastDecoderMode").ifBlank { null }
-                        )
-                    )
-                }
-                obj.remove("playback_history")
-            }
-
+            // Metadata cache must be imported BEFORE playback history: the history upserts
+            // trigger Continue Watching poster resolution, which reads this cache by title/id.
             if (obj.has("tmdb_metadata")) {
                 val arr = obj.getJSONArray("tmdb_metadata")
                 val entities = mutableListOf<TmdbMetadataEntity>()
@@ -189,6 +169,28 @@ object ManageBackup {
                 }
                 if (entities.isNotEmpty()) tmdbMetadataDao.insertAll(entities)
                 obj.remove("tmdb_metadata")
+            }
+
+            if (obj.has("playback_history")) {
+                val arr = obj.getJSONArray("playback_history")
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    playbackHistoryDao.upsert(
+                        PlaybackHistoryEntity(
+                            fileId = o.getString("fileId"),
+                            fileName = o.getString("fileName"),
+                            driveId = o.getString("driveId"),
+                            lastPosition = o.getLong("lastPosition"),
+                            duration = o.getLong("duration"),
+                            lastPlayedAt = o.getLong("lastPlayedAt"),
+                            posterPath = o.optString("posterPath").ifBlank { null },
+                            thumbnailUrl = o.optString("thumbnailUrl").ifBlank { null },
+                            lastPlayerEngine = o.optString("lastPlayerEngine").ifBlank { null },
+                            lastDecoderMode = o.optString("lastDecoderMode").ifBlank { null }
+                        )
+                    )
+                }
+                obj.remove("playback_history")
             }
 
             obj.remove("streamhive_settings_version")

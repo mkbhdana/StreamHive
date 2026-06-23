@@ -112,11 +112,17 @@ fun HomeTab(
         return
     }
 
+    // The hero draws full-bleed behind the transparent app bar. When there's no hero,
+    // the first row would sit behind the app bar — so reserve status bar + app bar height.
+    val topInset = if (state.homeRecentlyAdded.isEmpty()) {
+        WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp
+    } else 0.dp
+
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 100.dp), // Extra padding to avoid overlay
+            contentPadding = PaddingValues(top = topInset, bottom = 100.dp), // top clears app bar when no hero
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
 

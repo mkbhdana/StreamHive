@@ -890,28 +890,10 @@ class SettingsViewModel @Inject constructor(
                         jsonObject.remove("tmdb_folder_names")
                     }
 
-                    // Import playback history
-                    if (jsonObject.has("playback_history")) {
-                        val historyArray = jsonObject.getJSONArray("playback_history")
-                        for (i in 0 until historyArray.length()) {
-                            val obj = historyArray.getJSONObject(i)
-                            playbackHistoryDao.upsert(PlaybackHistoryEntity(
-                                fileId = obj.getString("fileId"),
-                                fileName = obj.getString("fileName"),
-                                driveId = obj.getString("driveId"),
-                                lastPosition = obj.getLong("lastPosition"),
-                                duration = obj.getLong("duration"),
-                                lastPlayedAt = obj.getLong("lastPlayedAt"),
-                                posterPath = obj.optString("posterPath").ifBlank { null },
-                                thumbnailUrl = obj.optString("thumbnailUrl").ifBlank { null },
-                                lastPlayerEngine = obj.optString("lastPlayerEngine").ifBlank { null },
-                                lastDecoderMode = obj.optString("lastDecoderMode").ifBlank { null }
-                            ))
-                        }
-                        jsonObject.remove("playback_history")
-                    }
-
-                    // Extract and import metadata separately before passing to prefs
+                    // Import the TMDB metadata cache FIRST. The playback-history upserts below
+                    // trigger the Continue Watching flow, which resolves posters by title/id
+                    // against this cache — so it must already be populated, otherwise resolution
+                    // falls back to a file-name search until the file is played again.
                     if (jsonObject.has("tmdb_metadata")) {
                         val metaArray = jsonObject.getJSONArray("tmdb_metadata")
                         val entities = mutableListOf<TmdbMetadataEntity>()
@@ -936,6 +918,27 @@ class SettingsViewModel @Inject constructor(
                         }
                         // Remove from JSON so prefs import doesn't fail on it
                         jsonObject.remove("tmdb_metadata")
+                    }
+
+                    // Import playback history (after the metadata cache above).
+                    if (jsonObject.has("playback_history")) {
+                        val historyArray = jsonObject.getJSONArray("playback_history")
+                        for (i in 0 until historyArray.length()) {
+                            val obj = historyArray.getJSONObject(i)
+                            playbackHistoryDao.upsert(PlaybackHistoryEntity(
+                                fileId = obj.getString("fileId"),
+                                fileName = obj.getString("fileName"),
+                                driveId = obj.getString("driveId"),
+                                lastPosition = obj.getLong("lastPosition"),
+                                duration = obj.getLong("duration"),
+                                lastPlayedAt = obj.getLong("lastPlayedAt"),
+                                posterPath = obj.optString("posterPath").ifBlank { null },
+                                thumbnailUrl = obj.optString("thumbnailUrl").ifBlank { null },
+                                lastPlayerEngine = obj.optString("lastPlayerEngine").ifBlank { null },
+                                lastDecoderMode = obj.optString("lastDecoderMode").ifBlank { null }
+                            ))
+                        }
+                        jsonObject.remove("playback_history")
                     }
 
                     // Remove validation key so AppPreferences doesn't fail parsing it

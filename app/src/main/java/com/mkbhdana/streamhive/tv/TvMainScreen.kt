@@ -192,15 +192,18 @@ fun TvMainScreen(onLoggedOut: () -> Unit) {
             )
         }
 
-        updateState.availableUpdate?.let { update ->
-            TvUpdateDialog(
-                versionName = update.versionName,
-                targetAbi = update.targetAbi,
-                isDownloading = updateState.isDownloadingUpdate,
-                downloadProgress = updateState.updateDownloadProgress,
-                onDownload = updateViewModel::downloadAndInstallUpdate,
-                onDismiss = updateViewModel::dismissUpdatePrompt
-            )
+        // Never surface the update prompt over the player.
+        if (current !is PlayerRoute && current !is MpvPlayerRoute) {
+            updateState.availableUpdate?.let { update ->
+                TvUpdateDialog(
+                    versionName = update.versionName,
+                    targetAbi = update.targetAbi,
+                    isDownloading = updateState.isDownloadingUpdate,
+                    downloadProgress = updateState.updateDownloadProgress,
+                    onDownload = updateViewModel::downloadAndInstallUpdate,
+                    onDismiss = updateViewModel::dismissUpdatePrompt
+                )
+            }
         }
     }
 }
