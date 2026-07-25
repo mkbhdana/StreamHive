@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,11 +38,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -64,6 +68,7 @@ import com.mkbhdana.streamhive.tv.theme.TvCardColor
 import com.mkbhdana.streamhive.tv.theme.TvDimens
 import com.mkbhdana.streamhive.tv.theme.TvWhite
 import com.mkbhdana.streamhive.util.FileUtils
+import kotlinx.coroutines.launch
 
 /**
  * Full-bleed detail screen. Movies show a row of file "versions" + an info card
@@ -106,6 +111,14 @@ fun TvMediaInfoScreen(
         state.driveFiles
     }
     var selectedFile by remember(episodes) { mutableStateOf(episodes.firstOrNull()) }
+    // DOWN from a season chip lands on the first episode card, not whichever card
+    // happens to be geometrically closest.
+    val firstEpisodeFocus = remember { FocusRequester() }
+    val episodeListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // A newly selected season always shows its episode list from the start (this also
+    // keeps the first card composed, so the chips' DOWN focus target stays valid).
+    LaunchedEffect(selectedSeason) { episodeListState.scrollToItem(0) }
 
     Box(modifier = Modifier.fillMaxSize().background(TvBackgroundColor)) {
         backdropModel(state.metadata, state.driveFiles.firstOrNull())?.let { url ->
@@ -201,6 +214,11 @@ fun TvMediaInfoScreen(
                         TvSeasonChip(
                             label = season.label,
                             selected = season.seasonNumber == selectedSeason,
+                            downFocus = if (episodes.size > 1) firstEpisodeFocus else null,
+                            onFocused = {
+                                viewModel.selectSeason(season.seasonNumber)
+                                scope.launch { runCatching { episodeListState.scrollToItem(0) } }
+                            },
                             onClick = { viewModel.selectSeason(season.seasonNumber) }
                         )
                     }
@@ -209,11 +227,12 @@ fun TvMediaInfoScreen(
 
             if (episodes.size > 1) {
                 Spacer(Modifier.height(14.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(episodes, key = { it.id }) { file ->
+                LazyRow(state = episodeListState, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    itemsIndexed(episodes, key = { _, file -> file.id }) { index, file ->
                         TvVariantCard(
                             posterUrl = poster,
-                            label = if (isSeries) episodeLabel(file.name) else variantLabel(file.name, episodes.indexOf(file)),
+                            label = if (isSeries) episodeLabel(file.name) else variantLabel(file.name, index),
+                            focusRequester = if (index == 0) firstEpisodeFocus else null,
                             onFocused = { selectedFile = file },
                             onClick = { onPlay(file.id, file.name, engine, null) }
                         )
@@ -261,7 +280,13 @@ private fun TvRefreshButton(onClick: () -> Unit, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun TvSeasonChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun TvSeasonChip(
+    label: String,
+    selected: Boolean,
+    downFocus: FocusRequester?,
+    onFocused: () -> Unit,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
     Box(
@@ -274,7 +299,8 @@ private fun TvSeasonChip(label: String, selected: Boolean, onClick: () -> Unit) 
                     else -> Color.White.copy(alpha = 0.08f)
                 }
             )
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
+            .then(if (downFocus != null) Modifier.focusProperties { down = downFocus } else Modifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -291,7 +317,13 @@ private fun TvSeasonChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun TvVariantCard(posterUrl: String?, label: String, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun TvVariantCard(
+    posterUrl: String?,
+    label: String,
+    focusRequester: FocusRequester?,
+    onFocused: () -> Unit,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.dp)
     Box(
@@ -300,6 +332,7 @@ private fun TvVariantCard(posterUrl: String?, label: String, onFocused: () -> Un
             .height(86.dp)
             .clip(shape)
             .background(TvCardColor)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocused() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

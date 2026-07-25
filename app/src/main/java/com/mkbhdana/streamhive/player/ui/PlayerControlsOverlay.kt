@@ -629,8 +629,7 @@ fun PlayerControlsOverlay(
                                     text = episode.name,
                                     color = if (isPlaying) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         }

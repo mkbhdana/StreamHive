@@ -107,7 +107,7 @@ private fun TvOptionRow(option: TvOption, focusRequester: FocusRequester?) {
                 option.label,
                 color = if (focused) Color.Black else Color.White,
                 fontWeight = if (option.selected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1
+                style = MaterialTheme.typography.bodyMedium
             )
             option.sublabel?.let {
                 Text(it, color = if (focused) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.55f), style = MaterialTheme.typography.bodySmall)

@@ -43,7 +43,6 @@ import com.mkbhdana.streamhive.player.ExternalPlayerLauncher
 import com.mkbhdana.streamhive.player.PlayerSwitchingOverlay
 import com.mkbhdana.streamhive.player.PlayerViewModel
 import com.mkbhdana.streamhive.player.proxy.StreamProxyService
-import com.mkbhdana.streamhive.player.ui.NextEpisodeOverlay
 import kotlinx.coroutines.delay
 
 @UnstableApi
@@ -195,7 +194,13 @@ fun TvExoPlayerScreen(
                     }
                 },
                 // Read uiState.resizeMode inside update() so Compose re-applies it on change.
-                update = { view -> view.resizeMode = aspectResizeMode(uiState.resizeMode) },
+                // Rebind the player too: playEpisode() creates a fresh ExoPlayer instance,
+                // and keeping the released one attached leaves a black screen.
+                update = { view ->
+                    view.resizeMode = aspectResizeMode(uiState.resizeMode)
+                    if (view.player != player) view.player = player
+                },
+                onRelease = { view -> view.player = null },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -243,15 +248,6 @@ fun TvExoPlayerScreen(
             visible = showSeekBarOnly && !uiState.showControls && panel == null,
             position = quickSeekTarget ?: uiState.currentPosition,
             duration = uiState.duration
-        )
-
-        NextEpisodeOverlay(
-            nextEpisode = uiState.nextEpisode,
-            currentPosition = uiState.currentPosition,
-            duration = uiState.duration,
-            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
-            autoFocus = true,
-            returnFocus = rootFocus
         )
 
         if (switching) {

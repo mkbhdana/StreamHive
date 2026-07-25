@@ -33,7 +33,6 @@ import com.mkbhdana.streamhive.player.gesture.GestureIndicatorOverlay
 import com.mkbhdana.streamhive.player.gesture.GestureState
 import com.mkbhdana.streamhive.player.gesture.PlayerGestureHandler
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
-import com.mkbhdana.streamhive.player.ui.NextEpisodeOverlay
 import com.mkbhdana.streamhive.player.ui.PlayerControlsOverlay
 import com.mkbhdana.streamhive.ui.theme.AccentGreen
 import kotlinx.coroutines.delay
@@ -570,15 +569,6 @@ fun PlayerScreen(
         GestureIndicatorOverlay(
             gestureState = gestureState.value,
             modifier = Modifier.fillMaxSize()
-        )
-
-        NextEpisodeOverlay(
-            nextEpisode = uiState.nextEpisode,
-            currentPosition = uiState.currentPosition,
-            duration = uiState.duration,
-            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary
         )
     }
 }

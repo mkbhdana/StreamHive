@@ -189,6 +189,14 @@ class PlayerViewModel @AssistedInject constructor(
     // Error retry mechanism
     private var retryCount = 0
     private val MAX_RETRIES = 3
+    // Retries are only forgiven after playback has stayed stable for a while;
+    // resetting immediately on READY lets a recurring near-end error reload forever.
+    private var retryResetJob: kotlinx.coroutines.Job? = null
+    private val RETRY_RESET_AFTER_MS = 30_000L
+    // Errors this close to the end are treated as end-of-playback right away.
+    private val END_ON_ERROR_FRACTION = 0.97f
+    // After retries are exhausted, advance to the next episode from this point on.
+    private val NEAR_END_FRACTION = 0.90f
     
     // Preferred track selection should run once per media item, after tracks are known.
     private var preferredTracksApplied = false
@@ -353,6 +361,8 @@ class PlayerViewModel @AssistedInject constructor(
         
         hasResumed = false
         pendingSeekMs = 0L
+        retryCount = 0
+        retryResetJob?.cancel()
         preferredTracksApplied = false
         externalSubtitleConfigurations.clear()
         externalSubtitleNames.clear()
@@ -365,6 +375,18 @@ class PlayerViewModel @AssistedInject constructor(
         _player?.release()
         _player = null
         initializePlayer()
+    }
+
+    /** How far through the current item playback is (0..1), best-effort during errors. */
+    private fun currentProgressFraction(): Float {
+        val duration = _player?.duration?.takeIf { it > 0 } ?: _uiState.value.duration
+        if (duration <= 0) return 0f
+        val position = maxOf(
+            _player?.currentPosition ?: 0L,
+            _uiState.value.currentPosition,
+            pendingSeekMs
+        )
+        return (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     }
 
     /**
@@ -518,7 +540,11 @@ class PlayerViewModel @AssistedInject constructor(
                             )
                         }
                         if (playbackState == Player.STATE_READY) {
-                            retryCount = 0 // Reset retries on successful playback
+                            retryResetJob?.cancel()
+                            retryResetJob = viewModelScope.launch {
+                                kotlinx.coroutines.delay(RETRY_RESET_AFTER_MS)
+                                retryCount = 0
+                            }
                             // Resume to saved position once player is ready
                             if (!hasResumed && pendingSeekMs > 0) {
                                 exoPlayer.seekTo(pendingSeekMs)
@@ -546,6 +572,14 @@ class PlayerViewModel @AssistedInject constructor(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        retryResetJob?.cancel()
+                        // An error in the final stretch is treated as "finished" instead of
+                        // reloading: advance to the next episode / close the player.
+                        if (currentProgressFraction() >= END_ON_ERROR_FRACTION) {
+                            Log.w("PlayerVM", "Playback error near end of video — treating as finished", error)
+                            onPlaybackEnded()
+                            return
+                        }
                         if (useTunneling && !tunnelingTemporarilyDisabled) {
                             tunnelingTemporarilyDisabled = true
                             val pos = _player?.currentPosition ?: 0L
@@ -582,6 +616,13 @@ class PlayerViewModel @AssistedInject constructor(
                             }
                             _player?.prepare()
                             _player?.playWhenReady = true
+                        } else if (_uiState.value.nextEpisode != null &&
+                            currentProgressFraction() >= NEAR_END_FRACTION
+                        ) {
+                            // Retries exhausted with the episode almost over — move on to the
+                            // next episode rather than looping reloads / showing an error.
+                            Log.w("PlayerVM", "Retries exhausted near end of episode — advancing", error)
+                            onPlaybackEnded()
                         } else {
                             _uiState.update {
                                 it.copy(
