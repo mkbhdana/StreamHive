@@ -34,6 +34,15 @@ data class SettingsUiState(
     val tunneledPlaybackEnabled: Boolean = false,
     val defaultResizeMode: String = "fit",
     val isMpvAvailable: Boolean = false,
+
+    // MPV engine
+    val mpvProfile: String = AppPreferences.MPV_PROFILE_DEFAULT,
+    val mpvGpuNext: Boolean = AppPreferences.MPV_GPU_NEXT_DEFAULT,
+    val mpvUseVulkan: Boolean = AppPreferences.MPV_USE_VULKAN_DEFAULT,
+    val mpvDebanding: String = AppPreferences.MPV_DEBANDING_DEFAULT,
+    val mpvUseYuv420p: Boolean = AppPreferences.MPV_YUV420P_DEFAULT,
+    val mpvConfText: String = "",
+    val mpvInputConfText: String = "",
     val sourcePriorityResolutions: List<String> = emptyList(),
     val sourcePriorityVideoFormats: List<String> = emptyList(),
     val sourcePriorityDecoders: List<String> = emptyList(),
@@ -49,6 +58,9 @@ data class SettingsUiState(
     val gestureLockEnabled: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
     val gestureSensitivity: Float = 1.0f,
+
+    // Audio
+    val volumeBoostEnabled: Boolean = false,
 
     // Subtitles
     val preferredAudioLanguage: String = "original",
@@ -122,6 +134,13 @@ class SettingsViewModel @Inject constructor(
         tunneledPlaybackEnabled = prefs.tunneledPlaybackEnabled,
         defaultResizeMode = prefs.defaultResizeMode,
         isMpvAvailable = prefs.isMpvAvailable(),
+        mpvProfile = prefs.mpvProfile,
+        mpvGpuNext = prefs.mpvGpuNext,
+        mpvUseVulkan = prefs.mpvUseVulkan,
+        mpvDebanding = prefs.mpvDebanding,
+        mpvUseYuv420p = prefs.mpvUseYuv420p,
+        mpvConfText = prefs.mpvConfText,
+        mpvInputConfText = prefs.mpvInputConfText,
         sourcePriorityResolutions = prefs.sourcePriorityResolutions,
         sourcePriorityVideoFormats = prefs.sourcePriorityVideoFormats,
         sourcePriorityDecoders = prefs.sourcePriorityDecoders,
@@ -136,6 +155,7 @@ class SettingsViewModel @Inject constructor(
         hapticFeedbackEnabled = prefs.hapticFeedbackEnabled,
         gestureSensitivity = prefs.gestureSensitivity,
         tapSeekDuration = prefs.tapSeekDuration,
+        volumeBoostEnabled = prefs.volumeBoostEnabled,
         preferredAudioLanguage = prefs.preferredAudioLanguage,
         preferredSubtitleLanguage = prefs.preferredSubtitleLanguage,
         subtitleExcludeLanguages = prefs.subtitleExcludeLanguages,
@@ -184,6 +204,54 @@ class SettingsViewModel @Inject constructor(
     fun setMpvDecoder(decoder: String) {
         prefs.mpvDecoder = decoder
         uiState = uiState.copy(mpvDecoder = decoder)
+    }
+
+    // ──── MPV engine ────
+
+    fun setMpvProfile(profile: String) {
+        prefs.mpvProfile = profile
+        uiState = uiState.copy(mpvProfile = profile)
+    }
+
+    fun setMpvGpuNext(enabled: Boolean) {
+        prefs.mpvGpuNext = enabled
+        uiState = uiState.copy(mpvGpuNext = enabled)
+    }
+
+    fun setMpvUseVulkan(enabled: Boolean) {
+        prefs.mpvUseVulkan = enabled
+        uiState = uiState.copy(mpvUseVulkan = enabled)
+    }
+
+    fun setMpvDebanding(mode: String) {
+        prefs.mpvDebanding = mode
+        uiState = uiState.copy(mpvDebanding = mode)
+    }
+
+    fun setMpvUseYuv420p(enabled: Boolean) {
+        prefs.mpvUseYuv420p = enabled
+        uiState = uiState.copy(mpvUseYuv420p = enabled)
+    }
+
+    fun setMpvConfText(text: String) {
+        prefs.mpvConfText = text
+        uiState = uiState.copy(mpvConfText = text)
+    }
+
+    fun setMpvInputConfText(text: String) {
+        prefs.mpvInputConfText = text
+        uiState = uiState.copy(mpvInputConfText = text)
+    }
+
+    fun resetMpvEngineSettings() {
+        prefs.resetMpvEngineSettings()
+        uiState = uiState.copy(
+            mpvProfile = prefs.mpvProfile,
+            mpvGpuNext = prefs.mpvGpuNext,
+            mpvUseVulkan = prefs.mpvUseVulkan,
+            mpvDebanding = prefs.mpvDebanding,
+            mpvUseYuv420p = prefs.mpvUseYuv420p
+        )
     }
 
     fun setMapDv7ToHevc(enabled: Boolean) {
@@ -344,6 +412,11 @@ class SettingsViewModel @Inject constructor(
     fun setMpvSubtitleOutlineColor(color: Long) {
         prefs.mpvSubtitleOutlineColor = color
         uiState = uiState.copy(mpvSubtitleOutlineColor = color)
+    }
+
+    fun setVolumeBoostEnabled(enabled: Boolean) {
+        prefs.volumeBoostEnabled = enabled
+        uiState = uiState.copy(volumeBoostEnabled = enabled)
     }
 
     fun setPreferredAudioLanguage(lang: String) {

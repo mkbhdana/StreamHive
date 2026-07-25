@@ -50,6 +50,54 @@ class AppPreferences @Inject constructor(
         get() = prefs.getBoolean(KEY_MAP_DV7_TO_HEVC, false)
         set(value) = prefs.edit().putBoolean(KEY_MAP_DV7_TO_HEVC, value).apply()
 
+    // ──── MPV Engine Settings ────
+
+    /** Built-in mpv profile: "default" (none), "fast", or "high-quality". */
+    var mpvProfile: String
+        get() = prefs.getString(KEY_MPV_PROFILE, MPV_PROFILE_DEFAULT) ?: MPV_PROFILE_DEFAULT
+        set(value) = prefs.edit().putString(KEY_MPV_PROFILE, value).apply()
+
+    /** Render with vo=gpu-next instead of vo=gpu. */
+    var mpvGpuNext: Boolean
+        get() = prefs.getBoolean(KEY_MPV_GPU_NEXT, MPV_GPU_NEXT_DEFAULT)
+        set(value) = prefs.edit().putBoolean(KEY_MPV_GPU_NEXT, value).apply()
+
+    /** Use the Vulkan gpu-context (androidvk) instead of OpenGL ES. */
+    var mpvUseVulkan: Boolean
+        get() = prefs.getBoolean(KEY_MPV_USE_VULKAN, MPV_USE_VULKAN_DEFAULT)
+        set(value) = prefs.edit().putBoolean(KEY_MPV_USE_VULKAN, value).apply()
+
+    /** Debanding mode: "none", "cpu" (gradfun filter), or "gpu" (deband). */
+    var mpvDebanding: String
+        get() = prefs.getString(KEY_MPV_DEBANDING, MPV_DEBANDING_DEFAULT) ?: MPV_DEBANDING_DEFAULT
+        set(value) = prefs.edit().putString(KEY_MPV_DEBANDING, value).apply()
+
+    /** Force yuv420p pixel format (may fix black screens on some codecs). */
+    var mpvUseYuv420p: Boolean
+        get() = prefs.getBoolean(KEY_MPV_YUV420P, MPV_YUV420P_DEFAULT)
+        set(value) = prefs.edit().putBoolean(KEY_MPV_YUV420P, value).apply()
+
+    /** User-authored mpv.conf contents ("" = none). Written to config-dir before init. */
+    var mpvConfText: String
+        get() = prefs.getString(KEY_MPV_CONF, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_MPV_CONF, value).apply()
+
+    /** User-authored input.conf contents ("" = none). */
+    var mpvInputConfText: String
+        get() = prefs.getString(KEY_MPV_INPUT_CONF, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_MPV_INPUT_CONF, value).apply()
+
+    /** Restore the MPV engine settings (not the conf files) to their defaults. */
+    fun resetMpvEngineSettings() {
+        prefs.edit()
+            .remove(KEY_MPV_PROFILE)
+            .remove(KEY_MPV_GPU_NEXT)
+            .remove(KEY_MPV_USE_VULKAN)
+            .remove(KEY_MPV_DEBANDING)
+            .remove(KEY_MPV_YUV420P)
+            .apply()
+    }
+
     var tunneledPlaybackEnabled: Boolean
         get() = prefs.getBoolean(KEY_TUNNELED_PLAYBACK, false)
         set(value) = prefs.edit().putBoolean(KEY_TUNNELED_PLAYBACK, value).apply()
@@ -182,6 +230,11 @@ class AppPreferences @Inject constructor(
     var mpvSubtitleOutlineColor: Long
         get() = prefs.getLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, prefs.getLong("subtitle_outline_color", 0xFF000000))
         set(value) = prefs.edit().putLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, value).apply()
+
+    /** Allow the volume gesture to push app-level gain above 100% (up to 200%). */
+    var volumeBoostEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VOLUME_BOOST, false)
+        set(value) = prefs.edit().putBoolean(KEY_VOLUME_BOOST, value).apply()
 
     var preferredAudioLanguage: String
         get() = prefs.getString(KEY_PREF_AUDIO_LANG, "original") ?: "original"
@@ -379,6 +432,20 @@ class AppPreferences @Inject constructor(
         private const val KEY_ENGINE = "player_engine"
         private const val KEY_EXO_DECODER = "exo_decoder"
         private const val KEY_MPV_DECODER = "mpv_decoder"
+        private const val KEY_MPV_PROFILE = "mpv_profile"
+        private const val KEY_MPV_GPU_NEXT = "mpv_gpu_next"
+        private const val KEY_MPV_USE_VULKAN = "mpv_use_vulkan"
+        private const val KEY_MPV_DEBANDING = "mpv_debanding"
+        private const val KEY_MPV_YUV420P = "mpv_yuv420p"
+        private const val KEY_MPV_CONF = "mpv_conf_text"
+        private const val KEY_MPV_INPUT_CONF = "mpv_input_conf_text"
+        private const val KEY_VOLUME_BOOST = "volume_boost_enabled"
+
+        const val MPV_PROFILE_DEFAULT = "fast"
+        const val MPV_GPU_NEXT_DEFAULT = false
+        const val MPV_USE_VULKAN_DEFAULT = false
+        const val MPV_DEBANDING_DEFAULT = "none"
+        const val MPV_YUV420P_DEFAULT = false
         private const val KEY_MAP_DV7_TO_HEVC = "map_dv7_to_hevc"
         private const val KEY_TUNNELED_PLAYBACK = "tunneled_playback"
         private const val KEY_RESIZE_MODE = "default_resize_mode"

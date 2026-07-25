@@ -391,6 +391,8 @@ fun PlayerScreen(
             onSeekBackward = { quickSeekBackward() },
             onSeekTo = { viewModel.seekTo(it) },
             onVolumeChange = { },
+            volumeBoost = uiState.volumeBoost,
+            onVolumeBoostChange = if (uiState.volumeBoostEnabled) viewModel::setVolumeBoost else null,
             onBrightnessChange = { },
             onSpeedHoldStart = { startSpeedHold() },
             onSpeedHoldEnd = { stopSpeedHold() },

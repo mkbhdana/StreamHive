@@ -85,7 +85,8 @@ class MpvPlayerViewModel @AssistedInject constructor(
             subtitleItalic = appPreferences.subtitleItalic,
             subtitleAlignment = appPreferences.subtitleAlignment,
             tapSeekDuration = appPreferences.tapSeekDuration,
-            decoderMode = initialDecoderMode
+            decoderMode = initialDecoderMode,
+            volumeBoostEnabled = appPreferences.volumeBoostEnabled
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -382,9 +383,21 @@ class MpvPlayerViewModel @AssistedInject constructor(
                             } else {
                                 ""
                             }
+                            // A fatal error before playback ever started, with Vulkan on,
+                            // usually means this device has no working androidvk context.
+                            // Turn the preference back off so MPV isn't permanently broken;
+                            // this session still falls back to the other engine as usual.
+                            val neverStarted = _uiState.value.duration <= 0L && _uiState.value.currentPosition <= 0L
+                            val vulkanHint = if (appPreferences.mpvUseVulkan && neverStarted) {
+                                appPreferences.mpvUseVulkan = false
+                                android.util.Log.w("MpvVM", "MPV failed to start with Vulkan — disabling the Vulkan preference")
+                                "\nVulkan rendering failed on this device and has been turned off."
+                            } else {
+                                ""
+                            }
                             _uiState.update {
                                 it.copy(
-                                    error = "MPV Error: $message$retrySuffix",
+                                    error = "MPV Error: $message$retrySuffix$vulkanHint",
                                     isLoading = false,
                                     isPlaying = false,
                                     showControls = false
@@ -420,7 +433,16 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 mpvPlayer.initialize(
                     useLibassSubtitles = appPreferences.libassSubtitlesEnabled,
                     overrideAssStyles = appPreferences.mpvOverrideAssSubtitleStyles,
-                    decoderMode = sessionDecoderMode
+                    decoderMode = sessionDecoderMode,
+                    engineOptions = MpvEngineOptions(
+                        profile = appPreferences.mpvProfile,
+                        gpuNext = appPreferences.mpvGpuNext,
+                        useVulkan = appPreferences.mpvUseVulkan,
+                        debanding = appPreferences.mpvDebanding,
+                        useYuv420p = appPreferences.mpvUseYuv420p,
+                        mpvConfText = appPreferences.mpvConfText,
+                        inputConfText = appPreferences.mpvInputConfText
+                    )
                 )
                 applySubtitleStyle()
 
@@ -973,6 +995,13 @@ class MpvPlayerViewModel @AssistedInject constructor(
     fun setPlaybackSpeed(speed: Float) {
         mpvPlayer.setSpeed(speed)
         _uiState.update { it.copy(playbackSpeed = speed) }
+    }
+
+    /** App-level volume boost above 100% system volume (0.0 = none, 1.0 = +100%). */
+    fun setVolumeBoost(boost: Float) {
+        val clamped = boost.coerceIn(0f, 1f)
+        mpvPlayer.setVolume((100 + clamped * 100).toInt())
+        _uiState.update { it.copy(volumeBoost = clamped) }
     }
 
     fun setDecoderMode(mode: String) {

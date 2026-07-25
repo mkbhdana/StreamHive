@@ -101,6 +101,11 @@ data class PlayerUiState(
 
     // Tap seek
     val tapSeekDuration: Int = 10,
+
+    // App-level volume boost above 100% system volume (0.0 = none, 1.0 = +100%)
+    val volumeBoost: Float = 0f,
+    // Whether the user allows the volume gesture to exceed 100%
+    val volumeBoostEnabled: Boolean = false,
     
     // Decoder
     val decoderMode: String = "auto",
@@ -167,7 +172,8 @@ class PlayerViewModel @AssistedInject constructor(
             subtitleItalic = appPreferences.subtitleItalic,
             subtitleAlignment = appPreferences.subtitleAlignment,
             tapSeekDuration = appPreferences.tapSeekDuration,
-            decoderMode = initialDecoderMode
+            decoderMode = initialDecoderMode,
+            volumeBoostEnabled = appPreferences.volumeBoostEnabled
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -197,6 +203,9 @@ class PlayerViewModel @AssistedInject constructor(
     private val END_ON_ERROR_FRACTION = 0.97f
     // After retries are exhausted, advance to the next episode from this point on.
     private val NEAR_END_FRACTION = 0.90f
+
+    // +6 dB ≈ 2× amplitude at full boost — matches MPV's volume=200.
+    private val MAX_BOOST_GAIN_MB = 600f
     
     // Preferred track selection should run once per media item, after tracks are known.
     private var preferredTracksApplied = false
@@ -205,6 +214,10 @@ class PlayerViewModel @AssistedInject constructor(
     private val externalSubtitleNames = mutableListOf<String>()
     private var pendingExternalSubtitleTrackSelection = false
     private var externalSubtitleCount = 0
+
+    // App-level volume boost (survives episode switches within the session)
+    private var volumeBoost = 0f
+    private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
     // Session-level track language overrides (for series track carryover)
     private var sessionAudioLanguage: String? = null
@@ -558,6 +571,10 @@ class PlayerViewModel @AssistedInject constructor(
                         }
                     }
 
+                    override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                        attachLoudnessEnhancer(audioSessionId)
+                    }
+
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _uiState.update { it.copy(isPlaying = isPlaying) }
                         // Start/stop periodic position saving
@@ -642,6 +659,7 @@ class PlayerViewModel @AssistedInject constructor(
                 })
 
                 _player = exoPlayer
+                attachLoudnessEnhancer(exoPlayer.audioSessionId)
                 _uiState.update {
                     it.copy(
                         isLoading = true,
@@ -1233,6 +1251,31 @@ class PlayerViewModel @AssistedInject constructor(
         _uiState.update { it.copy(playbackSpeed = speed) }
     }
 
+    /** App-level volume boost above 100% system volume (0.0 = none, 1.0 = +100%). */
+    fun setVolumeBoost(boost: Float) {
+        volumeBoost = boost.coerceIn(0f, 1f)
+        _uiState.update { it.copy(volumeBoost = volumeBoost) }
+        applyVolumeBoost()
+    }
+
+    private fun applyVolumeBoost() {
+        val enhancer = loudnessEnhancer ?: return
+        runCatching {
+            enhancer.setTargetGain((volumeBoost * MAX_BOOST_GAIN_MB).toInt())
+            enhancer.enabled = volumeBoost > 0f
+        }.onFailure { Log.w("PlayerVM", "Volume boost failed: ${it.message}") }
+    }
+
+    private fun attachLoudnessEnhancer(audioSessionId: Int) {
+        runCatching { loudnessEnhancer?.release() }
+        loudnessEnhancer = null
+        if (audioSessionId == C.AUDIO_SESSION_ID_UNSET) return
+        loudnessEnhancer = runCatching { android.media.audiofx.LoudnessEnhancer(audioSessionId) }
+            .onFailure { Log.w("PlayerVM", "LoudnessEnhancer unavailable: ${it.message}") }
+            .getOrNull()
+        applyVolumeBoost()
+    }
+
     fun loadExternalSubtitle(uri: Uri) {
         val player = _player ?: return
 
@@ -1342,6 +1385,8 @@ class PlayerViewModel @AssistedInject constructor(
             _player?.pause()
             savePlaybackPosition()
             saveCurrentFileSettingsBlocking()
+            runCatching { loudnessEnhancer?.release() }
+            loudnessEnhancer = null
             _player?.release()
             _player = null
         }

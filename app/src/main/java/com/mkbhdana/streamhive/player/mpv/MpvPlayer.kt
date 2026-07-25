@@ -24,6 +24,20 @@ import kotlinx.coroutines.flow.asStateFlow
  *  6. MPV.command(["loadfile", url])  — load media
  *  7. MPV.destroy()                   — tear down
  */
+/**
+ * Init-time MPV engine options sourced from user settings.
+ * Applied when the player is created, i.e. on the next playback session.
+ */
+data class MpvEngineOptions(
+    val profile: String = "fast",
+    val gpuNext: Boolean = false,
+    val useVulkan: Boolean = false,
+    val debanding: String = "none",
+    val useYuv420p: Boolean = false,
+    val mpvConfText: String = "",
+    val inputConfText: String = ""
+)
+
 class MpvPlayer(private val context: Context) {
 
     private var isInitialized = false
@@ -38,7 +52,7 @@ class MpvPlayer(private val context: Context) {
     private var currentSurface: Surface? = null
     private var currentSurfaceWidth: Int = 0
     private var currentSurfaceHeight: Int = 0
-    private val videoOutputName = "gpu"
+    private var videoOutputName = "gpu"
     private var libassSubtitlesEnabled = false
     private var overrideAssStylesEnabled = false
     private var decoderMode = "hw+"
@@ -132,7 +146,8 @@ class MpvPlayer(private val context: Context) {
     fun initialize(
         useLibassSubtitles: Boolean = false,
         overrideAssStyles: Boolean = false,
-        decoderMode: String = "hw+"
+        decoderMode: String = "hw+",
+        engineOptions: MpvEngineOptions = MpvEngineOptions()
     ) {
         if (isInitialized) return
         libassSubtitlesEnabled = useLibassSubtitles
@@ -171,15 +186,26 @@ class MpvPlayer(private val context: Context) {
             // ── Step 4: Set config-dir and cache-dir (matching BaseMPVView.initialize) ──
             val configDir = context.filesDir.path
             val cacheDir = context.cacheDir.path
+            writeUserConfigFiles(configDir, engineOptions)
             setOption("config", "yes")
             setOption("config-dir", configDir)
             setOption("gpu-shader-cache-dir", cacheDir)
             setOption("icc-cache-dir", cacheDir)
 
             // ── Step 5: Set video/audio/network options BEFORE init() ──
+            // Profile first, so the explicit options below win over profile values.
+            if (engineOptions.profile.isNotBlank() && engineOptions.profile != "default") {
+                setOption("profile", engineOptions.profile)
+            }
+            videoOutputName = if (engineOptions.gpuNext) "gpu-next" else "gpu"
             setOption("vo", videoOutputName)
-            setOption("gpu-context", "android")
-            setOption("opengl-es", "yes")
+            if (engineOptions.useVulkan) {
+                setOption("gpu-context", "androidvk")
+            } else {
+                setOption("gpu-context", "android")
+                setOption("opengl-es", "yes")
+            }
+            setOption("volume-max", "200")
             setOption("hwdec", hwdecForDecoderMode(this.decoderMode))
             setOption("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
             setOption("ao", "audiotrack,opensles")
@@ -212,6 +238,15 @@ class MpvPlayer(private val context: Context) {
             // ── Step 8: Post-init properties (matching mpvKt/BaseMPVView) ──
             setPropertyBoolean("keep-open", true)
             setPropertyBoolean("input-default-bindings", true)
+
+            // User video filters — applied post-init with "vf add" so they compose.
+            when (engineOptions.debanding) {
+                "gpu" -> setPropertyString("deband", "yes")
+                "cpu" -> command(arrayOf("vf", "add", "@deband:gradfun=radius=12"))
+            }
+            if (engineOptions.useYuv420p) {
+                command(arrayOf("vf", "add", "format=yuv420p"))
+            }
 
             // ── Step 9: Observe properties ──
             // Format constants: FLAG=3, INT64=4, DOUBLE=5, STRING=7
@@ -465,9 +500,10 @@ class MpvPlayer(private val context: Context) {
         command(arrayOf("seek", (deltaMs / 1000.0).toString(), "relative"))
     }
 
+    /** Software volume: 100 = normal, up to 200 (volume-max) for app-level boost. */
     fun setVolume(volume: Int) {
         if (!isInitialized) return
-        setPropertyInt("volume", volume.coerceIn(0, 150))
+        setPropertyInt("volume", volume.coerceIn(0, 200))
     }
 
     fun getVolume(): Int = if (isInitialized) getPropertyInt("volume") else 100
@@ -666,6 +702,19 @@ class MpvPlayer(private val context: Context) {
                 setPropertyString("video-aspect-override", "-1")
             }
         }
+    }
+
+    /**
+     * Write (or remove) the user-authored mpv.conf / input.conf in config-dir.
+     * mpv reads them during init because config=yes + config-dir point there.
+     */
+    private fun writeUserConfigFiles(configDir: String, options: MpvEngineOptions) {
+        runCatching {
+            val mpvConf = java.io.File(configDir, "mpv.conf")
+            if (options.mpvConfText.isBlank()) mpvConf.delete() else mpvConf.writeText(options.mpvConfText)
+            val inputConf = java.io.File(configDir, "input.conf")
+            if (options.inputConfText.isBlank()) inputConf.delete() else inputConf.writeText(options.inputConfText)
+        }.onFailure { Log.w(TAG, "Failed to write user config files: ${it.message}") }
     }
 
     fun setVideoZoom(zoom: Float, panX: Float = 0f, panY: Float = 0f) {
