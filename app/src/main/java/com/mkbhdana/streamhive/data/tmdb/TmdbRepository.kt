@@ -15,6 +15,12 @@ class TmdbRepository @Inject constructor(
     private val prefs: AppPreferences
 ) {
     /**
+     * Drive file ids already attempted this session, so a title whose IMDb id TMDB does
+     * not know isn't re-requested every time it scrolls back into view.
+     */
+    private val unresolvableImdbIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /**
      * Clean a file/folder name to make it suitable for TMDB search.
      * Removes year patterns, quality tags, codec info etc.
      */
@@ -187,6 +193,50 @@ class TmdbRepository @Inject constructor(
 
     suspend fun getMetadataForFile(driveFileId: String): TmdbMetadataEntity? {
         return tmdbMetadataDao.getByDriveFileId(driveFileId)
+    }
+
+    /**
+     * Fill in missing IMDb ids for entries that are about to be displayed, so third-party
+     * poster URLs can be built for them. TMDB only returns imdb_id from the *details*
+     * endpoints, so each unresolved title costs one request — hence this is done lazily
+     * for visible items rather than for the whole catalog.
+     *
+     * Returns only the entries that actually gained an id, so callers can merge them into
+     * their UI state. Failures are swallowed: a missing id just means the TMDB poster stays.
+     */
+    suspend fun resolveMissingImdbIds(
+        entities: Collection<TmdbMetadataEntity>
+    ): List<TmdbMetadataEntity> = withContext(Dispatchers.IO) {
+        val apiKey = prefs.tmdbApiKey
+        if (apiKey.isBlank()) return@withContext emptyList()
+
+        val pending = entities
+            .filter { it.imdbId.isNullOrBlank() && it.tmdbId > 0 }
+            .filter { unresolvableImdbIds.add(it.driveFileId) }
+        if (pending.isEmpty()) return@withContext emptyList()
+
+        val updated = mutableListOf<TmdbMetadataEntity>()
+        // Sequential with a small gap — TMDB rate-limits bursts, and this runs in the
+        // background behind already-visible posters, so throughput doesn't matter.
+        for (entity in pending) {
+            val imdbId = runCatching {
+                if (entity.mediaType == "tv") {
+                    tmdbApiService.getTvDetails(entity.tmdbId, apiKey).imdbId
+                } else {
+                    tmdbApiService.getMovieDetails(entity.tmdbId, apiKey).imdbId
+                }
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+
+            if (imdbId != null) {
+                val merged = entity.copy(imdbId = imdbId)
+                runCatching { tmdbMetadataDao.insert(merged) }
+                updated += merged
+                // Resolved and persisted — allow a future refresh to re-resolve it.
+                unresolvableImdbIds.remove(entity.driveFileId)
+            }
+            kotlinx.coroutines.delay(120)
+        }
+        updated
     }
 
     suspend fun searchLocalCatalog(query: String): List<TmdbMetadataEntity> {
@@ -421,7 +471,8 @@ class TmdbRepository @Inject constructor(
             rating = voteAverage,
             year = year,
             originalLanguage = originalLanguage,
-            mediaType = "movie"
+            mediaType = "movie",
+            imdbId = imdbId
         )
     }
 
@@ -436,7 +487,8 @@ class TmdbRepository @Inject constructor(
             rating = voteAverage,
             year = year,
             originalLanguage = originalLanguage,
-            mediaType = "tv"
+            mediaType = "tv",
+            imdbId = imdbId
         )
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
+import com.mkbhdana.streamhive.ui.image.PosterSource
 import com.mkbhdana.streamhive.util.FileUtils
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -113,9 +114,8 @@ fun MediaCard(
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 if (tmdbMetadata?.posterPath != null) {
-                    // TMDB poster
                     AsyncImage(
-                        model = tmdbMetadata.posterPath,
+                        model = PosterSource.posterModel(tmdbMetadata, file),
                         contentDescription = tmdbMetadata.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

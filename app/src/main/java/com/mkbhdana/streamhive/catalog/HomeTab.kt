@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.mkbhdana.streamhive.data.db.MediaFileEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
+import com.mkbhdana.streamhive.ui.image.PosterSource
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.util.FileUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -633,8 +634,8 @@ private fun ContinuePlayingCard(
     val labels = remember(item.fileName) { continueMediaLabels(item.fileName) }
     val progress = item.progressPercent.coerceIn(0f, 1f)
     val progressText = "${(progress * 100).toInt().coerceIn(0, 100)}% watched"
-    val imageModel = remember(metadata?.posterPath, item.posterPath, item.thumbnailUrl) {
-        highQualityTmdbImage(metadata?.posterPath, "w780")
+    val imageModel = remember(metadata?.posterPath, metadata?.imdbId, item.posterPath, item.thumbnailUrl) {
+        PosterSource.posterModel(metadata, file = null, size = "w780")
             ?: highQualityTmdbImage(item.posterPath, "w780")
             ?: highQualityDriveThumbnail(item.thumbnailUrl)
     }
@@ -1046,7 +1047,7 @@ fun TmdbPosterCard(
             ) {
                 if (metadata?.posterPath != null) {
                     AsyncImage(
-                        model = metadata.posterPath,
+                        model = PosterSource.posterModel(metadata, file, size = "w780"),
                         contentDescription = metadata.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

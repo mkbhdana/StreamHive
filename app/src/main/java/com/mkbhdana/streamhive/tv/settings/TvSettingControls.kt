@@ -99,21 +99,28 @@ fun TvMultiChoiceSetting(
     }
 }
 
+/** @param enabled when false the chip is dimmed and the D-pad skips over it. */
 @Composable
-fun TvChip(text: String, selected: Boolean, onClick: () -> Unit) {
+fun TvChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val container = when {
+        !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
         focused -> MaterialTheme.colorScheme.primary
         selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
     }
-    val content = if (focused) MaterialTheme.colorScheme.onPrimary else TextPrimary
+    val content = when {
+        !enabled -> TextSecondary.copy(alpha = 0.5f)
+        focused -> MaterialTheme.colorScheme.onPrimary
+        else -> TextPrimary
+    }
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(container)
             .onFocusChanged { focused = it.isFocused }
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick

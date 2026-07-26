@@ -709,6 +709,7 @@ class CatalogViewModel @Inject constructor(
 
                 if (cachedMap.isNotEmpty()) {
                     _uiState.update { it.copy(tmdbMetadata = it.tmdbMetadata + cachedMap) }
+                    backfillImdbIds(cachedMeta)
                 }
 
                 val missingOriginalLanguageIds = cachedMap
@@ -753,6 +754,7 @@ class CatalogViewModel @Inject constructor(
                             _uiState.update {
                                 it.copy(tmdbMetadata = it.tmdbMetadata + results.toMap())
                             }
+                            backfillImdbIds(results.map { (_, meta) -> meta })
                         }
                     }
                 }
@@ -1241,6 +1243,25 @@ class CatalogViewModel @Inject constructor(
         return descendants
             .filter { it.name.contains(query, ignoreCase = true) }
             .sortedWith(compareByDescending<MediaFileEntity> { it.isFolder }.thenBy { it.name.lowercase() })
+    }
+
+    /**
+     * Resolve IMDb ids for items that just became visible, so third-party poster URLs can
+     * be built for them. Runs in the background and merges the results back into the
+     * metadata map, which swaps the posters in place. Skipped entirely when the user has
+     * not opted into third-party posters, so it costs nothing by default.
+     */
+    private fun backfillImdbIds(metadata: Collection<TmdbMetadataEntity>) {
+        if (!appPreferences.thirdPartyPostersEnabled) return
+        if (metadata.none { it.imdbId.isNullOrBlank() }) return
+        viewModelScope.launch {
+            val updated = tmdbRepository.resolveMissingImdbIds(metadata)
+            if (updated.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(tmdbMetadata = it.tmdbMetadata + updated.associateBy { m -> m.driveFileId })
+                }
+            }
+        }
     }
 
     private suspend fun searchTmdbCatalog(query: String): List<MediaFileEntity> {

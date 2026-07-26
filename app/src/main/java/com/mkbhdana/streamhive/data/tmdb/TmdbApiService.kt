@@ -43,11 +43,13 @@ interface TmdbApiService {
         @Query("language") language: String = "en-US"
     ): TmdbMovie
 
+    /** TV details plus external_ids, so imdb_id arrives in the same request. */
     @GET("3/tv/{tv_id}")
     suspend fun getTvDetails(
         @Path("tv_id") tvId: Int,
         @Query("api_key") apiKey: String,
-        @Query("language") language: String = "en-US"
+        @Query("language") language: String = "en-US",
+        @Query("append_to_response") appendToResponse: String = "external_ids"
     ): TmdbTvShow
 
     @GET("3/tv/{tv_id}/season/{season_number}")

@@ -15,6 +15,7 @@ import com.mkbhdana.streamhive.data.db.TmdbMetadataEntity
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryDao
 import com.mkbhdana.streamhive.data.db.PlaybackHistoryEntity
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
+import com.mkbhdana.streamhive.ui.image.PosterSource
 import com.mkbhdana.streamhive.update.AppUpdateInfo
 import com.mkbhdana.streamhive.update.AppUpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +25,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/**
+ * Outcome of checking a user-entered poster URL. The host serves any path segment, so a
+ * URL can only really be judged by fetching it — see [SettingsViewModel.updateBetterPosterTemplate].
+ */
+enum class PosterUrlStatus { Idle, Checking, Invalid, Unreachable, Saved }
 
 data class SettingsUiState(
     // Player
@@ -61,6 +68,11 @@ data class SettingsUiState(
 
     // Audio
     val volumeBoostEnabled: Boolean = false,
+
+    // Artwork
+    val thirdPartyPostersEnabled: Boolean = false,
+    val betterPosterTemplate: String = "",
+    val posterUrlStatus: PosterUrlStatus = PosterUrlStatus.Idle,
 
     // Subtitles
     val preferredAudioLanguage: String = "original",
@@ -115,6 +127,7 @@ class SettingsViewModel @Inject constructor(
     private val tmdbMetadataDao: TmdbMetadataDao,
     private val mediaFileDao: MediaFileDao,
     private val playbackHistoryDao: PlaybackHistoryDao,
+    private val okHttpClient: okhttp3.OkHttpClient,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context
 ) : ViewModel() {
 
@@ -156,6 +169,8 @@ class SettingsViewModel @Inject constructor(
         gestureSensitivity = prefs.gestureSensitivity,
         tapSeekDuration = prefs.tapSeekDuration,
         volumeBoostEnabled = prefs.volumeBoostEnabled,
+        thirdPartyPostersEnabled = prefs.thirdPartyPostersEnabled,
+        betterPosterTemplate = prefs.betterPosterTemplate,
         preferredAudioLanguage = prefs.preferredAudioLanguage,
         preferredSubtitleLanguage = prefs.preferredSubtitleLanguage,
         subtitleExcludeLanguages = prefs.subtitleExcludeLanguages,
@@ -412,6 +427,71 @@ class SettingsViewModel @Inject constructor(
     fun setMpvSubtitleOutlineColor(color: Long) {
         prefs.mpvSubtitleOutlineColor = color
         uiState = uiState.copy(mpvSubtitleOutlineColor = color)
+    }
+
+    fun setThirdPartyPostersEnabled(enabled: Boolean) {
+        prefs.thirdPartyPostersEnabled = enabled
+        // Poster URLs are built from plain helpers, so mirror the flag for them.
+        PosterSource.thirdPartyEnabled = enabled
+        uiState = uiState.copy(thirdPartyPostersEnabled = enabled)
+    }
+
+    /**
+     * Check a user-supplied poster URL and save it only if it actually serves an image.
+     *
+     * A shape check alone is not enough: the host happily serves any path segment, so a
+     * typo there still returns the right poster, while a wrong host looks perfectly valid
+     * on paper. The URL is therefore probed with a known IMDb id before being accepted.
+     * A literal IMDb id in the input is rewritten to the `{imdb_id}` placeholder first.
+     */
+    fun updateBetterPosterTemplate(input: String) {
+        val normalized = PosterSource.normalizeTemplate(input)
+        if (normalized == null) {
+            uiState = uiState.copy(posterUrlStatus = PosterUrlStatus.Invalid)
+            return
+        }
+        uiState = uiState.copy(posterUrlStatus = PosterUrlStatus.Checking)
+        viewModelScope.launch {
+            val servesAnImage = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val probeUrl = normalized.replace(PosterSource.ID_PLACEHOLDER, POSTER_PROBE_IMDB_ID)
+                    val request = okhttp3.Request.Builder().url(probeUrl).head().build()
+                    okHttpClient.newCall(request).execute().use { response ->
+                        response.isSuccessful &&
+                            response.header("Content-Type").orEmpty().startsWith("image", ignoreCase = true)
+                    }
+                }.getOrDefault(false)
+            }
+            uiState = if (servesAnImage) {
+                prefs.betterPosterTemplate = normalized
+                PosterSource.thirdPartyTemplate = normalized
+                uiState.copy(
+                    betterPosterTemplate = normalized,
+                    posterUrlStatus = PosterUrlStatus.Saved
+                )
+            } else {
+                uiState.copy(posterUrlStatus = PosterUrlStatus.Unreachable)
+            }
+        }
+    }
+
+    /** A widely-available title, used purely to prove a poster URL resolves. */
+    private val POSTER_PROBE_IMDB_ID = "tt0111161"
+
+    /** Clear the check result once the user edits the field again. */
+    fun clearPosterUrlStatus() {
+        if (uiState.posterUrlStatus != PosterUrlStatus.Idle) {
+            uiState = uiState.copy(posterUrlStatus = PosterUrlStatus.Idle)
+        }
+    }
+
+    fun resetBetterPosterTemplate() {
+        prefs.betterPosterTemplate = PosterSource.DEFAULT_TEMPLATE
+        PosterSource.thirdPartyTemplate = PosterSource.DEFAULT_TEMPLATE
+        uiState = uiState.copy(
+            betterPosterTemplate = PosterSource.DEFAULT_TEMPLATE,
+            posterUrlStatus = PosterUrlStatus.Idle
+        )
     }
 
     fun setVolumeBoostEnabled(enabled: Boolean) {
@@ -881,6 +961,7 @@ class SettingsViewModel @Inject constructor(
                             obj.put("year", m.year ?: "")
                             obj.put("originalLanguage", m.originalLanguage ?: "")
                             obj.put("mediaType", m.mediaType)
+                            obj.put("imdbId", m.imdbId ?: "")
                             obj.put("cachedAt", m.cachedAt)
                             metaArray.put(obj)
                         }
@@ -983,6 +1064,7 @@ class SettingsViewModel @Inject constructor(
                                 year = obj.optString("year").ifBlank { null },
                                 originalLanguage = obj.optString("originalLanguage").ifBlank { null },
                                 mediaType = obj.optString("mediaType", "movie"),
+                                imdbId = obj.optString("imdbId").ifBlank { null },
                                 cachedAt = obj.optLong("cachedAt", System.currentTimeMillis())
                             ))
                         }
@@ -1020,6 +1102,8 @@ class SettingsViewModel @Inject constructor(
                     val success = prefs.importFromJson(jsonObject.toString())
                     if (success) {
                         touchCatalogSettings()
+                        // Restored artwork settings must reach the poster URL builder.
+                        prefs.applyPosterSourceSettings()
                         uiState = loadState()
                     }
                     launch(kotlinx.coroutines.Dispatchers.Main) { onComplete(success, null) }

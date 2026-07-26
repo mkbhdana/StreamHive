@@ -86,7 +86,8 @@ object ManageBackup {
                             .put("overview", m.overview ?: "").put("posterPath", m.posterPath ?: "")
                             .put("backdropPath", m.backdropPath ?: "").put("rating", m.rating?.toDouble() ?: 0.0)
                             .put("year", m.year ?: "").put("originalLanguage", m.originalLanguage ?: "")
-                            .put("mediaType", m.mediaType).put("cachedAt", m.cachedAt)
+                            .put("mediaType", m.mediaType).put("imdbId", m.imdbId ?: "")
+                            .put("cachedAt", m.cachedAt)
                     )
                 }
                 root.put("tmdb_metadata", arr)
@@ -163,6 +164,7 @@ object ManageBackup {
                             year = o.optString("year").ifBlank { null },
                             originalLanguage = o.optString("originalLanguage").ifBlank { null },
                             mediaType = o.optString("mediaType", "movie"),
+                            imdbId = o.optString("imdbId").ifBlank { null },
                             cachedAt = o.optLong("cachedAt", System.currentTimeMillis())
                         )
                     )
@@ -197,7 +199,11 @@ object ManageBackup {
             GESTURE_KEYS.forEach { obj.remove(it) }
 
             val success = prefs.importFromJson(obj.toString())
-            if (success) prefs.catalogSettingsLastChanged = System.currentTimeMillis()
+            if (success) {
+                prefs.catalogSettingsLastChanged = System.currentTimeMillis()
+                // Restored artwork settings must reach the poster URL builder.
+                prefs.applyPosterSourceSettings()
+            }
             success
         } catch (e: Exception) {
             false

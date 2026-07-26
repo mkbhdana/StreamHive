@@ -3,6 +3,7 @@ package com.mkbhdana.streamhive.settings
 import android.content.Context
 import android.content.SharedPreferences
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
+import com.mkbhdana.streamhive.ui.image.PosterSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,6 +19,38 @@ class AppPreferences @Inject constructor(
     private val prefs: SharedPreferences = context.getSharedPreferences(
         "streamhive_preferences", Context.MODE_PRIVATE
     )
+
+    // ──── Type-safe numeric access ────
+    //
+    // A backup restore writes values back from JSON, and org.json narrows any integral
+    // number that fits into an Int. That stored Long-typed preferences (timestamps, ARGB
+    // colours) as Int, and SharedPreferences then throws ClassCastException on read —
+    // crashing the app after a restore. Reads repair such a value in place rather than
+    // throwing, so installs that already imported a bad backup recover on their own.
+
+    private fun longPref(key: String, default: Long): Long = try {
+        prefs.getLong(key, default)
+    } catch (_: ClassCastException) {
+        val repaired = (prefs.all[key] as? Number)?.toLong() ?: default
+        prefs.edit().putLong(key, repaired).apply()
+        repaired
+    }
+
+    private fun floatPref(key: String, default: Float): Float = try {
+        prefs.getFloat(key, default)
+    } catch (_: ClassCastException) {
+        val repaired = (prefs.all[key] as? Number)?.toFloat() ?: default
+        prefs.edit().putFloat(key, repaired).apply()
+        repaired
+    }
+
+    private fun intPref(key: String, default: Int): Int = try {
+        prefs.getInt(key, default)
+    } catch (_: ClassCastException) {
+        val repaired = (prefs.all[key] as? Number)?.toInt() ?: default
+        prefs.edit().putInt(key, repaired).apply()
+        repaired
+    }
 
     // ──── Drive Settings ────
 
@@ -87,6 +120,16 @@ class AppPreferences @Inject constructor(
         get() = prefs.getString(KEY_MPV_INPUT_CONF, "") ?: ""
         set(value) = prefs.edit().putString(KEY_MPV_INPUT_CONF, value).apply()
 
+    /**
+     * Push the artwork preferences into [PosterSource], which builds poster URLs from
+     * plain (non-injected) helpers. Call after startup and after anything that can change
+     * these values behind the settings UI, such as a backup restore.
+     */
+    fun applyPosterSourceSettings() {
+        PosterSource.thirdPartyEnabled = thirdPartyPostersEnabled
+        PosterSource.thirdPartyTemplate = betterPosterTemplate
+    }
+
     /** Restore the MPV engine settings (not the conf files) to their defaults. */
     fun resetMpvEngineSettings() {
         prefs.edit()
@@ -105,6 +148,21 @@ class AppPreferences @Inject constructor(
     var defaultResizeMode: String
         get() = prefs.getString(KEY_RESIZE_MODE, "fit") ?: "fit"
         set(value) = prefs.edit().putString(KEY_RESIZE_MODE, value).apply()
+
+    /**
+     * Use the third-party (btttr.cc) poster art instead of TMDB's, where an IMDb id is
+     * known. Off by default — it depends on a third-party host staying available.
+     */
+    var thirdPartyPostersEnabled: Boolean
+        get() = prefs.getBoolean(KEY_THIRD_PARTY_POSTERS, false)
+        set(value) = prefs.edit().putBoolean(KEY_THIRD_PARTY_POSTERS, value).apply()
+
+    /** Poster URL template containing `{imdb_id}`. See PosterSource for the accepted shape. */
+    var betterPosterTemplate: String
+        get() = prefs.getString(KEY_BETTER_POSTER_TEMPLATE, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: PosterSource.DEFAULT_TEMPLATE
+        set(value) = prefs.edit().putString(KEY_BETTER_POSTER_TEMPLATE, value).apply()
 
     var isGridView: Boolean
         get() = prefs.getBoolean(KEY_IS_GRID_VIEW, true)
@@ -157,7 +215,7 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putBoolean(KEY_GESTURE_DOUBLE_TAP, value).apply()
 
     var tapSeekDuration: Int
-        get() = prefs.getInt(KEY_TAP_SEEK_DURATION, 10)
+        get() = intPref(KEY_TAP_SEEK_DURATION, 10)
         set(value) = prefs.edit().putInt(KEY_TAP_SEEK_DURATION, value.coerceIn(10, 60)).apply()
 
     var gestureZoomEnabled: Boolean
@@ -178,33 +236,33 @@ class AppPreferences @Inject constructor(
 
     /** Sensitivity multiplier: 0.5f (low) to 2.0f (high), default 1.0f */
     var gestureSensitivity: Float
-        get() = prefs.getFloat(KEY_GESTURE_SENSITIVITY, 1.0f)
+        get() = floatPref(KEY_GESTURE_SENSITIVITY, 1.0f)
         set(value) = prefs.edit().putFloat(KEY_GESTURE_SENSITIVITY, value.coerceIn(0.5f, 2.0f)).apply()
 
     // ──── Subtitle Settings ────
 
     var exoSubtitleFontSize: Int
-        get() = prefs.getInt(KEY_EXO_SUBTITLE_FONT_SIZE, prefs.getInt("subtitle_font_size", 18))
+        get() = intPref(KEY_EXO_SUBTITLE_FONT_SIZE, intPref("subtitle_font_size", 18))
         set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
 
     var mpvSubtitleFontSize: Int
-        get() = prefs.getInt(KEY_MPV_SUBTITLE_FONT_SIZE, prefs.getInt("subtitle_font_size", 18))
+        get() = intPref(KEY_MPV_SUBTITLE_FONT_SIZE, intPref("subtitle_font_size", 18))
         set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_FONT_SIZE, value.coerceIn(10, 48)).apply()
 
     var exoSubtitleColor: Long
-        get() = prefs.getLong(KEY_EXO_SUBTITLE_COLOR, prefs.getLong("subtitle_color", 0xFFFFFFFF))
+        get() = longPref(KEY_EXO_SUBTITLE_COLOR, longPref("subtitle_color", 0xFFFFFFFF))
         set(value) = prefs.edit().putLong(KEY_EXO_SUBTITLE_COLOR, value).apply()
 
     var mpvSubtitleColor: Long
-        get() = prefs.getLong(KEY_MPV_SUBTITLE_COLOR, prefs.getLong("subtitle_color", 0xFFFFFFFF))
+        get() = longPref(KEY_MPV_SUBTITLE_COLOR, longPref("subtitle_color", 0xFFFFFFFF))
         set(value) = prefs.edit().putLong(KEY_MPV_SUBTITLE_COLOR, value).apply()
 
     var exoSubtitleBgOpacity: Float
-        get() = prefs.getFloat(KEY_EXO_SUBTITLE_BG_OPACITY, prefs.getFloat("subtitle_bg_opacity", 0.0f))
+        get() = floatPref(KEY_EXO_SUBTITLE_BG_OPACITY, floatPref("subtitle_bg_opacity", 0.0f))
         set(value) = prefs.edit().putFloat(KEY_EXO_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
 
     var mpvSubtitleBgOpacity: Float
-        get() = prefs.getFloat(KEY_MPV_SUBTITLE_BG_OPACITY, prefs.getFloat("subtitle_bg_opacity", 0.0f))
+        get() = floatPref(KEY_MPV_SUBTITLE_BG_OPACITY, floatPref("subtitle_bg_opacity", 0.0f))
         set(value) = prefs.edit().putFloat(KEY_MPV_SUBTITLE_BG_OPACITY, value.coerceIn(0f, 1f)).apply()
 
     var exoSubtitleEdgeType: String
@@ -216,19 +274,19 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putString(KEY_MPV_SUBTITLE_EDGE_TYPE, value).apply()
 
     var exoSubtitleEdgeSize: Int
-        get() = prefs.getInt(KEY_EXO_SUBTITLE_EDGE_SIZE, prefs.getInt("subtitle_edge_size", 0))
+        get() = intPref(KEY_EXO_SUBTITLE_EDGE_SIZE, intPref("subtitle_edge_size", 0))
         set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
 
     var mpvSubtitleEdgeSize: Int
-        get() = prefs.getInt(KEY_MPV_SUBTITLE_EDGE_SIZE, prefs.getInt("subtitle_edge_size", 0))
+        get() = intPref(KEY_MPV_SUBTITLE_EDGE_SIZE, intPref("subtitle_edge_size", 0))
         set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_EDGE_SIZE, value.coerceIn(0, 20)).apply()
 
     var exoSubtitleOutlineColor: Long
-        get() = prefs.getLong(KEY_EXO_SUBTITLE_OUTLINE_COLOR, prefs.getLong("subtitle_outline_color", 0xFF000000))
+        get() = longPref(KEY_EXO_SUBTITLE_OUTLINE_COLOR, longPref("subtitle_outline_color", 0xFF000000))
         set(value) = prefs.edit().putLong(KEY_EXO_SUBTITLE_OUTLINE_COLOR, value).apply()
 
     var mpvSubtitleOutlineColor: Long
-        get() = prefs.getLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, prefs.getLong("subtitle_outline_color", 0xFF000000))
+        get() = longPref(KEY_MPV_SUBTITLE_OUTLINE_COLOR, longPref("subtitle_outline_color", 0xFF000000))
         set(value) = prefs.edit().putLong(KEY_MPV_SUBTITLE_OUTLINE_COLOR, value).apply()
 
     /** Allow the volume gesture to push app-level gain above 100% (up to 200%). */
@@ -249,11 +307,11 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putStringSet(KEY_SUBTITLE_EXCLUDE_LANGS, value).apply()
 
     var exoSubtitlePosition: Int
-        get() = prefs.getInt(KEY_EXO_SUBTITLE_POSITION, prefs.getInt("subtitle_position", 90))
+        get() = intPref(KEY_EXO_SUBTITLE_POSITION, intPref("subtitle_position", 90))
         set(value) = prefs.edit().putInt(KEY_EXO_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
 
     var mpvSubtitlePosition: Int
-        get() = prefs.getInt(KEY_MPV_SUBTITLE_POSITION, prefs.getInt("subtitle_position", 90))
+        get() = intPref(KEY_MPV_SUBTITLE_POSITION, intPref("subtitle_position", 90))
         set(value) = prefs.edit().putInt(KEY_MPV_SUBTITLE_POSITION, value.coerceIn(0, 100)).apply()
 
     var libassSubtitlesEnabled: Boolean
@@ -270,7 +328,7 @@ class AppPreferences @Inject constructor(
 
     /** Global subtitle scale multiplier (0.5 to 3.0, default 1.0). Applied as MPV sub-scale. */
     var subtitleScale: Float
-        get() = prefs.getFloat(KEY_SUBTITLE_SCALE, 1.0f)
+        get() = floatPref(KEY_SUBTITLE_SCALE, 1.0f)
         set(value) = prefs.edit().putFloat(KEY_SUBTITLE_SCALE, value.coerceIn(0.5f, 3.0f)).apply()
 
     /** Subtitle font name (default 'sans-serif'). Applied as MPV sub-font. */
@@ -321,7 +379,7 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putString(KEY_TMDB_FOLDER_ORDER, value.joinToString(",")).apply()
 
     var lastUpdateCheckAt: Long
-        get() = prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
+        get() = longPref(KEY_LAST_UPDATE_CHECK_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_AT, value).apply()
 
     var dismissedUpdateTag: String
@@ -329,7 +387,7 @@ class AppPreferences @Inject constructor(
         set(value) = prefs.edit().putString(KEY_DISMISSED_UPDATE_TAG, value).apply()
 
     var catalogSettingsLastChanged: Long
-        get() = prefs.getLong(KEY_CATALOG_SETTINGS_LAST_CHANGED, 0L)
+        get() = longPref(KEY_CATALOG_SETTINGS_LAST_CHANGED, 0L)
         set(value) = prefs.edit().putLong(KEY_CATALOG_SETTINGS_LAST_CHANGED, value).apply()
 
     // ──── Helpers ────
@@ -401,13 +459,21 @@ class AppPreferences @Inject constructor(
             while (keys.hasNext()) {
                 val key = keys.next()
                 val value = jsonObject.get(key)
-                when (value) {
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Float -> editor.putFloat(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is String -> editor.putString(key, value)
-                    is org.json.JSONArray -> {
+                // JSON carries no type width: org.json narrows any integral number that
+                // fits into an Int, and widens every fractional one to Double. Writing a
+                // value back under the wrong type makes the matching getter throw
+                // ClassCastException later, so the app's own type for a key wins.
+                when {
+                    key in LONG_KEYS && value is Number -> editor.putLong(key, value.toLong())
+                    key in FLOAT_KEYS && value is Number -> editor.putFloat(key, value.toFloat())
+                    value is Boolean -> editor.putBoolean(key, value)
+                    value is Int -> editor.putInt(key, value)
+                    value is Long -> editor.putLong(key, value)
+                    value is Float -> editor.putFloat(key, value)
+                    // Only Float preferences are ever fractional in this app.
+                    value is Double -> editor.putFloat(key, value.toFloat())
+                    value is String -> editor.putString(key, value)
+                    value is org.json.JSONArray -> {
                         val set = HashSet<String>()
                         for (i in 0 until value.length()) {
                             set.add(value.getString(i))
@@ -425,6 +491,22 @@ class AppPreferences @Inject constructor(
     }
 
     companion object {
+        /**
+         * Preferences read with `getLong` / `getFloat`. A restore must write them back
+         * under these types no matter how org.json parsed the number — see importFromJson.
+         * Legacy pre-split keys are listed too, since they are still read as fallbacks.
+         */
+        private val LONG_KEYS = setOf(
+            "exo_subtitle_color", "mpv_subtitle_color", "subtitle_color",
+            "exo_subtitle_outline_color", "mpv_subtitle_outline_color", "subtitle_outline_color",
+            "last_update_check_at", "catalog_settings_last_changed"
+        )
+
+        private val FLOAT_KEYS = setOf(
+            "gesture_sensitivity", "subtitle_scale",
+            "exo_subtitle_bg_opacity", "mpv_subtitle_bg_opacity", "subtitle_bg_opacity"
+        )
+
         // Drive
         private const val KEY_SELECTED_DRIVE = "selected_drive_id"
 
@@ -440,6 +522,8 @@ class AppPreferences @Inject constructor(
         private const val KEY_MPV_CONF = "mpv_conf_text"
         private const val KEY_MPV_INPUT_CONF = "mpv_input_conf_text"
         private const val KEY_VOLUME_BOOST = "volume_boost_enabled"
+        private const val KEY_THIRD_PARTY_POSTERS = "third_party_posters_enabled"
+        private const val KEY_BETTER_POSTER_TEMPLATE = "better_poster_url_template"
 
         const val MPV_PROFILE_DEFAULT = "fast"
         const val MPV_GPU_NEXT_DEFAULT = false

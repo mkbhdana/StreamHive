@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 import com.mkbhdana.streamhive.settings.MpvOptions
+import com.mkbhdana.streamhive.settings.PosterUrlStatus
 import com.mkbhdana.streamhive.settings.SettingsViewModel
 import com.mkbhdana.streamhive.settings.SourcePriorityOption
 import com.mkbhdana.streamhive.settings.SourcePriorityOptions
@@ -340,10 +341,81 @@ fun TvTmdbPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
             viewModel.initFolderBrowser()
             showBrowser = true
         }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Artwork", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Text(
+            "BetterPosters uses third-party art where an IMDb match exists, falling back to TMDB.",
+            style = MaterialTheme.typography.bodySmall, color = TextSecondary
+        )
+        TvToggleSetting("BetterPosters", s.thirdPartyPostersEnabled, viewModel::setThirdPartyPostersEnabled)
+        if (s.thirdPartyPostersEnabled) {
+            TvBetterPosterUrlSetting(
+                savedTemplate = s.betterPosterTemplate,
+                status = s.posterUrlStatus,
+                onEdit = viewModel::clearPosterUrlStatus,
+                onSave = viewModel::updateBetterPosterTemplate,
+                onReset = viewModel::resetBetterPosterTemplate
+            )
+        }
     }
 
     if (showBrowser) {
         TvFolderBrowserDialog(viewModel = viewModel, onDismiss = { showBrowser = false })
+    }
+}
+
+/**
+ * Poster URL entry for TV. Accepts a `{imdb_id}` template or a pasted poster URL — a
+ * literal IMDb id is rewritten to the placeholder on save.
+ */
+@Composable
+private fun TvBetterPosterUrlSetting(
+    savedTemplate: String,
+    status: PosterUrlStatus,
+    onEdit: () -> Unit,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit
+) {
+    var text by remember(savedTemplate) { mutableStateOf(savedTemplate) }
+    val isError = status == PosterUrlStatus.Invalid || status == PosterUrlStatus.Unreachable
+    // Comparing against the saved value (rather than tracking an edited flag) also covers
+    // typing a change and then undoing it — the chip goes back to disabled.
+    val hasChanges = text.isNotBlank() && text.trim() != savedTemplate
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TvTextFieldSetting("Poster URL", text) { value ->
+            text = value
+            onEdit()
+        }
+        Text(
+            when (status) {
+                PosterUrlStatus.Invalid ->
+                    "Must look like https://btttr.cc/poster-a/imdb/poster-default/{imdb_id}.jpg"
+                PosterUrlStatus.Unreachable ->
+                    "No poster loaded from that URL. Check the address is reachable."
+                PosterUrlStatus.Checking -> "Checking the URL…"
+                PosterUrlStatus.Saved -> "Saved — posters will use this URL."
+                PosterUrlStatus.Idle ->
+                    "Generate your own poster url without catalogs at https://btttr.cc/configure"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = when {
+                isError -> MaterialTheme.colorScheme.error
+                status == PosterUrlStatus.Saved -> MaterialTheme.colorScheme.primary
+                else -> TextSecondary
+            }
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvChip(
+                text = if (status == PosterUrlStatus.Checking) "Checking…" else "Update",
+                selected = true,
+                enabled = hasChanges && status != PosterUrlStatus.Checking,
+                onClick = { onSave(text) }
+            )
+            TvChip(text = "Reset", selected = false, onClick = onReset)
+        }
     }
 }
 
