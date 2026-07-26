@@ -109,7 +109,8 @@ fun MediaInfoScreen(
                     // Poster
                     if (meta.posterPath != null) {
                         AsyncImage(
-                            model = meta.posterPath,
+                            model = com.mkbhdana.streamhive.ui.image.PosterSource
+                                .posterModel(meta, file = null, size = "w500"),
                             contentDescription = null,
                             modifier = Modifier
                                 .width(100.dp)

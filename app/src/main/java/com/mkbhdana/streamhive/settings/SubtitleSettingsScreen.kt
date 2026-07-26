@@ -80,6 +80,17 @@ fun SubtitleSettingsScreen(
 
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
+                    SettingsSwitchItem(
+                        "Volume Boost",
+                        "Let the volume gesture go above 100%, up to 200%. Loud levels may distort audio or damage hearing.",
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        state.volumeBoostEnabled,
+                        viewModel::setVolumeBoostEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
                     var subLangExpanded by remember { mutableStateOf(false) }
                     SettingsDropdownItem(
                         title = "Preferred Subtitle Language",

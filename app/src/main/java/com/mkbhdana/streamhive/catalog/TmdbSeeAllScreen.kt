@@ -141,7 +141,8 @@ private fun SeeAllPosterCard(
             ) {
                 if (metadata?.posterPath != null) {
                     AsyncImage(
-                        model = metadata.posterPath,
+                        model = com.mkbhdana.streamhive.ui.image.PosterSource
+                            .posterModel(metadata, file, size = "w500"),
                         contentDescription = metadata.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

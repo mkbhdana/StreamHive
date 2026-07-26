@@ -100,6 +100,104 @@ fun TmdbSettingsScreen(
                     )
                 }
             }
+
+            item { SettingsSectionHeader(Icons.Default.Image, "Artwork") }
+
+            item {
+                SettingsCard {
+                    SettingsSwitchItem(
+                        "BetterPosters",
+                        "Use third-party poster art instead of TMDB where an IMDb match exists. Falls back to TMDB automatically.",
+                        Icons.Default.Image,
+                        state.thirdPartyPostersEnabled,
+                        viewModel::setThirdPartyPostersEnabled,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+                    if (state.thirdPartyPostersEnabled) {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        BetterPosterUrlField(
+                            savedTemplate = state.betterPosterTemplate,
+                            status = state.posterUrlStatus,
+                            onEdit = viewModel::clearPosterUrlStatus,
+                            onSave = viewModel::updateBetterPosterTemplate,
+                            onReset = viewModel::resetBetterPosterTemplate
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Editable poster URL. Accepts either a template containing `{imdb_id}` or a real poster
+ * URL pasted from a browser — a literal IMDb id in it is rewritten to the placeholder on
+ * save. Path segments and query parameters are preserved as typed.
+ *
+ * Saving fetches the URL first: the host serves any path segment, so only a real request
+ * can tell a working address from a mistyped one.
+ */
+@Composable
+private fun BetterPosterUrlField(
+    savedTemplate: String,
+    status: PosterUrlStatus,
+    onEdit: () -> Unit,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit
+) {
+    var text by remember(savedTemplate) { mutableStateOf(savedTemplate) }
+    val isChecking = status == PosterUrlStatus.Checking
+    val isError = status == PosterUrlStatus.Invalid || status == PosterUrlStatus.Unreachable
+    // Comparing against the saved value (rather than tracking an edited flag) also covers
+    // typing a change and then undoing it — the button goes back to disabled.
+    val hasChanges = text.isNotBlank() && text.trim() != savedTemplate
+
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it; onEdit() },
+            label = { Text("Poster URL") },
+            supportingText = {
+                Text(
+                    when (status) {
+                        PosterUrlStatus.Invalid ->
+                            "Must look like https://btttr.cc/poster-a/imdb/poster-default/{imdb_id}.jpg"
+                        PosterUrlStatus.Unreachable ->
+                            "No poster loaded from that URL. Check the address is reachable."
+                        PosterUrlStatus.Checking -> "Checking the URL…"
+                        PosterUrlStatus.Saved -> "Saved — posters will use this URL."
+                        PosterUrlStatus.Idle ->
+                            "Generate your own poster url without catalogs at https://btttr.cc/configure"
+                    },
+                    color = when {
+                        isError -> MaterialTheme.colorScheme.error
+                        status == PosterUrlStatus.Saved -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            },
+            isError = isError,
+            enabled = !isChecking,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                focusedLabelColor = MaterialTheme.colorScheme.primary
+            )
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = { onSave(text) },
+                enabled = !isChecking && hasChanges
+            ) { Text("Update") }
+            TextButton(onClick = onReset, enabled = !isChecking) { Text("Reset") }
+            if (isChecking) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            }
         }
     }
 }

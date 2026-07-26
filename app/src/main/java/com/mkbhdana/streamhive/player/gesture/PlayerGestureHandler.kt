@@ -35,6 +35,9 @@ data class GestureState(
     val showSpeedIndicator: Boolean = false,
     val showLockIndicator: Boolean = false,
     val volumePercent: Float = 0f,
+    // Top of the volume scale: 1f = 100% (no boost), 2f = 200% (boost enabled).
+    // The indicator fills relative to this, so the bar never pins full early.
+    val volumeMaxPercent: Float = 1f,
     val brightnessPercent: Float = 0f,
     val seekDeltaSeconds: Int = 0,
     val seekToPosition: Long = 0L,
@@ -54,6 +57,10 @@ fun PlayerGestureHandler(
     onSeekBackward: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onVolumeChange: (Float) -> Unit,
+    // Current app-level boost (0..1 = 100%..200%) and its change callback. When the
+    // callback is non-null, the volume swipe continues past 100% into boost (like VLC).
+    volumeBoost: Float = 0f,
+    onVolumeBoostChange: ((Float) -> Unit)? = null,
     onBrightnessChange: (Float) -> Unit,
     onSpeedHoldStart: () -> Unit = {},
     onSpeedHoldEnd: () -> Unit = {},
@@ -102,6 +109,7 @@ fun PlayerGestureHandler(
     val updatedPosition by rememberUpdatedState(currentPosition)
     val updatedOnSpeedHoldStart by rememberUpdatedState(onSpeedHoldStart)
     val updatedOnSpeedHoldEnd by rememberUpdatedState(onSpeedHoldEnd)
+    val updatedVolumeBoost by rememberUpdatedState(volumeBoost)
 
     // Auto-hide gesture indicators
     var hideJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -242,7 +250,13 @@ fun PlayerGestureHandler(
                         }
 
                         val initialVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                        var lastVolumeFeedbackStep = initialVolume
+                        // With boost enabled the swipe range is 0..2×maxVolume "units":
+                        // the first half drives the system stream, the second half app boost.
+                        val boostEnabled = onVolumeBoostChange != null
+                        val maxVolumeUnits = if (boostEnabled) maxVolume * 2 else maxVolume
+                        val initialVolumeUnits =
+                            initialVolume + if (boostEnabled) (updatedVolumeBoost * maxVolume).toInt() else 0
+                        var lastVolumeFeedbackStep = initialVolumeUnits
                         val window = (context as? android.app.Activity)?.window
                         val initialBrightness = run {
                             val lp = window?.attributes
@@ -519,16 +533,21 @@ fun PlayerGestureHandler(
                                             if (volumeEnabled) {
                                                 val vDelta = -totalDragY / (screenHeightPx * 0.5f)
                                                 val eased = vDelta.sign() * abs(vDelta).pow(0.8f)
-                                                val newVol = (initialVolume + (eased * maxVolume).toInt())
-                                                    .coerceIn(0, maxVolume)
-                                                val pct = if (maxVolume > 0) newVol.toFloat() / maxVolume else 0f
-                                                if (hapticFeedbackEnabled && newVol != lastVolumeFeedbackStep) {
+                                                val newUnits = (initialVolumeUnits + (eased * maxVolume).toInt())
+                                                    .coerceIn(0, maxVolumeUnits)
+                                                val newVol = minOf(newUnits, maxVolume)
+                                                val boost = if (boostEnabled && maxVolume > 0) {
+                                                    (newUnits - maxVolume).coerceAtLeast(0).toFloat() / maxVolume
+                                                } else 0f
+                                                val pct = if (maxVolume > 0) newUnits.toFloat() / maxVolume else 0f
+                                                if (hapticFeedbackEnabled && newUnits != lastVolumeFeedbackStep) {
                                                     hapticView.performGestureTickHaptic()
-                                                    lastVolumeFeedbackStep = newVol
+                                                    lastVolumeFeedbackStep = newUnits
                                                 } else if (!hapticFeedbackEnabled) {
-                                                    lastVolumeFeedbackStep = newVol
+                                                    lastVolumeFeedbackStep = newUnits
                                                 }
                                                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                                onVolumeBoostChange?.invoke(boost)
                                                 onVolumeChange(pct)
                                                 gestureState.value = gestureState.value.copy(
                                                     showVolumeIndicator = true,
@@ -537,7 +556,8 @@ fun PlayerGestureHandler(
                                                     showZoomIndicator = false,
                                                     showSpeedIndicator = false,
                                                     showLockIndicator = false,
-                                                    volumePercent = pct
+                                                    volumePercent = pct,
+                                                    volumeMaxPercent = if (boostEnabled) 2f else 1f
                                                 )
                                             }
                                         }

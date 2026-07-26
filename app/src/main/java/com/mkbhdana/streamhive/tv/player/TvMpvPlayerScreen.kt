@@ -41,7 +41,6 @@ import com.mkbhdana.streamhive.player.ExternalPlayerLauncher
 import com.mkbhdana.streamhive.player.PlayerSwitchingOverlay
 import com.mkbhdana.streamhive.player.mpv.MpvPlayerViewModel
 import com.mkbhdana.streamhive.player.proxy.StreamProxyService
-import com.mkbhdana.streamhive.player.ui.NextEpisodeOverlay
 import kotlinx.coroutines.delay
 
 private val RESIZE_MODES_MPV = listOf("fit" to "Fit", "fill" to "Fill", "zoom" to "Zoom")
@@ -220,15 +219,6 @@ fun TvMpvPlayerScreen(
             visible = showSeekBarOnly && !uiState.showControls && panel == null,
             position = quickSeekTarget ?: uiState.currentPosition,
             duration = uiState.duration
-        )
-
-        NextEpisodeOverlay(
-            nextEpisode = uiState.nextEpisode,
-            currentPosition = uiState.currentPosition,
-            duration = uiState.duration,
-            onPlayNext = { uiState.nextEpisode?.let { viewModel.playEpisode(it.id, it.name) } },
-            autoFocus = true,
-            returnFocus = rootFocus
         )
 
         if (switching) {

@@ -189,6 +189,7 @@ class MediaInfoViewModel @AssistedInject constructor(
                             sourcePrioritySummary = display.sourcePrioritySummary
                         )
                     }
+                    backfillImdbId(metadata)
                 }
             } catch (e: Exception) {
                 if (loadRevision == metadataRevision) {
@@ -358,6 +359,21 @@ class MediaInfoViewModel @AssistedInject constructor(
         }
 
         return seasons
+    }
+
+    /**
+     * Resolve this title's IMDb id in the background so a third-party poster can be built
+     * for it. No-op unless the user opted into third-party posters.
+     */
+    private fun backfillImdbId(metadata: TmdbMetadataEntity?) {
+        val entity = metadata ?: return
+        if (!appPreferences.thirdPartyPostersEnabled || !entity.imdbId.isNullOrBlank()) return
+        viewModelScope.launch {
+            val updated = tmdbRepository.resolveMissingImdbIds(listOf(entity)).firstOrNull()
+            if (updated != null && _uiState.value.metadata?.driveFileId == updated.driveFileId) {
+                _uiState.update { it.copy(metadata = updated) }
+            }
+        }
     }
 
     fun toggleSeasonExpanded(seasonNumber: Int) {

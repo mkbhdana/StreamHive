@@ -16,6 +16,8 @@ data class TmdbMetadataEntity(
     val year: String? = null,
     val originalLanguage: String? = null,
     val mediaType: String = "movie", // "movie" or "tv"
+    // IMDb id ("tt…"), resolved lazily from TMDB. Used to build third-party poster URLs.
+    val imdbId: String? = null,
     val cachedAt: Long = System.currentTimeMillis()
 ) {
     val hasUsableTitle: Boolean

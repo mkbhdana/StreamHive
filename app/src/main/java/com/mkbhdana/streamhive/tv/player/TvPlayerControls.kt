@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush as GfxBrush
@@ -98,6 +99,9 @@ fun TvPlayerControls(
     onInteraction: () -> Unit
 ) {
     var scrubPos by remember { mutableStateOf<Long?>(null) }
+    // DOWN from the seekbar always lands on play/pause, not whichever control
+    // happens to be geometrically closest.
+    val playPauseFocus = remember { FocusRequester() }
 
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
         Box(
@@ -135,6 +139,7 @@ fun TvPlayerControls(
                         duration = duration,
                         baseStepMs = baseStepMs,
                         focusRequester = seekFocusRequester,
+                        downFocus = playPauseFocus,
                         onSeekTo = onSeekTo,
                         onPlayPause = onPlayPause,
                         onScrubbingChange = { scrubPos = it },
@@ -153,7 +158,12 @@ fun TvPlayerControls(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TvBigPlayButton(isPlaying = isPlaying, onInteraction = onInteraction, onClick = { onPlayPause(); onInteraction() })
+                    TvBigPlayButton(
+                        isPlaying = isPlaying,
+                        focusRequester = playPauseFocus,
+                        onInteraction = onInteraction,
+                        onClick = { onPlayPause(); onInteraction() }
+                    )
                     if (hasNext) {
                         Spacer(Modifier.width(12.dp))
                         TvIconButton(Icons.Default.SkipNext, "Next episode", onInteraction) { onNext(); onInteraction() }
@@ -192,6 +202,7 @@ private fun TvThinSeekBar(
     duration: Long,
     baseStepMs: Long,
     focusRequester: FocusRequester,
+    downFocus: FocusRequester,
     onSeekTo: (Long) -> Unit,
     onPlayPause: () -> Unit,
     onScrubbingChange: (Long?) -> Unit,
@@ -212,6 +223,7 @@ private fun TvThinSeekBar(
         modifier = modifier
             .height(if (focused) 10.dp else 6.dp)
             .focusRequester(focusRequester)
+            .focusProperties { down = downFocus }
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .onKeyEvent { event ->
@@ -255,13 +267,19 @@ private fun TvThinSeekBar(
 }
 
 @Composable
-private fun TvBigPlayButton(isPlaying: Boolean, onInteraction: () -> Unit = {}, onClick: () -> Unit) {
+private fun TvBigPlayButton(
+    isPlaying: Boolean,
+    focusRequester: FocusRequester,
+    onInteraction: () -> Unit = {},
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .size(56.dp)
             .clip(CircleShape)
             .background(if (focused) Color.White else Color.White.copy(alpha = 0.16f))
+            .focusRequester(focusRequester)
             .onFocusChanged { focused = it.isFocused; if (it.isFocused) onInteraction() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

@@ -44,6 +44,7 @@ fun GestureIndicatorOverlay(
                 else Icons.AutoMirrored.Filled.VolumeOff,
                 label = "Volume",
                 percent = gestureState.volumePercent,
+                maxPercent = gestureState.volumeMaxPercent,
                 color = MaterialTheme.colorScheme.tertiary
             )
         }
@@ -242,14 +243,21 @@ private fun VerticalIndicator(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     percent: Float,
-    color: Color
+    color: Color,
+    // Top of the scale the bar is drawn against: 1f for a plain 0–100% control,
+    // 2f when app volume boost is enabled so 100% sits at the halfway mark.
+    maxPercent: Float = 1f
 ) {
-    // Animate the progress bar smoothly
+    val scale = maxPercent.coerceAtLeast(1f)
     val animatedPercent by animateFloatAsState(
-        targetValue = percent.coerceIn(0f, 1f),
+        targetValue = percent.coerceIn(0f, scale),
         animationSpec = tween(100),
         label = "progress"
     )
+    // Above 100% is app-level boost — recolor to make the amplified range obvious.
+    val boosted = animatedPercent > 1f
+    val barColor = if (boosted) Color(0xFFFF9800) else color
+    val fillFraction = (animatedPercent / scale).coerceIn(0f, 1f)
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -264,7 +272,7 @@ private fun VerticalIndicator(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = color,
+                tint = barColor,
                 modifier = Modifier.size(28.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -280,11 +288,28 @@ private fun VerticalIndicator(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .fillMaxHeight(animatedPercent)
+                        .fillMaxHeight(fillFraction)
                         .align(Alignment.BottomCenter)
                         .clip(RoundedCornerShape(5.dp))
-                        .background(color)
+                        .background(barColor)
                 )
+                // Mark where normal (100%) volume sits once the scale runs to 200%.
+                if (scale > 1f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(1f / scale)
+                            .align(Alignment.BottomCenter)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp)
+                                .align(Alignment.TopCenter)
+                                .background(Color.White.copy(alpha = 0.55f))
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

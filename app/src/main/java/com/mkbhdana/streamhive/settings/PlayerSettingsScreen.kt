@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -21,6 +23,25 @@ fun PlayerSettingsScreen(
     viewModel: SettingsViewModel
 ) {
     val state = viewModel.uiState
+    var editingConfig by remember { mutableStateOf<EditingConfig?>(null) }
+
+    editingConfig?.let { target ->
+        MpvConfigEditorDialog(
+            fileName = target.fileName,
+            initialText = when (target) {
+                EditingConfig.MpvConf -> state.mpvConfText
+                EditingConfig.InputConf -> state.mpvInputConfText
+            },
+            onSave = { text ->
+                when (target) {
+                    EditingConfig.MpvConf -> viewModel.setMpvConfText(text)
+                    EditingConfig.InputConf -> viewModel.setMpvInputConfText(text)
+                }
+                editingConfig = null
+            },
+            onDismiss = { editingConfig = null }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -156,6 +177,109 @@ fun PlayerSettingsScreen(
 
 
             item {
+                SettingsSectionHeader(Icons.Default.Videocam, "MPV Engine")
+            }
+
+            item {
+                SettingsCard {
+                    var profileExpanded by remember { mutableStateOf(false) }
+                    SettingsDropdownItem(
+                        title = "MPV Profile",
+                        subtitle = MpvOptions.profileLabel(state.mpvProfile),
+                        expanded = profileExpanded,
+                        onToggle = { profileExpanded = !profileExpanded },
+                        icon = Icons.Default.Tune
+                    ) {
+                        MpvOptions.profiles.forEach { (k, v) ->
+                            DropdownMenuItem(
+                                text = { Text(v) },
+                                onClick = { viewModel.setMpvProfile(k); profileExpanded = false },
+                                trailingIcon = if (state.mpvProfile == k) { { Icon(Icons.Default.Check, null) } } else null
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsSwitchItem(
+                        "Use gpu-next",
+                        "A new rendering backend (applies on next playback)",
+                        Icons.Default.AutoAwesome,
+                        state.mpvGpuNext,
+                        viewModel::setMpvGpuNext,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsSwitchItem(
+                        "Use Vulkan (Experimental)",
+                        "Enable Vulkan rendering on supported devices (may improve performance)",
+                        Icons.Default.Bolt,
+                        state.mpvUseVulkan,
+                        viewModel::setMpvUseVulkan,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    var debandExpanded by remember { mutableStateOf(false) }
+                    SettingsDropdownItem(
+                        title = "Debanding",
+                        subtitle = MpvOptions.debandingLabel(state.mpvDebanding),
+                        expanded = debandExpanded,
+                        onToggle = { debandExpanded = !debandExpanded },
+                        icon = Icons.Default.Gradient
+                    ) {
+                        MpvOptions.debanding.forEach { (k, v) ->
+                            DropdownMenuItem(
+                                text = { Text(v) },
+                                onClick = { viewModel.setMpvDebanding(k); debandExpanded = false },
+                                trailingIcon = if (state.mpvDebanding == k) { { Icon(Icons.Default.Check, null) } } else null
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsSwitchItem(
+                        "Use YUV420P pixel format",
+                        "May fix black screens on some video codecs, can also improve performance at the cost of quality",
+                        Icons.Default.FilterBAndW,
+                        state.mpvUseYuv420p,
+                        viewModel::setMpvUseYuv420p,
+                        hapticsEnabled = state.hapticFeedbackEnabled
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsActionItem(
+                        title = "Reset to defaults",
+                        subtitle = "Restore the MPV engine settings above (mpv.conf is kept)",
+                        icon = Icons.Default.RestartAlt,
+                        onClick = { viewModel.resetMpvEngineSettings() }
+                    )
+                }
+            }
+
+            item {
+                SettingsSectionHeader(Icons.Default.Code, "MPV Configuration")
+            }
+
+            item {
+                SettingsCard {
+                    SettingsActionItem(
+                        title = "Edit mpv.conf",
+                        subtitle = if (state.mpvConfText.isBlank()) "Tap to edit configuration" else "Custom configuration active",
+                        icon = Icons.Default.Description,
+                        onClick = { editingConfig = EditingConfig.MpvConf }
+                    )
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsActionItem(
+                        title = "Edit input.conf",
+                        subtitle = if (state.mpvInputConfText.isBlank()) "Tap to edit configuration" else "Custom configuration active",
+                        icon = Icons.Default.Keyboard,
+                        onClick = { editingConfig = EditingConfig.InputConf }
+                    )
+                }
+            }
+
+            item {
                 SettingsSectionHeader(Icons.Default.Tune, "Source Priority")
             }
 
@@ -199,6 +323,76 @@ fun PlayerSettingsScreen(
                         onSelectedChange = viewModel::setSourcePriorityContainers
                     )
                 }
+            }
+        }
+    }
+}
+
+/** The two mpv config files the user can edit in-app. */
+private enum class EditingConfig(val fileName: String) {
+    MpvConf("mpv.conf"),
+    InputConf("input.conf")
+}
+
+/**
+ * Full-screen monospace editor for mpv.conf / input.conf. The text is stored in
+ * preferences and written into mpv's config-dir right before the engine starts,
+ * so edits take effect on the next playback.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MpvConfigEditorDialog(
+    fileName: String,
+    initialText: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember(fileName) { mutableStateOf(initialText) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(fileName) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, "Discard changes")
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = { onSave(text) }) { Text("Save") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    "One option per line, e.g. \"scale=ewa_lanczos\". Options set here override the app's own settings. Leave empty to remove the file.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxSize(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    ),
+                    placeholder = { Text("# $fileName") }
+                )
             }
         }
     }

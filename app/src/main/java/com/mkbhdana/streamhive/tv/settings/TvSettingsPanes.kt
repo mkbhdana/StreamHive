@@ -14,6 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,11 +26,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.mkbhdana.streamhive.player.mpv.PlayerEngine
+import com.mkbhdana.streamhive.settings.MpvOptions
+import com.mkbhdana.streamhive.settings.PosterUrlStatus
 import com.mkbhdana.streamhive.settings.SettingsViewModel
 import com.mkbhdana.streamhive.settings.SourcePriorityOption
 import com.mkbhdana.streamhive.settings.SourcePriorityOptions
@@ -63,6 +75,8 @@ private val SUB_ALIGN = listOf("left" to "Left", "center" to "Center", "right" t
 @Composable
 fun TvPlayerPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     val s = viewModel.uiState
+    var editingConfig by remember { mutableStateOf<TvEditingConfig?>(null) }
+
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         TvChoiceSetting(
             "Preferred Player",
@@ -76,6 +90,33 @@ fun TvPlayerPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
         TvToggleSetting("Map Dolby Vision 7 → HEVC", s.mapDv7ToHevc, viewModel::setMapDv7ToHevc)
 
         Spacer(Modifier.height(12.dp))
+        Text("MPV Engine", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Text(
+            "Applied the next time MPV starts playing.",
+            style = MaterialTheme.typography.bodySmall, color = TextSecondary
+        )
+        TvChoiceSetting("MPV Profile", MpvOptions.profiles, s.mpvProfile, viewModel::setMpvProfile)
+        TvToggleSetting("Use gpu-next", s.mpvGpuNext, viewModel::setMpvGpuNext)
+        TvToggleSetting("Use Vulkan (Experimental)", s.mpvUseVulkan, viewModel::setMpvUseVulkan)
+        TvChoiceSetting("Debanding", MpvOptions.debanding, s.mpvDebanding, viewModel::setMpvDebanding)
+        TvToggleSetting("Use YUV420P pixel format", s.mpvUseYuv420p, viewModel::setMpvUseYuv420p)
+        TvActionSetting(
+            "Reset MPV settings to defaults",
+            "Restores the MPV engine settings above (mpv.conf is kept)"
+        ) { viewModel.resetMpvEngineSettings() }
+
+        Spacer(Modifier.height(12.dp))
+        Text("MPV Configuration", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+        TvActionSetting(
+            "Edit mpv.conf",
+            if (s.mpvConfText.isBlank()) "No custom configuration" else "Custom configuration active"
+        ) { editingConfig = TvEditingConfig.MpvConf }
+        TvActionSetting(
+            "Edit input.conf",
+            if (s.mpvInputConfText.isBlank()) "No custom configuration" else "Custom configuration active"
+        ) { editingConfig = TvEditingConfig.InputConf }
+
+        Spacer(Modifier.height(12.dp))
         Text("Source Priority", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
         Text(
             "When a title has multiple files, prefer these in order.",
@@ -85,6 +126,95 @@ fun TvPlayerPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
         SourcePriorityCategory("Video Format", SourcePriorityOptions.videoFormats, s.sourcePriorityVideoFormats, viewModel::setSourcePriorityVideoFormats)
         SourcePriorityCategory("Codec", SourcePriorityOptions.decoders, s.sourcePriorityDecoders, viewModel::setSourcePriorityDecoders)
         SourcePriorityCategory("Container", SourcePriorityOptions.containers, s.sourcePriorityContainers, viewModel::setSourcePriorityContainers)
+    }
+
+    editingConfig?.let { target ->
+        TvMpvConfigEditorDialog(
+            fileName = target.fileName,
+            initialText = when (target) {
+                TvEditingConfig.MpvConf -> s.mpvConfText
+                TvEditingConfig.InputConf -> s.mpvInputConfText
+            },
+            onSave = { text ->
+                when (target) {
+                    TvEditingConfig.MpvConf -> viewModel.setMpvConfText(text)
+                    TvEditingConfig.InputConf -> viewModel.setMpvInputConfText(text)
+                }
+                editingConfig = null
+            },
+            onDismiss = { editingConfig = null }
+        )
+    }
+}
+
+/** The two mpv config files editable from the TV settings pane. */
+private enum class TvEditingConfig(val fileName: String) {
+    MpvConf("mpv.conf"),
+    InputConf("input.conf")
+}
+
+/**
+ * Multi-line editor for mpv.conf / input.conf. Typing on a remote is painful, so
+ * this is mainly for pasting with a connected keyboard — but it keeps the TV build
+ * at parity with the phone settings.
+ */
+@Composable
+private fun TvMpvConfigEditorDialog(
+    fileName: String,
+    initialText: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember(fileName) { mutableStateOf(initialText) }
+    val focusManager = LocalFocusManager.current
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = DarkSurface) {
+            Column(modifier = Modifier.width(620.dp).padding(20.dp)) {
+                Text(
+                    fileName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    "One option per line. These override the app's own MPV settings. Clear the text to remove the file.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        // Let UP/DOWN leave the field instead of trapping the D-pad.
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionDown -> { focusManager.moveFocus(FocusDirection.Down); true }
+                                    Key.DirectionUp -> { focusManager.moveFocus(FocusDirection.Up); true }
+                                    else -> false
+                                }
+                            } else false
+                        },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    )
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvChip(text = "Save", selected = true, onClick = { onSave(text) })
+                    TvChip(text = "Cancel", selected = false, onClick = onDismiss)
+                }
+            }
+        }
     }
 }
 
@@ -120,6 +250,7 @@ fun TvSubtitlesPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier)
     val s = viewModel.uiState
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         TvChoiceSetting("Preferred Audio Language", AUDIO_LANGS, s.preferredAudioLanguage, viewModel::setPreferredAudioLanguage)
+        TvToggleSetting("Volume Boost (up to 200%)", s.volumeBoostEnabled, viewModel::setVolumeBoostEnabled)
         TvChoiceSetting("Preferred Subtitle Language", SUB_LANGS, s.preferredSubtitleLanguage, viewModel::setPreferredSubtitleLanguage)
         TvMultiChoiceSetting("Excluded Languages", EXCLUDE_LANGS, s.subtitleExcludeLanguages) { code ->
             val current = s.subtitleExcludeLanguages
@@ -210,10 +341,81 @@ fun TvTmdbPane(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
             viewModel.initFolderBrowser()
             showBrowser = true
         }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Artwork", style = MaterialTheme.typography.titleMedium, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Text(
+            "BetterPosters uses third-party art where an IMDb match exists, falling back to TMDB.",
+            style = MaterialTheme.typography.bodySmall, color = TextSecondary
+        )
+        TvToggleSetting("BetterPosters", s.thirdPartyPostersEnabled, viewModel::setThirdPartyPostersEnabled)
+        if (s.thirdPartyPostersEnabled) {
+            TvBetterPosterUrlSetting(
+                savedTemplate = s.betterPosterTemplate,
+                status = s.posterUrlStatus,
+                onEdit = viewModel::clearPosterUrlStatus,
+                onSave = viewModel::updateBetterPosterTemplate,
+                onReset = viewModel::resetBetterPosterTemplate
+            )
+        }
     }
 
     if (showBrowser) {
         TvFolderBrowserDialog(viewModel = viewModel, onDismiss = { showBrowser = false })
+    }
+}
+
+/**
+ * Poster URL entry for TV. Accepts a `{imdb_id}` template or a pasted poster URL — a
+ * literal IMDb id is rewritten to the placeholder on save.
+ */
+@Composable
+private fun TvBetterPosterUrlSetting(
+    savedTemplate: String,
+    status: PosterUrlStatus,
+    onEdit: () -> Unit,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit
+) {
+    var text by remember(savedTemplate) { mutableStateOf(savedTemplate) }
+    val isError = status == PosterUrlStatus.Invalid || status == PosterUrlStatus.Unreachable
+    // Comparing against the saved value (rather than tracking an edited flag) also covers
+    // typing a change and then undoing it — the chip goes back to disabled.
+    val hasChanges = text.isNotBlank() && text.trim() != savedTemplate
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TvTextFieldSetting("Poster URL", text) { value ->
+            text = value
+            onEdit()
+        }
+        Text(
+            when (status) {
+                PosterUrlStatus.Invalid ->
+                    "Must look like https://btttr.cc/poster-a/imdb/poster-default/{imdb_id}.jpg"
+                PosterUrlStatus.Unreachable ->
+                    "No poster loaded from that URL. Check the address is reachable."
+                PosterUrlStatus.Checking -> "Checking the URL…"
+                PosterUrlStatus.Saved -> "Saved — posters will use this URL."
+                PosterUrlStatus.Idle ->
+                    "Generate your own poster url without catalogs at https://btttr.cc/configure"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = when {
+                isError -> MaterialTheme.colorScheme.error
+                status == PosterUrlStatus.Saved -> MaterialTheme.colorScheme.primary
+                else -> TextSecondary
+            }
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvChip(
+                text = if (status == PosterUrlStatus.Checking) "Checking…" else "Update",
+                selected = true,
+                enabled = hasChanges && status != PosterUrlStatus.Checking,
+                onClick = { onSave(text) }
+            )
+            TvChip(text = "Reset", selected = false, onClick = onReset)
+        }
     }
 }
 

@@ -85,7 +85,8 @@ class MpvPlayerViewModel @AssistedInject constructor(
             subtitleItalic = appPreferences.subtitleItalic,
             subtitleAlignment = appPreferences.subtitleAlignment,
             tapSeekDuration = appPreferences.tapSeekDuration,
-            decoderMode = initialDecoderMode
+            decoderMode = initialDecoderMode,
+            volumeBoostEnabled = appPreferences.volumeBoostEnabled
         )
     )
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -103,6 +104,14 @@ class MpvPlayerViewModel @AssistedInject constructor(
     // Error retry mechanism
     private var retryCount = 0
     private val MAX_RETRIES = 3
+    // Retries are only forgiven once playback has advanced well past the point of
+    // the last error; forgiving immediately lets a recurring error reload forever.
+    private var retryForgiveAtMs = -1L
+    private val RETRY_RESET_AFTER_MS = 30_000L
+    // Errors this close to the end are treated as end-of-playback right away.
+    private val END_ON_ERROR_FRACTION = 0.97f
+    // After retries are exhausted, advance to the next episode from this point on.
+    private val NEAR_END_FRACTION = 0.90f
     // Guards against handling end-of-file more than once per loaded file.
     private var playbackEndHandled = false
     private var preferredTracksApplied = false
@@ -221,6 +230,8 @@ class MpvPlayerViewModel @AssistedInject constructor(
         
         hasResumed = false
         pendingSeekMs = 0L
+        retryCount = 0
+        retryForgiveAtMs = -1L
         pendingExternalSubtitleTrackRefresh = false
         preferredTracksApplied = false
         preferredSubtitleTracksApplied = false
@@ -242,6 +253,14 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 )
             }
         }
+    }
+
+    /** How far through the current file playback is (0..1), best-effort during errors. */
+    private fun currentProgressFraction(): Float {
+        val duration = _uiState.value.duration
+        if (duration <= 0) return 0f
+        val position = maxOf(_uiState.value.currentPosition, pendingSeekMs)
+        return (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     }
 
     /**
@@ -307,8 +326,12 @@ class MpvPlayerViewModel @AssistedInject constructor(
                                 isLoading = if (positionMs > 0 || it.duration > 0) false else it.isLoading
                             )
                         }
-                        // Reset retries once we have a valid playback position
-                        if (positionMs > 0) retryCount = 0
+                        // Forgive retries only after playback has stayed stable well past
+                        // the last error position
+                        if (retryCount > 0 && retryForgiveAtMs >= 0 && positionMs >= retryForgiveAtMs) {
+                            retryCount = 0
+                            retryForgiveAtMs = -1L
+                        }
                         // Resume to saved position once we get a valid position (file loaded)
                         if (!hasResumed && pendingSeekMs > 0 && positionMs >= 0) {
                             mpvPlayer.seekTo(pendingSeekMs)
@@ -318,10 +341,20 @@ class MpvPlayerViewModel @AssistedInject constructor(
                     }
 
                     override fun onError(message: String) {
+                        // An error in the final stretch is treated as "finished" instead of
+                        // reloading: advance to the next episode / close the player.
+                        if (currentProgressFraction() >= END_ON_ERROR_FRACTION) {
+                            if (playbackEndHandled) return
+                            playbackEndHandled = true
+                            android.util.Log.w("MpvVM", "MPV error near end of video — treating as finished: $message")
+                            onPlaybackEnded()
+                            return
+                        }
                         if (isRecoverablePlaybackError(message) && retryCount < MAX_RETRIES) {
                             retryCount++
                             val pos = _uiState.value.currentPosition
                             if (pos > 0) pendingSeekMs = pos
+                            retryForgiveAtMs = pos + RETRY_RESET_AFTER_MS
                             hasResumed = false
                             android.util.Log.w("MpvVM", "MPV Error. Retrying ($retryCount/$MAX_RETRIES): $message")
                             _uiState.update {
@@ -335,15 +368,36 @@ class MpvPlayerViewModel @AssistedInject constructor(
                             val streamUrl = streamProxyServer.getStreamUrl(currentFileId)
                             mpvPlayer.loadFile(streamUrl)
                             mpvPlayer.play()
+                        } else if (_uiState.value.nextEpisode != null &&
+                            currentProgressFraction() >= NEAR_END_FRACTION &&
+                            !playbackEndHandled
+                        ) {
+                            // Retries exhausted with the episode almost over — move on to the
+                            // next episode rather than looping reloads / showing an error.
+                            playbackEndHandled = true
+                            android.util.Log.w("MpvVM", "Retries exhausted near end of episode — advancing: $message")
+                            onPlaybackEnded()
                         } else {
                             val retrySuffix = if (retryCount >= MAX_RETRIES) {
                                 " (Failed after $MAX_RETRIES retries)"
                             } else {
                                 ""
                             }
+                            // A fatal error before playback ever started, with Vulkan on,
+                            // usually means this device has no working androidvk context.
+                            // Turn the preference back off so MPV isn't permanently broken;
+                            // this session still falls back to the other engine as usual.
+                            val neverStarted = _uiState.value.duration <= 0L && _uiState.value.currentPosition <= 0L
+                            val vulkanHint = if (appPreferences.mpvUseVulkan && neverStarted) {
+                                appPreferences.mpvUseVulkan = false
+                                android.util.Log.w("MpvVM", "MPV failed to start with Vulkan — disabling the Vulkan preference")
+                                "\nVulkan rendering failed on this device and has been turned off."
+                            } else {
+                                ""
+                            }
                             _uiState.update {
                                 it.copy(
-                                    error = "MPV Error: $message$retrySuffix",
+                                    error = "MPV Error: $message$retrySuffix$vulkanHint",
                                     isLoading = false,
                                     isPlaying = false,
                                     showControls = false
@@ -379,7 +433,16 @@ class MpvPlayerViewModel @AssistedInject constructor(
                 mpvPlayer.initialize(
                     useLibassSubtitles = appPreferences.libassSubtitlesEnabled,
                     overrideAssStyles = appPreferences.mpvOverrideAssSubtitleStyles,
-                    decoderMode = sessionDecoderMode
+                    decoderMode = sessionDecoderMode,
+                    engineOptions = MpvEngineOptions(
+                        profile = appPreferences.mpvProfile,
+                        gpuNext = appPreferences.mpvGpuNext,
+                        useVulkan = appPreferences.mpvUseVulkan,
+                        debanding = appPreferences.mpvDebanding,
+                        useYuv420p = appPreferences.mpvUseYuv420p,
+                        mpvConfText = appPreferences.mpvConfText,
+                        inputConfText = appPreferences.mpvInputConfText
+                    )
                 )
                 applySubtitleStyle()
 
@@ -932,6 +995,13 @@ class MpvPlayerViewModel @AssistedInject constructor(
     fun setPlaybackSpeed(speed: Float) {
         mpvPlayer.setSpeed(speed)
         _uiState.update { it.copy(playbackSpeed = speed) }
+    }
+
+    /** App-level volume boost above 100% system volume (0.0 = none, 1.0 = +100%). */
+    fun setVolumeBoost(boost: Float) {
+        val clamped = boost.coerceIn(0f, 1f)
+        mpvPlayer.setVolume((100 + clamped * 100).toInt())
+        _uiState.update { it.copy(volumeBoost = clamped) }
     }
 
     fun setDecoderMode(mode: String) {

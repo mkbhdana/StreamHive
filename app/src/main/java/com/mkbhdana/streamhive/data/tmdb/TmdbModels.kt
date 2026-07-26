@@ -34,7 +34,9 @@ data class TmdbMovie(
     @SerializedName("release_date") val releaseDate: String? = null,
     @SerializedName("genre_ids") val genreIds: List<Int> = emptyList(),
     val popularity: Float? = null,
-    @SerializedName("original_language") val originalLanguage: String? = null
+    @SerializedName("original_language") val originalLanguage: String? = null,
+    // Only present on the /movie/{id} details response, not on search results.
+    @SerializedName("imdb_id") val imdbId: String? = null
 ) {
     val displayTitle: String
         get() = title?.takeIf { it.isNotBlank() }
@@ -68,8 +70,13 @@ data class TmdbTvShow(
     @SerializedName("genre_ids") val genreIds: List<Int> = emptyList(),
     val popularity: Float? = null,
     @SerializedName("original_language") val originalLanguage: String? = null,
-    @SerializedName("number_of_seasons") val numberOfSeasons: Int? = null
+    @SerializedName("number_of_seasons") val numberOfSeasons: Int? = null,
+    // TV details never carry imdb_id directly — it arrives via append_to_response=external_ids.
+    @SerializedName("external_ids") val externalIds: TmdbExternalIds? = null
 ) {
+    val imdbId: String?
+        get() = externalIds?.imdbId
+
     val displayTitle: String
         get() = name?.takeIf { it.isNotBlank() }
             ?: originalName?.takeIf { it.isNotBlank() }
@@ -87,6 +94,10 @@ data class TmdbTvShow(
     val fullBackdropUrl: String?
         get() = backdropPath?.let { "${IMAGE_BASE_URL}w1280$it" }
 }
+
+data class TmdbExternalIds(
+    @SerializedName("imdb_id") val imdbId: String? = null
+)
 
 // ──── Season / Episode ────
 
